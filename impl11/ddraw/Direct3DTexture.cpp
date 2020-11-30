@@ -243,8 +243,8 @@ std::vector<CraftMaterials> g_Materials;
 // List of all the OPTs seen so far
 std::vector<OPTNameType> g_OPTnames;
 void OPTNameToMATParamsFile(char *OPTName, char *sFileName, int iFileNameSize);
-void DATNameToMATParamsFile(char *DATName, char *sFileName, int iFileNameSize);
-bool LoadIndividualMATParams(char *OPTname, char *sFileName);
+void DATNameToMATParamsFile(char *DATName, char *sFileName, char *sFileNameShort, int iFileNameSize);
+bool LoadIndividualMATParams(char *OPTname, char *sFileName, bool verbose=true);
 
 // SHADOW MAPPING;
 extern ShadowMappingData g_ShadowMapping;
@@ -1036,7 +1036,7 @@ void Direct3DTexture::TagTexture() {
 		// Capture the OPT name
 		char *start = strstr(surface->_name, "\\");
 		char *end = strstr(surface->_name, ".opt");
-		char sFileName[180];
+		char sFileName[180], sFileNameShort[180];
 		if (start != NULL && end != NULL) {
 			start += 1; // Skip the backslash
 			int size = end - start;
@@ -1053,9 +1053,18 @@ void Direct3DTexture::TagTexture() {
 		else if (strstr(surface->_name, "dat,") != NULL) {
 			// For DAT images, OPTname.name is the full DAT name:
 			strncpy_s(OPTname.name, MAX_OPT_NAME, surface->_name, strlen(surface->_name));
-			DATNameToMATParamsFile(OPTname.name, sFileName, 180);
-			if (sFileName[0] != 0)
-				LoadIndividualMATParams(OPTname.name, sFileName); // DAT material
+			DATNameToMATParamsFile(OPTname.name, sFileName, sFileNameShort, 180);
+			if (sFileName[0] != 0) {
+				// Load the regular DAT material:
+				if (!LoadIndividualMATParams(OPTname.name, sFileName)) { 
+					// If the regular DAT material failed, try loading the mat file for DAT animations:
+					if (sFileNameShort[0] != 0)
+						// For some reason, each frame of the explosion animations is loaded multiple times.
+						// There doesn't seem to be any bad effects for this behavior, it's only a bit spammy.
+						// So, here we're just muting the debug messages to prevent the spam:
+						LoadIndividualMATParams(OPTname.name, sFileNameShort, false);
+				}
+			}
 		}
 	}
 

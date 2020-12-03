@@ -548,7 +548,11 @@ typedef struct MaterialStruct {
 	bool NoColorAlpha; // When set, forces the alpha of the color output to 0
 	bool AlphaIsntGlass; // When set, semi-transparent areas aren't translated to a Glass material
 	float Ambient;
+
 	int TotalFrames; // Used for animated DAT files, like the explosions
+	float ExplosionScale;
+	float ExplosionSpeed;
+	bool ExplosionAlphaBlend;
 	// DEBUG properties, remove later
 	//Vector3 LavaNormalMult;
 	//Vector3 LavaPosMult;
@@ -579,7 +583,10 @@ typedef struct MaterialStruct {
 		AlphaIsntGlass	= false;
 		Ambient			= 0.0f;
 
-		TotalFrames			= 0;
+		TotalFrames		= 0;
+		ExplosionScale	= 1.5f; // 2.0f is the original scale
+		ExplosionSpeed	= 0.001f;
+		ExplosionAlphaBlend = true;
 
 		/*
 		// DEBUG properties, remove later

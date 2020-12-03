@@ -2306,7 +2306,15 @@ void ReadMaterialLine(char *buf, Material *curMaterial) {
 	else if (_stricmp(param, "TotalFrames") == 0) {
 		curMaterial->TotalFrames = (int)fValue;
 	}
-
+	else if (_stricmp(param, "ExplosionScale") == 0) {
+		curMaterial->ExplosionScale = fValue;
+	}
+	else if (_stricmp(param, "ExplosionSpeed") == 0) {
+		curMaterial->ExplosionSpeed = fValue;
+	}
+	else if (_stricmp(param, "ExplosionAlphaBlend") == 0) {
+		curMaterial->ExplosionAlphaBlend = (int)fValue;
+	}
 	/*
 	else if (_stricmp(param, "LavaNormalMult") == 0) {
 		LoadLightColor(buf, &(curMaterial->LavaNormalMult));
@@ -8972,31 +8980,49 @@ HRESULT Direct3DDevice::Execute(
 					context->PSSetSamplers(1, 1, resources->_repeatSamplerState.GetAddressOf());
 					
 					g_ShadertoyBuffer.iTime = iTime;
-					g_ShadertoyBuffer.iResolution[0] = lastTextureSelected->material.LavaSize;
+					//g_ShadertoyBuffer.iResolution[0] = lastTextureSelected->material.LavaSize;
 					g_ShadertoyBuffer.iResolution[1] = lastTextureSelected->material.EffectBloom;
+					g_ShadertoyBuffer.bDisneyStyle = false; // AlphaBlendEnabled: Do not blend the explosion with the original texture
+					g_ShadertoyBuffer.tunnel_speed = 1.0f; // ExplosionTime: Always set to 1 -- the animation is performed by iTime in VolumetricExplosion()
 					//g_ShadertoyBuffer.twirl = ExplosionScale; // 2.0 is the normal size, 4.0 is small, 1.0 is big.
-					//g_ShadertoyBuffer.twirl = 2.0f; // 2.0 is the normal size, 4.0 is small, 1.0 is big.
+					g_ShadertoyBuffer.twirl = 2.0f; // ExplosionScale: 2.0 is the normal size, 4.0 is small, 1.0 is big.
 					// Set the constant buffer
 					resources->InitPSConstantBufferHyperspace(resources->_hyperspaceConstantBuffer.GetAddressOf(), &g_ShadertoyBuffer);
 				}
 
-				/*
 				// DEBUG: Display data about explosions
 				if (bIsExplosion)
 				{
-					//bModifiedShaders = true;
-					//g_PSCBuffer.special_control = SPECIAL_CONTROL_EXPLOSION;
-					int GroupId = 0, ImageId = 0;
-					GetGroupIdImageIdFromDATName(lastTextureSelected->_surface->_name, &GroupId, &ImageId);
-					float time = (float)ImageId / (float)lastTextureSelected->material.TotalFrames;
-					log_debug("[DBG] Explosion Id: %d, Frame: %d, TotalFrames: %d, Time: %0.3f",
-						GroupId, ImageId, lastTextureSelected->material.TotalFrames, time);
-				}
-				*/
+					static float iTime = 0.0f;
+					//iTime += 0.05f;
+					iTime += lastTextureSelected->material.ExplosionSpeed;
 
-				//if (bLastTextureSelectedNotNULL && lastTextureSelected->is_DS2_Energy_Field) {
-				//	log_debug("[DBG] RENDERING REACTOR ENERGY FIELD");
-				//}
+					bModifiedShaders = true;
+					bModifiedPixelShader = true;
+					bModifiedSamplerState = true;
+					resources->InitPixelShader(resources->_explosionPS);
+					// Set the noise texture and sampler state with wrap/repeat enabled.
+					context->PSSetShaderResources(1, 1, resources->_grayNoiseSRV.GetAddressOf());
+					// bModifiedSamplerState restores this sampler state at the end of this instruction.
+					context->PSSetSamplers(1, 1, resources->_repeatSamplerState.GetAddressOf());
+
+					int GroupId = 0, ImageId = 0;
+					// TODO: Extract the group Id and image Id from the DAT's name once, during tagging and
+					// store that in the material itself instead of parsing the string on every frame.
+					GetGroupIdImageIdFromDATName(lastTextureSelected->_surface->_name, &GroupId, &ImageId);
+					float ExplosionTime = min(1.0f, (float)ImageId / (float)lastTextureSelected->material.TotalFrames);
+					//log_debug("[DBG] Explosion Id: %d, Frame: %d, TotalFrames: %d, Time: %0.3f",
+					//	GroupId, ImageId, lastTextureSelected->material.TotalFrames, ExplosionTime);
+					//log_debug("[DBG] Explosion Id: %d", GroupId);
+
+					g_ShadertoyBuffer.iTime = iTime;
+					g_ShadertoyBuffer.bDisneyStyle = lastTextureSelected->material.ExplosionAlphaBlend; // AlphaBlendEnabled: true blend with original texture, false: replace original texture
+					g_ShadertoyBuffer.tunnel_speed = lerp(4, -1, ExplosionTime); // ExplosionTime: 4..-1 The animation is performed by iTime in VolumetricExplosion()
+					//g_ShadertoyBuffer.twirl = ExplosionScale; // 2.0 is the normal size, 4.0 is small, 1.0 is big.
+					g_ShadertoyBuffer.twirl = lastTextureSelected->material.ExplosionScale; // ExplosionScale: 2.0 is the normal size, 4.0 is small, 1.0 is big.
+					// Set the constant buffer
+					resources->InitPSConstantBufferHyperspace(resources->_hyperspaceConstantBuffer.GetAddressOf(), &g_ShadertoyBuffer);
+				}
 
 				// Capture the centroid of the current sun texture and store it.
 				// Sun Centroids appear to be around 50m away in metric 3D space

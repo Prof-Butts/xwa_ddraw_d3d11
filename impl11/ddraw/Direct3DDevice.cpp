@@ -7638,7 +7638,7 @@ HRESULT Direct3DDevice::Execute(
 				bool bIsActiveCockpit = false, bIsBlastMark = false, bIsTargetHighlighted = false;
 				bool bIsHologram = false, bIsNoisyHolo = false, bIsTransparent = false, bIsDS2CoreExplosion = false;
 				bool bWarheadLocked = PlayerDataTable[*g_playerIndex].warheadArmed && PlayerDataTable[*g_playerIndex].warheadLockState == 3;
-				bool bIsElectricity = false, bIsExplosion = false;
+				bool bIsElectricity = false, bIsExplosion = false, bHasMaterial = false;
 				if (bLastTextureSelectedNotNULL) {
 					if (g_bDynCockpitEnabled && lastTextureSelected->is_DynCockpitDst) 
 					{
@@ -7672,6 +7672,7 @@ HRESULT Direct3DDevice::Execute(
 					bIsDS2CoreExplosion = lastTextureSelected->is_DS2_Reactor_Explosion;
 					bIsElectricity = lastTextureSelected->is_Electricity;
 					bIsExplosion = lastTextureSelected->is_Explosion;
+					bHasMaterial = lastTextureSelected->bHasMaterial;
 				}
 				g_bPrevIsSkyBox = g_bIsSkyBox;
 				// bIsSkyBox is true if we're about to render the SkyBox
@@ -8990,8 +8991,8 @@ HRESULT Direct3DDevice::Execute(
 					resources->InitPSConstantBufferHyperspace(resources->_hyperspaceConstantBuffer.GetAddressOf(), &g_ShadertoyBuffer);
 				}
 
-				// DEBUG: Display data about explosions
-				if (bIsExplosion)
+				// Render the procedural explosions
+				if (bIsExplosion && bHasMaterial)
 				{
 					static float iTime = 0.0f;
 					//iTime += 0.05f;
@@ -9007,9 +9008,18 @@ HRESULT Direct3DDevice::Execute(
 					context->PSSetSamplers(1, 1, resources->_repeatSamplerState.GetAddressOf());
 
 					int GroupId = 0, ImageId = 0;
-					// TODO: Extract the group Id and image Id from the DAT's name once, during tagging and
-					// store that in the material itself instead of parsing the string on every frame.
-					GetGroupIdImageIdFromDATName(lastTextureSelected->_surface->_name, &GroupId, &ImageId);
+					if (!lastTextureSelected->material.DATGroupImageIdParsed) {
+						// TODO: Maybe I can extract the group Id and image Id from the DAT's name during tagging and
+						// get rid of the DATGroupImageIdParsed field in the material property.
+						GetGroupIdImageIdFromDATName(lastTextureSelected->_surface->_name, &GroupId, &ImageId);
+						lastTextureSelected->material.GroupId = GroupId;
+						lastTextureSelected->material.ImageId = ImageId;
+						lastTextureSelected->material.DATGroupImageIdParsed = true;
+					}
+					else {
+						GroupId = lastTextureSelected->material.GroupId;
+						ImageId = lastTextureSelected->material.ImageId;
+					}
 					float ExplosionTime = min(1.0f, (float)ImageId / (float)lastTextureSelected->material.TotalFrames);
 					//log_debug("[DBG] Explosion Id: %d, Frame: %d, TotalFrames: %d, Time: %0.3f",
 					//	GroupId, ImageId, lastTextureSelected->material.TotalFrames, ExplosionTime);
@@ -9065,7 +9075,7 @@ HRESULT Direct3DDevice::Execute(
 					// By default suns don't have any color. We specify that by setting the alpha component to 0:
 					g_ShadertoyBuffer.SunColor[SunFlareIdx].w = 0.0f;
 					// Use the material properties of this Sun -- if it has any associated with it
-					if (lastTextureSelected->bHasMaterial) {
+					if (bHasMaterial) {
 						g_ShadertoyBuffer.SunColor[SunFlareIdx].x = lastTextureSelected->material.Light.x;
 						g_ShadertoyBuffer.SunColor[SunFlareIdx].y = lastTextureSelected->material.Light.y;
 						g_ShadertoyBuffer.SunColor[SunFlareIdx].z = lastTextureSelected->material.Light.z;
@@ -9117,7 +9127,7 @@ HRESULT Direct3DDevice::Execute(
 					resources->InitPSConstantBufferHyperspace(resources->_hyperspaceConstantBuffer.GetAddressOf(), &g_ShadertoyBuffer);
 				}
 
-				if (g_bProceduralLava && bLastTextureSelectedNotNULL && lastTextureSelected->bHasMaterial && lastTextureSelected->material.IsLava)
+				if (g_bProceduralLava && bLastTextureSelectedNotNULL && bHasMaterial && lastTextureSelected->material.IsLava)
 				{
 					// lastT is not properly initialized on the very first frame; but nothing much seems
 					// to happen. So: ignoring for now.
@@ -9204,7 +9214,7 @@ HRESULT Direct3DDevice::Execute(
 				}
 
 				// Apply specific material properties for the current texture
-				if (bLastTextureSelectedNotNULL && lastTextureSelected->bHasMaterial) {
+				if (bHasMaterial) {
 					bModifiedShaders = true;
 					// DEBUG
 					/*
@@ -9474,7 +9484,7 @@ HRESULT Direct3DDevice::Execute(
 					}
 
 					// Remove Bloom for all textures with materials tagged as "NoBloom"
-					if (lastTextureSelected->bHasMaterial && lastTextureSelected->material.NoBloom)
+					if (bHasMaterial && lastTextureSelected->material.NoBloom)
 					{
 						bModifiedShaders = true;
 						g_PSCBuffer.fBloomStrength = 0.0f;

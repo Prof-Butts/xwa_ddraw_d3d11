@@ -553,6 +553,11 @@ typedef struct MaterialStruct {
 	float ExplosionScale;
 	float ExplosionSpeed;
 	bool ExplosionAlphaBlend;
+	// Set to false by default. Should be set to true once the GroupId 
+	// and ImageId have been parsed:
+	bool DATGroupImageIdParsed; 
+	int GroupId;
+	int ImageId;
 	// DEBUG properties, remove later
 	//Vector3 LavaNormalMult;
 	//Vector3 LavaPosMult;
@@ -584,9 +589,13 @@ typedef struct MaterialStruct {
 		Ambient			= 0.0f;
 
 		TotalFrames		= 0;
-		ExplosionScale	= 1.5f; // 2.0f is the original scale
+		ExplosionScale	= 2.0f; // 2.0f is the original scale
 		ExplosionSpeed	= 0.001f;
 		ExplosionAlphaBlend = true;
+
+		DATGroupImageIdParsed = false;
+		GroupId			= 0;
+		ImageId			= 0;
 
 		/*
 		// DEBUG properties, remove later

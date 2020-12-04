@@ -552,7 +552,7 @@ typedef struct MaterialStruct {
 	int TotalFrames; // Used for animated DAT files, like the explosions
 	float ExplosionScale;
 	float ExplosionSpeed;
-	bool ExplosionAlphaBlend;
+	int ExplosionBlendMode;
 	// Set to false by default. Should be set to true once the GroupId 
 	// and ImageId have been parsed:
 	bool DATGroupImageIdParsed; 
@@ -591,7 +591,7 @@ typedef struct MaterialStruct {
 		TotalFrames		= 0;
 		ExplosionScale	= 2.0f; // 2.0f is the original scale
 		ExplosionSpeed	= 0.001f;
-		ExplosionAlphaBlend = true;
+		ExplosionBlendMode = 1; // 0: Original texture, 1: Blend with procedural explosion, 2: Use procedural explosions only
 
 		DATGroupImageIdParsed = false;
 		GroupId			= 0;

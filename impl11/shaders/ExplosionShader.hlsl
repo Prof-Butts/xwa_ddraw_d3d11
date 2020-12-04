@@ -19,7 +19,9 @@
 #include "ShadertoyCBuffer.h"
 
 #define pi 3.14159265
-#define AlphaBlendEnabled bDisneyStyle // If set, it will blend the explosion with the contents of texture0
+// 0: Original texture, 1: Blend with procedural explosion, 2: Use procedural explosions only
+// 0 won't even activate this shader at all.
+#define ExplosionBlendMode bDisneyStyle
 #define ExplosionScale twirl // Controls the scale of the explosion inside the rendered polygon
 #define ExplosionTime tunnel_speed // Controls variable n in SpiralNoiseC
 
@@ -266,7 +268,8 @@ PixelShaderOutput main(PixelShaderInput input)
 	output.bloom = alpha * output.color;
 
 	// Mix the procedural explosion with the original texture:
-	if (AlphaBlendEnabled) {
+	// 0: Original texture, 1: Blend with procedural explosion, 2: Use procedural explosions only
+	if (ExplosionBlendMode == 1) {
 		// Compute the original texture color and bloom:
 		// Disable depth-buffer write for engine glow textures
 		float4 orig_color = texelColor;

@@ -277,10 +277,31 @@ PixelShaderOutput main(PixelShaderInput input)
 			HSV.z *= 1.25;
 			orig_color.rgb = HSVtoRGB(HSV);
 		}
+		/*
+		// This game uses white for the fully-transparent areas of an explosion. We normally
+		// don't see this because the alpha inhibits these areas. Enable the following
+		// code to see how textures look:
+		output.color = orig_color;
+		output.color.a = 1.0;
+		output.bloom = 0;
+		*/
+
+		// Because of the above, we need to premultiply the color info with the alpha so
+		// that regular blending modes work well:
+		orig_color.rgb = orig_color.a * orig_color.rgb;
 
 		// Mix the original color/bloom with their procedural versions.
+
 		// The following selects the image with the highest alpha value
-		if (orig_color.a > output.color.a) output.color = orig_color;
+		//if (orig_color.a > output.color.a) output.color = orig_color;
+
+		// Screen blend mode:
+		//output.color = 1.0 - (1.0 - orig_color) * (1.0 - output.color);
+
+		// Direct addition blending mode:
+		output.color += saturate(orig_color);
+
+		// Common code, regardless of blending mode:
 		output.bloom = float4(fBloomStrength * output.color.rgb, output.color.a);
 		alpha = output.color.a;
 	}

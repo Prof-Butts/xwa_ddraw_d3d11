@@ -302,7 +302,10 @@ PixelShaderOutput main(PixelShaderInput input)
 		//output.color = 1.0 - (1.0 - orig_color) * (1.0 - output.color);
 
 		// Direct addition blending mode:
-		output.color += saturate(orig_color);
+		output.color = saturate(output.color + orig_color);
+
+		// Multiplicative blending mode:
+		//output.color = saturate(output.color * orig_color);
 
 		// Common code, regardless of blending mode:
 		output.bloom = float4(fBloomStrength * output.color.rgb, output.color.a);

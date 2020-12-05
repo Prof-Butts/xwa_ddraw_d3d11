@@ -2307,7 +2307,19 @@ void ReadMaterialLine(char *buf, Material *curMaterial) {
 		curMaterial->TotalFrames = (int)fValue;
 	}
 	else if (_stricmp(param, "ExplosionScale") == 0) {
-		curMaterial->ExplosionScale = fValue;
+		// The user-facing explosion scale must be translated into the scale that the
+		// ExplosionShader users. For some reason (the code isn't mine) the scale in
+		// the shader works like this:
+		// ExplosionScale: 4.0 == small, 2.0 == normal, 1.0 == big.
+		// So the formula is:
+		// ExplosionScale = 4.0 / UserExplosionScale
+		// Because:
+		// 4.0 / UserExplosionScale yields:
+		// 4.0 / 1.0 -> 4 = small
+		// 4.0 / 2.0 -> 2 = medium
+		// 4.0 / 4.0 -> 1 = big
+		float UserExplosionScale = max(0.5f, fValue); // Disallow values smaller than 0.5
+		curMaterial->ExplosionScale = 4.0f / UserExplosionScale;
 	}
 	else if (_stricmp(param, "ExplosionSpeed") == 0) {
 		curMaterial->ExplosionSpeed = fValue;
@@ -9023,6 +9035,10 @@ HRESULT Direct3DDevice::Execute(
 						GroupId = lastTextureSelected->material.GroupId;
 						ImageId = lastTextureSelected->material.ImageId;
 					}
+					// TODO: The following time will increase in steps, but I'm not sure it's possible to do a smooth
+					// increase because there's no way to uniquely identify two different explosions on the same frame.
+					// The same GroupId can appear mutiple times on the screen belonging to different craft and they
+					// may be at different stages of the animation.
 					float ExplosionTime = min(1.0f, (float)ImageId / (float)lastTextureSelected->material.TotalFrames);
 					//log_debug("[DBG] Explosion Id: %d, Frame: %d, TotalFrames: %d, Time: %0.3f",
 					//	GroupId, ImageId, lastTextureSelected->material.TotalFrames, ExplosionTime);
@@ -9035,8 +9051,9 @@ HRESULT Direct3DDevice::Execute(
 					// 2: Use procedural explosions only
 					g_ShadertoyBuffer.bDisneyStyle = lastTextureSelected->material.ExplosionBlendMode; // AlphaBlendEnabled: true blend with original texture, false: replace original texture
 					g_ShadertoyBuffer.tunnel_speed = lerp(4, -1, ExplosionTime); // ExplosionTime: 4..-1 The animation is performed by iTime in VolumetricExplosion()
-					//g_ShadertoyBuffer.twirl = ExplosionScale; // 2.0 is the normal size, 4.0 is small, 1.0 is big.
-					g_ShadertoyBuffer.twirl = lastTextureSelected->material.ExplosionScale; // ExplosionScale: 2.0 is the normal size, 4.0 is small, 1.0 is big.
+					// ExplosionScale: 4.0 == small, 2.0 == normal, 1.0 == big.
+					// The value from ExplosionScale is translated from user-facing units to shader units in the ReadMaterialLine() function
+					g_ShadertoyBuffer.twirl = lastTextureSelected->material.ExplosionScale;
 					// Set the constant buffer
 					resources->InitPSConstantBufferHyperspace(resources->_hyperspaceConstantBuffer.GetAddressOf(), &g_ShadertoyBuffer);
 				}

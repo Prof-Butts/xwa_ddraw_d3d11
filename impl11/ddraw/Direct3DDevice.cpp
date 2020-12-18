@@ -10,6 +10,42 @@
 // g_WindowWidth, g_WindowHeight --> Actual Windows screen as returned by GetWindowRect
 
 /*
+
+Jeremy: @blue_max An unsigned short at offset 0x00F0 in the XwaCraft struct.
+
+In function L00473D00:
+// L00473D00
+void UpdateHUDText(  )
+
+	Ptr<XwaCraft> ebp20 = 0;
+
+	int eax0 = s_XwaPlayers[s_XwaCurrentPlayerId].ObjectIndex;
+
+	if( eax0 != 0xFFFF )
+	{
+		Ptr<XwaMobileObject> eax1 = s_XwaObjects[eax0].pMobileObject;
+
+		if( eax1 != 0 )
+		{
+			ebp20 = eax1->pCraft;
+		}
+	}
+
+...
+
+	if( (ebp20->XwaCraft_m181 & 64) != 0 )
+	{
+		unsigned short edi = ebp20->PresetThrottle / 0x28F;
+
+		if( ebp20->IsSlamEnabled != 0 )
+		{
+			edi *= 2;
+		}
+	}
+
+*/
+
+/*
 Jeremy: In the player struct, it seems there are 12 unused bytes at offset 0x0B9 and 6 unused
 		bytes at offset 0x0E2.
 
@@ -9050,7 +9086,8 @@ HRESULT Direct3DDevice::Execute(
 					// 1: Blend with procedural explosion, 
 					// 2: Use procedural explosions only
 					g_ShadertoyBuffer.bDisneyStyle = lastTextureSelected->material.ExplosionBlendMode; // AlphaBlendEnabled: true blend with original texture, false: replace original texture
-					g_ShadertoyBuffer.tunnel_speed = lerp(4, -1, ExplosionTime); // ExplosionTime: 4..-1 The animation is performed by iTime in VolumetricExplosion()
+					//g_ShadertoyBuffer.tunnel_speed = lerp(4, -1, ExplosionTime); // ExplosionTime: 4..-1 The animation is performed by iTime in VolumetricExplosion()
+					g_ShadertoyBuffer.tunnel_speed = lerp(3.0f, -1.0f, ExplosionTime); // ExplosionTime: 4..-1 The animation is performed by iTime in VolumetricExplosion()
 					// ExplosionScale: 4.0 == small, 2.0 == normal, 1.0 == big.
 					// The value from ExplosionScale is translated from user-facing units to shader units in the ReadMaterialLine() function
 					g_ShadertoyBuffer.twirl = lastTextureSelected->material.ExplosionScale;
@@ -9461,7 +9498,7 @@ HRESULT Direct3DDevice::Execute(
 						g_PSCBuffer.fBloomStrength = g_BloomConfig.fEngineGlowStrength;
 						g_PSCBuffer.bIsEngineGlow = g_config.EnhanceEngineGlow ? 2 : 1;
 					}
-					else if (lastTextureSelected->is_Electricity || lastTextureSelected->is_Explosion)
+					else if (lastTextureSelected->is_Electricity || bIsExplosion)
 					{
 						bModifiedShaders = true;
 						g_PSCBuffer.fBloomStrength = g_BloomConfig.fExplosionsStrength;

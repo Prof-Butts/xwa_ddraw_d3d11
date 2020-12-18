@@ -265,7 +265,7 @@ PixelShaderOutput main(PixelShaderInput input)
 
 	alpha = 2.0 * dot(0.333, sum.xyz);
 	output.color = vec4(sum.xyz, alpha);
-	output.bloom = alpha * output.color;
+	output.bloom = fBloomStrength * alpha * output.color;
 
 	// Mix the procedural explosion with the original texture:
 	// 0: Original texture, 1: Blend with procedural explosion, 2: Use procedural explosions only

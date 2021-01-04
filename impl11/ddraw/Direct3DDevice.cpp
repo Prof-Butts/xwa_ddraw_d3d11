@@ -396,7 +396,7 @@ void SaveFocalLength();
 void GetCraftViewMatrix(Matrix4 *result);
 
 inline void backProjectMetric(float sx, float sy, float rhw, Vector3 *P);
-inline void backProjectMetric(WORD index, Vector3 *P);
+inline void backProjectMetric(UINT index, Vector3 *P);
 inline Vector3 projectMetric(Vector3 pos3D, Matrix4 viewMatrix, Matrix4 projEyeMatrix, bool bForceNonVR = false);
 inline Vector3 projectToInGameOrPostProcCoordsMetric(Vector3 pos3D, Matrix4 viewMatrix, Matrix4 projEyeMatrix, bool bForceNonVR = false);
 
@@ -5817,17 +5817,17 @@ void DisplayCoords(LPD3DINSTRUCTION instruction, UINT curIndex) {
 	log_debug("[DBG] START Geom");
 	for (WORD i = 0; i < instruction->wCount; i++)
 	{
-		index = g_config.D3dHookExists ? index = g_OrigIndex[idx++] : index = triangle->v1;
+		index = g_config.D3dHookExists ? g_OrigIndex[idx++] : triangle->v1;
 		vert = g_OrigVerts[index];
 		log_debug("[DBG] sx: %0.6f, sy: %0.6f, sz: %0.6f, rhw: %0.6f", vert.sx, vert.sy, vert.sz, vert.rhw);
 		// , tu: %0.3f, tv: %0.3f, vert.tu, vert.tv
 
-		index = g_config.D3dHookExists ? index = g_OrigIndex[idx++] : index = triangle->v2;
+		index = g_config.D3dHookExists ? g_OrigIndex[idx++] : triangle->v2;
 		log_debug("[DBG] sx: %0.6f, sy: %0.6f, sz: %0.6f, rhw: %0.6f", vert.sx, vert.sy, vert.sz, vert.rhw);
 
-		index = g_config.D3dHookExists ? index = g_OrigIndex[idx++] : index = triangle->v3;
+		index = g_config.D3dHookExists ? g_OrigIndex[idx++] : triangle->v3;
 		log_debug("[DBG] sx: %0.6f, sy: %0.6f, sz: %0.6f, rhw: %0.6f", vert.sx, vert.sy, vert.sz, vert.rhw);
-		triangle++;
+		if (!g_config.D3dHookExists) triangle++;
 	}
 	log_debug("[DBG] END Geom");
 }
@@ -5855,7 +5855,7 @@ void Direct3DDevice::GetBoundingBoxUVs(LPD3DINSTRUCTION instruction, UINT curInd
 		log_debug("[DBG] START Geom");
 	for (WORD i = 0; i < instruction->wCount; i++)
 	{
-		index = g_config.D3dHookExists ? index = g_OrigIndex[idx++] : index = triangle->v1;
+		index = g_config.D3dHookExists ? g_OrigIndex[idx++] : triangle->v1;
 		px = g_OrigVerts[index].sx; py = g_OrigVerts[index].sy;
 		u  = g_OrigVerts[index].tu; v  = g_OrigVerts[index].tv;
 		if (px < *minX) *minX = px; if (px > *maxX) *maxX = px;
@@ -5868,7 +5868,7 @@ void Direct3DDevice::GetBoundingBoxUVs(LPD3DINSTRUCTION instruction, UINT curInd
 		}
 
 		//index = triangle->v2;
-		index = g_config.D3dHookExists ? index = g_OrigIndex[idx++] : index = triangle->v2;
+		index = g_config.D3dHookExists ? g_OrigIndex[idx++] : triangle->v2;
 		px = g_OrigVerts[index].sx; py = g_OrigVerts[index].sy;
 		u  = g_OrigVerts[index].tu; v  = g_OrigVerts[index].tv;
 		if (px < *minX) *minX = px; if (px > *maxX) *maxX = px;
@@ -5881,7 +5881,7 @@ void Direct3DDevice::GetBoundingBoxUVs(LPD3DINSTRUCTION instruction, UINT curInd
 		}
 
 		//index = triangle->v3;
-		index = g_config.D3dHookExists ? index = g_OrigIndex[idx++] : index = triangle->v3;
+		index = g_config.D3dHookExists ? g_OrigIndex[idx++] : triangle->v3;
 		px = g_OrigVerts[index].sx; py = g_OrigVerts[index].sy;
 		u  = g_OrigVerts[index].tu; v  = g_OrigVerts[index].tv;
 		if (px < *minX) *minX = px; if (px > *maxX) *maxX = px;
@@ -5892,7 +5892,7 @@ void Direct3DDevice::GetBoundingBoxUVs(LPD3DINSTRUCTION instruction, UINT curInd
 			vert = g_OrigVerts[index];
 			log_debug("[DBG] sx: %0.6f, sy: %0.6f, sz: %0.6f, rhw: %0.6f, tu: %0.3f, tv: %0.3f", vert.sx, vert.sy, vert.sz, vert.rhw, vert.tu, vert.tv);
 		}
-		triangle++;
+		if (!g_config.D3dHookExists) triangle++;
 	}
 	if (debug)
 		log_debug("[DBG] END Geom");
@@ -6146,7 +6146,7 @@ inline void backProjectMetric(float sx, float sy, float rhw, Vector3 *P) {
 
 // Back-project a 2D vertex (specified in in-game coords) stored in g_OrigVerts 
 // into OBJ METRIC 3D
-inline void backProjectMetric(WORD index, Vector3 *P) {
+inline void backProjectMetric(UINT index, Vector3 *P) {
 	backProjectMetric(g_OrigVerts[index].sx, g_OrigVerts[index].sy, g_OrigVerts[index].rhw, P);
 }
 
@@ -6391,7 +6391,7 @@ inline void backProject(float sx, float sy, float rhw, Vector3 *P) {
 
 // Back-project a 2D vertex (specified in in-game coords) stored in g_OrigVerts 
 // into 3D, just like we do in the VertexShader or SBS VertexShader:
-inline void backProject(WORD index, Vector3 *P) {
+inline void backProject(UINT index, Vector3 *P) {
 	backProject(g_OrigVerts[index].sx, g_OrigVerts[index].sy, g_OrigVerts[index].rhw, P);
 }
 
@@ -6572,19 +6572,19 @@ void DumpVerticesToOBJ(FILE *file, LPD3DINSTRUCTION instruction, UINT curIndex)
 	for (WORD i = 0; i < instruction->wCount; i++)
 	{
 		// Back-project the vertices of the triangle into metric 3D space:
-		index = g_config.D3dHookExists ? index = g_OrigIndex[idx++] : index = triangle->v1;
+		index = g_config.D3dHookExists ? g_OrigIndex[idx++] : triangle->v1;
 		backProjectMetric(index, &tempv0);
 		fprintf(file, "v %0.6f %0.6f %0.6f\n", tempv0.x, tempv0.y, tempv0.z);
 
-		index = g_config.D3dHookExists ? index = g_OrigIndex[idx++] : index = triangle->v2;
+		index = g_config.D3dHookExists ? g_OrigIndex[idx++] : triangle->v2;
 		backProjectMetric(index, &tempv1);
 		fprintf(file, "v %0.6f %0.6f %0.6f\n", tempv1.x, tempv1.y, tempv1.z);
 
-		index = g_config.D3dHookExists ? index = g_OrigIndex[idx++] : index = triangle->v3;
+		index = g_config.D3dHookExists ? g_OrigIndex[idx++] : triangle->v3;
 		backProjectMetric(index, &tempv2);
 		fprintf(file, "v %0.6f %0.6f %0.6f\n", tempv2.x, tempv2.y, tempv2.z);
 
-		triangle++;
+		if (!g_config.D3dHookExists) triangle++;
 
 		indices.push_back(g_iDumpOBJFaceIdx++);
 		indices.push_back(g_iDumpOBJFaceIdx++);
@@ -6664,21 +6664,21 @@ bool Direct3DDevice::ComputeCentroid(LPD3DINSTRUCTION instruction, UINT curIndex
 	for (WORD i = 0; i < instruction->wCount; i++)
 	{
 		// Back-project the vertices of the triangle into metric 3D space:
-		index = g_config.D3dHookExists ? index = g_OrigIndex[idx++] : index = triangle->v1;
+		index = g_config.D3dHookExists ? g_OrigIndex[idx++] : triangle->v1;
 		UV0.x = g_OrigVerts[index].tu; UV0.y = g_OrigVerts[index].tv;
 		v0.x = g_OrigVerts[index].sx; v0.y = g_OrigVerts[index].sy;
 		backProjectMetric(index, &tempv0);
 		if (g_bEnableVR) tempv0.y = -tempv0.y;
 		//log_debug("[DBG] tempv0: %0.3f, %0.3f, %0.3f", tempv0.x, tempv0.y, tempv0.z);
 
-		index = g_config.D3dHookExists ? index = g_OrigIndex[idx++] : index = triangle->v2;
+		index = g_config.D3dHookExists ? g_OrigIndex[idx++] : triangle->v2;
 		UV1.x = g_OrigVerts[index].tu; UV1.y = g_OrigVerts[index].tv;
 		v1.x = g_OrigVerts[index].sx; v1.y = g_OrigVerts[index].sy;
 		backProjectMetric(index, &tempv1);
 		if (g_bEnableVR) tempv1.y = -tempv1.y;
 		//log_debug("[DBG] tempv0: %0.3f, %0.3f, %0.3f", tempv1.x, tempv1.y, tempv1.z);
 
-		index = g_config.D3dHookExists ? index = g_OrigIndex[idx++] : index = triangle->v3;
+		index = g_config.D3dHookExists ? g_OrigIndex[idx++] : triangle->v3;
 		UV2.x = g_OrigVerts[index].tu; UV2.y = g_OrigVerts[index].tv;
 		v2.x = g_OrigVerts[index].sx; v2.y = g_OrigVerts[index].sy;
 		backProjectMetric(index, &tempv2);
@@ -6708,7 +6708,7 @@ bool Direct3DDevice::ComputeCentroid(LPD3DINSTRUCTION instruction, UINT curIndex
 			return true;
 		}
 		
-		triangle++;
+		if (!g_config.D3dHookExists) triangle++;
 	}
 
 	return false;
@@ -6731,15 +6731,15 @@ bool Direct3DDevice::ComputeCentroid2D(LPD3DINSTRUCTION instruction, UINT curInd
 	for (WORD i = 0; i < instruction->wCount; i++)
 	{
 		// Back-project the vertices of the triangle into metric 3D space:
-		index = g_config.D3dHookExists ? index = g_OrigIndex[idx++] : index = triangle->v1;
+		index = g_config.D3dHookExists ? g_OrigIndex[idx++] : triangle->v1;
 		UV0.x = g_OrigVerts[index].tu; UV0.y = g_OrigVerts[index].tv;
 		tempv0.x = g_OrigVerts[index].sx; tempv0.y = g_OrigVerts[index].sy;
 
-		index = g_config.D3dHookExists ? index = g_OrigIndex[idx++] : index = triangle->v2;
+		index = g_config.D3dHookExists ? g_OrigIndex[idx++] : triangle->v2;
 		UV1.x = g_OrigVerts[index].tu; UV1.y = g_OrigVerts[index].tv;
 		tempv1.x = g_OrigVerts[index].sx; tempv1.y = g_OrigVerts[index].sy;
 
-		index = g_config.D3dHookExists ? index = g_OrigIndex[idx++] : index = triangle->v3;
+		index = g_config.D3dHookExists ? g_OrigIndex[idx++] : triangle->v3;
 		UV2.x = g_OrigVerts[index].tu; UV2.y = g_OrigVerts[index].tv;
 		tempv2.x = g_OrigVerts[index].sx; tempv2.y = g_OrigVerts[index].sy;
 
@@ -6754,7 +6754,7 @@ bool Direct3DDevice::ComputeCentroid2D(LPD3DINSTRUCTION instruction, UINT curInd
 			return true;
 		}
 
-		triangle++;
+		if (!g_config.D3dHookExists) triangle++;
 	}
 	return false;
 }
@@ -6793,7 +6793,7 @@ bool Direct3DDevice::IntersectWithTriangles(LPD3DINSTRUCTION instruction, UINT c
 
 	for (WORD i = 0; i < instruction->wCount; i++)
 	{
-		index = g_config.D3dHookExists ? index = g_OrigIndex[idx++] : index = triangle->v1;
+		index = g_config.D3dHookExists ? g_OrigIndex[idx++] : triangle->v1;
 		//px = g_OrigVerts[index].sx; py = g_OrigVerts[index].sy;
 		U0 = g_OrigVerts[index].tu; V0 = g_OrigVerts[index].tv;
 		backProjectMetric(index, &tempv0);
@@ -6811,7 +6811,7 @@ bool Direct3DDevice::IntersectWithTriangles(LPD3DINSTRUCTION instruction, UINT c
 				q.x, q.y, 1.0f/q.z /*, dx, dy */);
 		}
 
-		index = g_config.D3dHookExists ? index = g_OrigIndex[idx++] : index = triangle->v2;
+		index = g_config.D3dHookExists ? g_OrigIndex[idx++] : triangle->v2;
 		//px = g_OrigVerts[index].sx; py = g_OrigVerts[index].sy;
 		U1 = g_OrigVerts[index].tu; V1 = g_OrigVerts[index].tv;
 		backProjectMetric(index, &tempv1);
@@ -6829,7 +6829,7 @@ bool Direct3DDevice::IntersectWithTriangles(LPD3DINSTRUCTION instruction, UINT c
 				q.x, q.y, 1.0f/q.z /*, dx, dy */);
 		}
 
-		index = g_config.D3dHookExists ? index = g_OrigIndex[idx++] : index = triangle->v3;
+		index = g_config.D3dHookExists ? g_OrigIndex[idx++] : triangle->v3;
 		//px = g_OrigVerts[index].sx; py = g_OrigVerts[index].sy;
 		U2 = g_OrigVerts[index].tu; V2 = g_OrigVerts[index].tv;
 		backProjectMetric(index, &tempv2);
@@ -6884,7 +6884,7 @@ bool Direct3DDevice::IntersectWithTriangles(LPD3DINSTRUCTION instruction, UINT c
 			if (g_bDumpLaserPointerDebugInfo && strstr(texName, "AwingCockpit.opt,TEX00080,color") != NULL)
 				log_debug("[DBG] [AC] %s considered; but no intersection found!", texName);
 		}*/
-		triangle++;
+		if (!g_config.D3dHookExists) triangle++;
 	}
 
 	if (debug)
@@ -6907,7 +6907,7 @@ void Direct3DDevice::AddLaserLightsOld(LPD3DINSTRUCTION instruction, UINT curInd
 	for (WORD i = 0; i < instruction->wCount; i++)
 	{
 		
-		index = g_config.D3dHookExists ? index = g_OrigIndex[idx++] : index = triangle->v1;
+		index = g_config.D3dHookExists ? g_OrigIndex[idx++] : triangle->v1;
 		u = g_OrigVerts[index].tu;
 		v = g_OrigVerts[index].tv;
 		if (u > 0.9f && v > 0.9f)
@@ -6916,7 +6916,7 @@ void Direct3DDevice::AddLaserLightsOld(LPD3DINSTRUCTION instruction, UINT curInd
 			g_LaserList.insert(pos3D, texture->material.Light);
 		}
 
-		index = g_config.D3dHookExists ? index = g_OrigIndex[idx++] : index = triangle->v2;
+		index = g_config.D3dHookExists ? g_OrigIndex[idx++] : triangle->v2;
 		u = g_OrigVerts[index].tu;
 		v = g_OrigVerts[index].tv;
 		if (u > 0.9f && v > 0.9f)
@@ -6925,7 +6925,7 @@ void Direct3DDevice::AddLaserLightsOld(LPD3DINSTRUCTION instruction, UINT curInd
 			g_LaserList.insert(pos3D, texture->material.Light);
 		}
 
-		index = g_config.D3dHookExists ? index = g_OrigIndex[idx++] : index = triangle->v3;
+		index = g_config.D3dHookExists ? g_OrigIndex[idx++] : triangle->v3;
 		u = g_OrigVerts[index].tu;
 		v = g_OrigVerts[index].tv;
 		if (u > 0.9f && v > 0.9f)
@@ -6934,7 +6934,7 @@ void Direct3DDevice::AddLaserLightsOld(LPD3DINSTRUCTION instruction, UINT curInd
 			g_LaserList.insert(pos3D, texture->material.Light);
 		}
 
-		triangle++;
+		if (!g_config.D3dHookExists) triangle++;
 	}
 }
 
@@ -6944,7 +6944,7 @@ void Direct3DDevice::AddLaserLights(LPD3DINSTRUCTION instruction, UINT curIndex,
 	uint32_t index;
 	UINT idx = curIndex;
 	Vector3 tempv0, tempv1, tempv2, P;
-	Vector2 v0, v1, v2;
+	//Vector2 v0, v1, v2;
 	Vector2 UV0, UV1, UV2, UV = texture->material.LightUVCoordPos;
 
 	// XWA batch renders all lasers that share the same texture, so we may see several
@@ -6955,23 +6955,23 @@ void Direct3DDevice::AddLaserLights(LPD3DINSTRUCTION instruction, UINT curIndex,
 	for (WORD i = 0; i < instruction->wCount; i++)
 	{
 		// Back-project the vertices of the triangle into metric 3D space:
-		index = g_config.D3dHookExists ? index = g_OrigIndex[idx++] : index = triangle->v1;
+		index = g_config.D3dHookExists ? g_OrigIndex[idx++] : triangle->v1;
 		UV0.x = g_OrigVerts[index].tu; UV0.y = g_OrigVerts[index].tv;
-		v0.x = g_OrigVerts[index].sx; v0.y = g_OrigVerts[index].sy;
+		//v0.x = g_OrigVerts[index].sx; v0.y = g_OrigVerts[index].sy;
 		backProjectMetric(index, &tempv0);
 		if (g_bEnableVR) tempv0.y = -tempv0.y;
 		//log_debug("[DBG] tempv0: %0.3f, %0.3f, %0.3f", tempv0.x, tempv0.y, tempv0.z);
 
-		index = g_config.D3dHookExists ? index = g_OrigIndex[idx++] : index = triangle->v2;
+		index = g_config.D3dHookExists ? g_OrigIndex[idx++] : triangle->v2;
 		UV1.x = g_OrigVerts[index].tu; UV1.y = g_OrigVerts[index].tv;
-		v1.x = g_OrigVerts[index].sx; v1.y = g_OrigVerts[index].sy;
+		//v1.x = g_OrigVerts[index].sx; v1.y = g_OrigVerts[index].sy;
 		backProjectMetric(index, &tempv1);
 		if (g_bEnableVR) tempv1.y = -tempv1.y;
 		//log_debug("[DBG] tempv0: %0.3f, %0.3f, %0.3f", tempv1.x, tempv1.y, tempv1.z);
 
-		index = g_config.D3dHookExists ? index = g_OrigIndex[idx++] : index = triangle->v3;
+		index = g_config.D3dHookExists ? g_OrigIndex[idx++] : triangle->v3;
 		UV2.x = g_OrigVerts[index].tu; UV2.y = g_OrigVerts[index].tv;
-		v2.x = g_OrigVerts[index].sx; v2.y = g_OrigVerts[index].sy;
+		//v2.x = g_OrigVerts[index].sx; v2.y = g_OrigVerts[index].sy;
 		backProjectMetric(index, &tempv2);
 		if (g_bEnableVR) tempv2.y = -tempv2.y;
 		//log_debug("[DBG] tempv0: %0.3f, %0.3f, %0.3f", tempv2.x, tempv2.y, tempv2.z);
@@ -6982,7 +6982,7 @@ void Direct3DDevice::AddLaserLights(LPD3DINSTRUCTION instruction, UINT curIndex,
 			g_LaserList.insert(P, texture->material.Light);
 		}
 
-		triangle++;
+		if (!g_config.D3dHookExists) triangle++;
 	}
 }
 
@@ -9473,7 +9473,7 @@ HRESULT Direct3DDevice::Execute(
 				// Modify the state for both VR and regular game modes...
 
 				// Maintain the k-closest lasers to the camera
-				if (g_bEnableLaserLights && bIsLaser)
+				if (g_bEnableLaserLights && bIsLaser && bHasMaterial)
 					AddLaserLights(instruction, currentIndexLocation, lastTextureSelected);
 
 				// Apply BLOOM flags and 32-bit mode enhancements

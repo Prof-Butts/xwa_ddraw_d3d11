@@ -654,7 +654,7 @@ int g_iReactorExplosionCount = 0;
 HyperspacePhaseEnum g_HyperspacePhaseFSM = HS_INIT_ST;
 int g_iHyperExitPostFrames = 0;
 //Vector3 g_fCameraCenter(0.0f, 0.0f, 0.0f);
-float g_fHyperShakeRotationSpeed = 1.0f, g_fHyperLightRotationSpeed = 1.0f, g_fHyperspaceRand = 0.0f;
+float g_fHyperTunnelSpeed = 5.5f, g_fHyperShakeRotationSpeed = 1.0f, g_fHyperLightRotationSpeed = 1.0f, g_fHyperspaceRand = 0.0f;
 float g_fCockpitCameraYawOnFirstHyperFrame, g_fCockpitCameraPitchOnFirstHyperFrame, g_fCockpitCameraRollOnFirstHyperFrame;
 short g_fLastCockpitCameraYaw, g_fLastCockpitCameraPitch;
 int g_lastCockpitXReference, g_lastCockpitYReference, g_lastCockpitZReference;
@@ -4265,7 +4265,7 @@ bool LoadHyperParams() {
 	g_ShadertoyBuffer.FOVscale = 1.0f;
 	g_ShadertoyBuffer.viewMat.identity();
 	g_ShadertoyBuffer.bDisneyStyle = 1;
-	g_ShadertoyBuffer.tunnel_speed = 5.0f;
+	g_ShadertoyBuffer.tunnel_speed = 5.5f;
 	g_ShadertoyBuffer.twirl = 1.0f;
 	g_fHyperLightRotationSpeed = 50.0f;
 	g_fHyperShakeRotationSpeed = 50.0f;
@@ -4302,7 +4302,7 @@ bool LoadHyperParams() {
 				g_ShadertoyBuffer.bDisneyStyle = (bool)fValue;
 			}
 			else if (_stricmp(param, "tunnel_speed") == 0) {
-				g_ShadertoyBuffer.tunnel_speed = fValue;
+				g_fHyperTunnelSpeed = fValue;
 			}
 			else if (_stricmp(param, "twirl") == 0) {
 				g_ShadertoyBuffer.twirl = fValue;

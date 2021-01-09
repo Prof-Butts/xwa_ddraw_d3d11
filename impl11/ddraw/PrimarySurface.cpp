@@ -99,7 +99,7 @@ bool rayTriangleIntersect(
 extern HyperspacePhaseEnum g_HyperspacePhaseFSM;
 extern short g_fLastCockpitCameraYaw, g_fLastCockpitCameraPitch;
 extern int g_lastCockpitXReference, g_lastCockpitYReference, g_lastCockpitZReference;
-extern float g_fHyperShakeRotationSpeed, g_fHyperLightRotationSpeed, g_fHyperspaceRand;
+extern float g_fHyperTunnelSpeed, g_fHyperShakeRotationSpeed, g_fHyperLightRotationSpeed, g_fHyperspaceRand;
 extern float g_fCockpitCameraYawOnFirstHyperFrame, g_fCockpitCameraPitchOnFirstHyperFrame, g_fCockpitCameraRollOnFirstHyperFrame;
 extern float g_fHyperTimeOverride; // DEBUG, remove later
 extern int g_iHyperStateOverride; // DEBUG, remove later
@@ -4709,6 +4709,7 @@ void PrimarySurface::RenderHyperspaceEffect(D3D11_VIEWPORT *lastViewport,
 	g_ShadertoyBuffer.y0 = y0;
 	g_ShadertoyBuffer.x1 = x1;
 	g_ShadertoyBuffer.y1 = y1;
+	g_ShadertoyBuffer.tunnel_speed = g_fHyperTunnelSpeed;
 	g_ShadertoyBuffer.srand = g_fHyperspaceRand;
 	g_ShadertoyBuffer.iTime = iTime;
 	g_ShadertoyBuffer.VRmode = bDirectSBS;

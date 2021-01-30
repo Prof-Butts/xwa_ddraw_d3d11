@@ -92,7 +92,7 @@
       <OptimizeReferences>true</OptimizeReferences>
       <ModuleDefinitionFile>ddraw.def</ModuleDefinitionFile>
       <UACUIAccess>true</UACUIAccess>
-      <AdditionalDependencies>kernel32.lib;user32.lib;gdi32.lib;winspool.lib;comdlg32.lib;advapi32.lib;shell32.lib;ole32.lib;oleaut32.lib;uuid.lib;odbc32.lib;odbccp32.lib;%(AdditionalDependencies);DirectXTK.lib;Windowscodecs.lib;openvr_api.lib;winmm.lib</AdditionalDependencies>
+      <AdditionalDependencies>kernel32.lib;user32.lib;gdi32.lib;winspool.lib;comdlg32.lib;advapi32.lib;shell32.lib;ole32.lib;oleaut32.lib;uuid.lib;odbc32.lib;odbccp32.lib;%(AdditionalDependencies);DirectXTK.lib;Windowscodecs.lib;openvr_api.lib;winmm.lib;mfplat.lib</AdditionalDependencies>
     </Link>
     <PostBuildEvent />
   </ItemDefinitionGroup>
@@ -138,6 +138,7 @@
     <ClCompile Include="SteamVR.cpp" />
     <ClCompile Include="TextureSurface.cpp" />
     <ClCompile Include="utils.cpp" />
+    <ClCompile Include="VideoPlayback.cpp" />
     <ClCompile Include="VRConfig.cpp" />
     <ClCompile Include="XwaDrawBracketHook.cpp" />
     <ClCompile Include="XwaDrawRadarHook.cpp" />
@@ -183,6 +184,7 @@
     <ClInclude Include="TextureSurface.h" />
     <ClInclude Include="utils.h" />
     <ClInclude Include="Vectors.h" />
+    <ClInclude Include="VideoPlayback.h" />
     <ClInclude Include="VRConfig.h" />
     <ClInclude Include="XWAEnums.h" />
     <ClInclude Include="XWAFramework.h" />

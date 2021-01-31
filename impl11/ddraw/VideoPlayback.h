@@ -23,9 +23,8 @@ struct MediaEngineNotifyCallback abstract
 
 class MediaEnginePlayer : public MediaEngineNotifyCallback
 {
-	ComPtr<IMFMediaEngine>           m_spMediaEngine;
-	ComPtr<IMFMediaEngineEx>         m_spEngineEx;
-
+	IMFMediaEngine *m_spMediaEngine;
+	IMFMediaEngineEx *m_spEngineEx;
 	MFARGB                           m_bkgColor;
 
 public:
@@ -41,7 +40,7 @@ public:
 	void Shutdown();
 
 	// Media Engine related
-	//void OnMediaEngineEvent(DWORD meEvent);
+	void OnMediaEngineEvent(DWORD meEvent);
 
 	// Media Engine Actions
 	void Play();

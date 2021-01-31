@@ -3710,6 +3710,12 @@ HRESULT DeviceResources::LoadResources()
 	if (FAILED(hr = this->_d3dDevice->CreateBuffer(&constantBufferDesc, nullptr, &this->_mainShadersConstantBuffer)))
 		return hr;
 
+	_mediaPlayer = new MediaEnginePlayer();
+	_mediaPlayer->Initialize(this->_d3dDevice, BACKBUFFER_FORMAT);
+	log_debug("[DBG] _mediaPlayer: 0x%x", _mediaPlayer);
+	_mediaPlayer->SetSource(L"c:\\Temp\\Muffin-Tricks-Oct-20-2020.mp4");
+	log_debug("[DBG] Video loaded");
+
 	log_debug("[DBG] [MAT] Initializing OPTnames and Materials");
 	InitOPTnames();
 	InitCraftMaterials();

@@ -9,6 +9,7 @@
 #include <vector>
 #include "common.h"
 #include "effects.h"
+#include "VideoPlayback.h"
 
 enum RenderMainColorKeyType
 {
@@ -487,6 +488,8 @@ public:
 
 	//ComPtr<ID3D11ShaderResourceView> _extraTextures[MAX_EXTRA_TEXTURES];
 	//int _numExtraTextures;
+
+	MediaEnginePlayer *_mediaPlayer;
 
 	BOOL _useAnisotropy;
 	BOOL _useMultisampling;

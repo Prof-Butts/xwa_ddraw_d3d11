@@ -305,6 +305,7 @@ float s_XwaHudScale = 1.0f;
 
 #include "..\shaders\shader_common.h"
 
+#include "VideoPlayback.h"
 
 #define DBG_MAX_PRESENT_LOGS 0
 

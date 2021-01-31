@@ -1,6 +1,8 @@
 // From: https://docs.microsoft.com/en-us/previous-versions/windows/apps/jj207074(v=vs.105)?redirectedfrom=MSDN
 #include "VideoPlayback.h"
 
+void log_debug(const char *format, ...);
+
 class MediaEngineNotify : public IMFMediaEngineNotify
 {
 	long m_cRef;
@@ -93,54 +95,101 @@ void MediaEnginePlayer::Initialize(
 	ComPtr<ID3D11Device> device,
 	DXGI_FORMAT d3dFormat)
 {
-	ComPtr<IMFMediaEngineClassFactory> spFactory;
-	ComPtr<IMFAttributes> spAttributes;
-	ComPtr<MediaEngineNotify> spNotify;
-
-	if (FAILED(MFStartup(MF_VERSION)))
-		return;
-
+	IMFMediaEngineClassFactory *spFactory = nullptr;
+	IMFAttributes *spAttributes = nullptr;
+	MediaEngineNotify *spNotify = nullptr;
+	IMFDXGIDeviceManager *DXGIManager = nullptr;
+	HRESULT hr = S_OK;
 	UINT resetToken;
-	ComPtr<IMFDXGIDeviceManager> DXGIManager;
-	if (FAILED(MFCreateDXGIDeviceManager(&resetToken, &DXGIManager)))
+
+	if (FAILED(MFStartup(MF_VERSION))) {
+		log_debug("[DBG] Failed at MFStartup");
 		return;
-	if (FAILED(DXGIManager->ResetDevice(device.Get(), resetToken)))
+	}
+	
+	if (FAILED(MFCreateDXGIDeviceManager(&resetToken, &DXGIManager))) {
+		log_debug("[DBG] Failed at MFCreateDXGIDeviceManager");
 		return;
+	}
+	if (FAILED(DXGIManager->ResetDevice(device.Get(), resetToken))) {
+		log_debug("[DBG] Failed at ResetDevice");
+		return;
+	}
 
 	// Create our event callback object.
 	spNotify = new MediaEngineNotify();
 	if (spNotify == nullptr)
 	{
 		//DX::ThrowIfFailed(E_OUTOFMEMORY);
+		log_debug("[DBG] Failed at MediaEngineNotify (E_OUTOFMEMORY)");
 		return;
 	}
+	//log_debug("[DBG] MediaEngineNotify created");
 
 	spNotify->MediaEngineNotifyCallback(this);
 
 	// Set configuration attribiutes.
-	if (FAILED(MFCreateAttributes(&spAttributes, 1)))
+	if (FAILED(MFCreateAttributes(&spAttributes, 1))) {
+		log_debug("[DBG] Failed at MFCreateAttributes");
 		return;
-	if (FAILED(spAttributes->SetUnknown(MF_MEDIA_ENGINE_DXGI_MANAGER, (IUnknown*)DXGIManager.Get())))
+	}
+	//log_debug("[DBG] CHECK 2");
+	if (FAILED(spAttributes->SetUnknown(MF_MEDIA_ENGINE_DXGI_MANAGER, (IUnknown*)DXGIManager))) {
+		log_debug("[DBG] Failed at SetUnknown 1");
 		return;
-	if (FAILED(spAttributes->SetUnknown(MF_MEDIA_ENGINE_CALLBACK, (IUnknown*)spNotify.Get())))
+	}
+	if (FAILED(spAttributes->SetUnknown(MF_MEDIA_ENGINE_CALLBACK, (IUnknown*)spNotify))) {
+		log_debug("[DBG] Failed at SetUnknown 2");
 		return;
-	if (FAILED(spAttributes->SetUINT32(MF_MEDIA_ENGINE_VIDEO_OUTPUT_FORMAT, d3dFormat)))
+	}
+	//log_debug("[DBG] CHECK 3");
+	if (FAILED(spAttributes->SetUINT32(MF_MEDIA_ENGINE_VIDEO_OUTPUT_FORMAT, d3dFormat))) {
+		log_debug("[DBG] Failed at SetUINT32");
 		return;
+	}
 
 	// Create MediaEngine.
-	if (FAILED(CoCreateInstance(CLSID_MFMediaEngineClassFactory, nullptr, CLSCTX_ALL, IID_PPV_ARGS(&spFactory))))
+	if (FAILED(hr = CoCreateInstance(CLSID_MFMediaEngineClassFactory, nullptr, CLSCTX_ALL, IID_PPV_ARGS(&spFactory)))) {
+		log_debug("[DBG] Failed at CoCreateInstance, hr: 0x%x", hr);
 		return;
-	if (FAILED(spFactory->CreateInstance(0, spAttributes.Get(), &m_spMediaEngine)))
+	}
+	if (spFactory == nullptr) {
+		log_debug("[DBG] spFactory == NULL");
 		return;
+	}
+	//log_debug("[DBG] CHECK 4, spFactory: 0x%x", spFactory);
+	//log_debug("[DBG] spAttributes: 0x%x", spAttributes);
+	//log_debug("[DBG] m_spMediaEngine: 0x%x", m_spMediaEngine);
 
-	// Create MediaEngineEx
-	if (FAILED(m_spMediaEngine.Get()->QueryInterface(__uuidof(IMFMediaEngine), (void**)&m_spEngineEx)))
+	if (FAILED(hr = spFactory->CreateInstance(0, spAttributes, &m_spMediaEngine))) {
+		log_debug("[DBG] Failed at CreateInstance, hr: 0x%x", hr);
 		return;
+	}
+	//log_debug("[DBG] CHECK 5, m_spMediaEngine: 0x%x", m_spMediaEngine);
+	//log_debug("[DBG] m_spEngineEx: 0x%x", m_spEngineEx);
+	// Create MediaEngineEx
+	//if (FAILED(m_spMediaEngine.Get()->QueryInterface(__uuidof(IMFMediaEngine), (void**)&m_spEngineEx))) {
+	if (FAILED(m_spMediaEngine->QueryInterface(__uuidof(IMFMediaEngine), (void**)&m_spEngineEx))) {
+		log_debug("[DBG] Failed at QueryInterface");
+		return;
+	}
+	
+	//if (FAILED(hr = m_spMediaEngine.As(&m_spEngineEx))) {
+	//	log_debug("[DBG] Failed at m_spEngineEx, hr: 0x%x", hr);
+	//	return;
+	//}
+	//log_debug("[DBG] CHECK 6 m_spEngineEx: 0x%x", m_spEngineEx);
+	spFactory->Release();
+	spAttributes->Release();
+	spNotify->Release();
+	DXGIManager->Release();
+	log_debug("[DBG] MediaEnginePlayer Successfully Initialized");
 }
 
 void MediaEnginePlayer::SetSource(wchar_t *szURL)
 {
 	BSTR bstrURL = nullptr;
+	HRESULT hr = S_OK;
 
 	//if (nullptr != bstrURL)
 	//{
@@ -159,8 +208,10 @@ void MediaEnginePlayer::SetSource(wchar_t *szURL)
 
 	//StringCchCopyW(bstrURL, cchAllocationSize, szURL);
 
-	m_spMediaEngine->SetSource(szURL);
-	return;
+	if (FAILED(hr = m_spMediaEngine->SetSource(szURL))) {
+		log_debug("[DBG] Failed to load: %ls, hr: 0x%x", szURL, hr);
+	}
+	log_debug("[DBG] Successfully loaded: %ls", szURL);
 }
 
 void MediaEnginePlayer::Play()
@@ -209,6 +260,41 @@ void MediaEnginePlayer::TransferFrame(ComPtr<ID3D11Texture2D> texture, MFVideoNo
 				return;
 		}
 	}
+}
+
+void MediaEnginePlayer::OnMediaEngineEvent(DWORD meEvent)
+{
+	switch (meEvent)
+	{
+	case MF_MEDIA_ENGINE_EVENT_LOADEDMETADATA:
+		break;
+
+	case MF_MEDIA_ENGINE_EVENT_CANPLAY:
+		Play();
+		break;
+
+	case MF_MEDIA_ENGINE_EVENT_PLAY:
+		break;
+
+	case MF_MEDIA_ENGINE_EVENT_PAUSE:
+		break;
+
+	case MF_MEDIA_ENGINE_EVENT_ENDED:
+		break;
+
+	case MF_MEDIA_ENGINE_EVENT_TIMEUPDATE:
+		break;
+
+	case MF_MEDIA_ENGINE_EVENT_ERROR:
+		if (m_spMediaEngine)
+		{
+			ComPtr<IMFMediaError> error;
+			m_spMediaEngine->GetError(&error);
+			USHORT errorCode = error->GetErrorCode();
+		}
+		break;
+	}
+
 }
 
 /*

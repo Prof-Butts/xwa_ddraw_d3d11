@@ -103,6 +103,7 @@ const char* VR_MODE_VRPARAM = "VR_Mode"; // Select "None", "DirectSBS" or "Steam
 const char* VR_MODE_NONE_SVAL = "None";
 const char* VR_MODE_DIRECT_SBS_SVAL = "DirectSBS";
 const char* VR_MODE_STEAMVR_SVAL = "SteamVR";
+const char* VR_MODE_OPENXR_SVAL = "OpenXR";
 const char* INTERLEAVED_REPROJ_VRPARAM = "SteamVR_Interleaved_Reprojection";
 const char* STEAMVR_DISTORTION_ENABLED_VRPARAM = "steamvr_distortion_enabled";
 const char* BARREL_EFFECT_STATE_VRPARAM = "apply_lens_correction";
@@ -426,6 +427,14 @@ void LoadVRParams() {
 					// Let's force AspectRatioPreserved in VR mode. The aspect ratio is easier to compute that way
 					g_config.AspectRatioPreserved = true;
 					log_debug("[DBG] Using SteamVR");
+				}
+				else if (_stricmp(svalue, VR_MODE_OPENXR_SVAL) == 0) {
+					//g_VRMode = VR_MODE_OPENXR;
+					g_bOpenXREnabled = true;
+					g_bEnableVR = true;
+					// Let's force AspectRatioPreserved in VR mode. The aspect ratio is easier to compute that way
+					g_config.AspectRatioPreserved = true;
+					log_debug("[DBG] Using OpenXR");
 				}
 			}
 			else if (_stricmp(param, INTERLEAVED_REPROJ_VRPARAM) == 0) {

@@ -1142,7 +1142,14 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
 			// Do not attempt initalization again, no matter what happened
 			g_bSteamVRInitialized = true;
 		}
-		else if (g_bEnableVR && !g_bUseSteamVR) {
+		else if (g_bOpenXREnabled && !g_bOpenXRInitialized) {
+			g_bUseOpenXR = VRRendererOpenXR::is_available();
+			if (g_bUseOpenXR)
+				log_debug("[DBG] Enabling OpenXR mode");
+			//Cannot initialize OpenXR yet because it needs the D3DDevice.
+			//Initialization will occur in DeviceResources::Initialize()
+		}
+		else if (g_bEnableVR && !g_bUseSteamVR &&!g_bUseOpenXR) {
 			log_debug("[DBG] Initializing DirectSBS mode");
 			InitDirectSBS();
 			g_bDirectSBSInitialized = true;

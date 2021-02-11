@@ -8,6 +8,7 @@
 #include "config.h"
 #include "SteamVR.h"
 #include "DirectSBS.h"
+#include "VRRendererOpenXR.h"
 #include "EffectsCommon.h"
 #include "FreePIE.h"
 #include "Vectors.h"

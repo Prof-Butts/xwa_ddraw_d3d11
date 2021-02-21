@@ -10,7 +10,7 @@ bool g_bOpenXRInitialized = false; //The systems sets this flag when OpenXR has 
 
 const char* VRRendererOpenXR::ask_extensions[] = {
 	XR_KHR_D3D11_ENABLE_EXTENSION_NAME, // Use Direct3D11 for rendering
-	XR_EXT_DEBUG_UTILS_EXTENSION_NAME,  // Debug utils for extra info
+	//XR_EXT_DEBUG_UTILS_EXTENSION_NAME,  // Debug utils for extra info
 };
 std::vector<const char*> VRRendererOpenXR::use_extensions;
 
@@ -32,10 +32,14 @@ bool VRRendererOpenXR::is_available()
 	uint32_t ext_count = 0;
 	XrResult xrResult = XR_ERROR_RUNTIME_FAILURE;
 	xrResult = xrEnumerateInstanceExtensionProperties(nullptr, 0, &ext_count, nullptr);
+	if (xrResult != XR_SUCCESS)
+		log_debug("[DBG][OpenXR] Unable to get the number of extensions available. Error %d", xrResult);
+	return false;
 	vector<XrExtensionProperties> xr_exts(ext_count, { XR_TYPE_EXTENSION_PROPERTIES });
 	xrResult = xrEnumerateInstanceExtensionProperties(nullptr, ext_count, &ext_count, xr_exts.data());
 
 	if (xrResult != XR_SUCCESS)
+		log_debug("[DBG][OpenXR] Unable to get available Extensions from xrEnumerateInstanceExtensionProperties. Error %d", xrResult);
 		return false;
 
 	log_debug("[DBG][OpenXR] Extensions available");
@@ -58,6 +62,7 @@ bool VRRendererOpenXR::is_available()
 			return strcmp(ext, XR_KHR_D3D11_ENABLE_EXTENSION_NAME) == 0;
 		}))
 	{
+		log_debug("[DBG][OpenXR] One of the extensions is not available");
 		return false;
 	}
 
@@ -127,13 +132,151 @@ bool VRRendererOpenXR::init(DeviceResources *deviceResources)
 		ref_space.poseInReferenceSpace = xr_pose_identity;
 		ref_space.referenceSpaceType = XR_REFERENCE_SPACE_TYPE_LOCAL;
 		xrCreateReferenceSpace(xr_session, &ref_space, &xr_app_space);
+
+		// Check that the XR device is an HMD stereo device
+		uint32_t view_count = 0;
+		if (XR_ERROR_VIEW_CONFIGURATION_TYPE_UNSUPPORTED == xrEnumerateViewConfigurationViews(xr_instance, xr_system_id, app_config_view, 0, &view_count, nullptr))
+		{
+			log_debug("[DBG][OpenXR] OpenXR XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO not supported");
+			return false;
+		}
+		xrEnumerateViewConfigurationViews(xr_instance, xr_system_id, app_config_view, view_count, &view_count, xr_config_views.data());
+
+		// TODO: Using texture array for better performance, so requiring left/right views have identical sizes.
+		const XrViewConfigurationView& view = xr_config_views[0];
+		if (xr_config_views[0].recommendedImageRectWidth != xr_config_views[1].recommendedImageRectWidth ||
+			xr_config_views[0].recommendedImageRectHeight != xr_config_views[1].recommendedImageRectHeight ||
+			xr_config_views[0].recommendedSwapchainSampleCount != xr_config_views[1].recommendedSwapchainSampleCount)
+		{
+			log_debug("[DBG][OpenXR] Left and right view configs are different");
+			return false;
+		}
+
+		renderProperties.height = xr_config_views[0].recommendedImageRectHeight;
+		renderProperties.width = xr_config_views[0].recommendedImageRectWidth;
+		//FOV is not known at this time, only after calling XrLocateViews when inside the frame loop
+
+		int64_t swapchain_format = BACKBUFFER_FORMAT;
+
+		for (uint32_t i = 0; i < view_count; i++) {
+			// Create a swapchain for this viewpoint!
+			// OpenXR doesn't create a concrete image format for the texture, like DXGI_FORMAT_R8G8B8A8_UNORM.
+			// Instead, it switches to the TYPELESS variant of the provided texture format, like 
+			// DXGI_FORMAT_R8G8B8A8_TYPELESS. When creating an ID3D11RenderTargetView for the swapchain texture, we must specify
+			// a concrete type like DXGI_FORMAT_R8G8B8A8_UNORM, as attempting to create a TYPELESS view will throw errors, so 
+			// we do need to store the format separately and remember it later.
+			XrViewConfigurationView& view = xr_config_views[i];
+			XrSwapchainCreateInfo    swapchain_info = { XR_TYPE_SWAPCHAIN_CREATE_INFO };
+			XrSwapchain              handle;
+			swapchain_info.arraySize = 1;
+			swapchain_info.mipCount = 1;
+			swapchain_info.faceCount = 1;
+			swapchain_info.format = swapchain_format;
+			swapchain_info.width = view.recommendedImageRectWidth;
+			swapchain_info.height = view.recommendedImageRectHeight;
+			swapchain_info.sampleCount = view.recommendedSwapchainSampleCount;
+			swapchain_info.usageFlags = XR_SWAPCHAIN_USAGE_SAMPLED_BIT | XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT;
+			xrCreateSwapchain(xr_session, &swapchain_info, &handle);
+
+			// Find out how many textures were generated for the swapchain
+			uint32_t surface_count = 0;
+			xrEnumerateSwapchainImages(handle, 0, &surface_count, nullptr);
+
+			swapchain_t swapchain = {};
+			swapchain.width = swapchain_info.width;
+			swapchain.height = swapchain_info.height;
+			swapchain.handle = handle;
+			swapchain.surface_images.resize(surface_count, { XR_TYPE_SWAPCHAIN_IMAGE_D3D11_KHR });			
+			xrEnumerateSwapchainImages(handle, surface_count, &surface_count, (XrSwapchainImageBaseHeader*)swapchain.surface_images.data());
+
+			if (i == 0)
+				this->swapchainLeftEye = swapchain;
+			else
+				this->swapchainRightEye = swapchain;
+		}
+		return true;
 }
 
-void VRRendererOpenXR::RenderLeft(ID3D11Texture2D* LeftEyeBuffer)
+void VRRendererOpenXR::WaitFrame()
 {
+	// Block until the next frame needs to start being rendered	
+	xrWaitFrame(xr_session, nullptr, &frame_state);
 }
 
-void VRRendererOpenXR::RenderRight(ID3D11Texture2D* LeftEyeBuffer)
+void VRRendererOpenXR::UpdateViewMatrices()
 {
+	//TODO
+
+	//To get the head pose locate the XR_REFERENCE_SPACE_TYPE_VIEW relative to XR_REFERENCE_SPACE_TYPE_LOCAL
+	//xrLocateSpace();
+
+	//This is the "head" pose relative to the workd space, to provide to XWA for rendering.
+	rotViewMatrix.identity();
+	fullViewMatrix.identity();
+	//xrLocateViews relative to XR_REFERENCE_SPACE_TYPE_VIEW to get the head to eye transform.
+	//Set eyeMatrixLeft, eyeMatrixRight;
+	eyeMatrixLeft.identity();
+	eyeMatrixRight.identity();
+	//Set FOV
+	renderProperties.vFOV = 105;
 }
 
+void VRRendererOpenXR::BeginFrame()
+{
+	xrBeginFrame(xr_session, nullptr);
+}
+
+void VRRendererOpenXR::Submit(ID3D11DeviceContext* context, ID3D11Texture2D* EyeBuffer, VREye vrEye, bool implicitEndFrame)
+{
+	XrCompositionLayerBaseHeader* layer = nullptr;
+	XrCompositionLayerProjection             layer_proj = { XR_TYPE_COMPOSITION_LAYER_PROJECTION };
+	vector<XrCompositionLayerProjectionView> views;
+
+	//Acquire buffer from swapchain to copy the rendered texture on it
+	uint32_t                    img_id;
+	XrSwapchainImageAcquireInfo acquire_info = { XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO };
+	swapchain_t* swapchain;
+	if (vrEye == Eye_Left)
+		swapchain = &swapchainLeftEye;
+	else if (vrEye == Eye_Right)
+		swapchain = &swapchainRightEye;
+	xrAcquireSwapchainImage(swapchain->handle, &acquire_info, &img_id);
+
+	// Wait until the image is available to render to. The compositor could still be
+	// reading from it.
+	XrSwapchainImageWaitInfo wait_info = { XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO };
+	wait_info.timeout = XR_INFINITE_DURATION;
+	xrWaitSwapchainImage(swapchain->handle, &wait_info);
+
+	//Resolve input buffer into the display swapchain buffer for the correct eye
+	context->ResolveSubresource(swapchain->surface_images[img_id].texture,0,EyeBuffer,0,BACKBUFFER_FORMAT);
+
+	//The swapchain buffer now contains the rendered content, we can release it
+	xrReleaseSwapchainImage(swapchain->handle, nullptr);
+
+	//If the calling app wants to immediately submit the frame, we do it here
+	if (implicitEndFrame)
+		EndFrame();
+}
+
+void VRRendererOpenXR::EndFrame()
+{
+	XrFrameEndInfo end_info{ XR_TYPE_FRAME_END_INFO };
+	end_info.displayTime = frame_state.predictedDisplayTime;
+	// Submit
+	xrEndFrame(xr_session, &end_info);
+}
+
+void VRRendererOpenXR::ShutDown()
+{
+	xrDestroySwapchain(swapchainLeftEye.handle);
+	xrDestroySwapchain(swapchainRightEye.handle);
+
+	// Release all the other OpenXR resources that we've created!
+	// What gets allocated, must get deallocated!
+
+	if (xr_app_space != XR_NULL_HANDLE) xrDestroySpace(xr_app_space);
+	if (xr_session != XR_NULL_HANDLE) xrDestroySession(xr_session);
+	//if (xr_debug != XR_NULL_HANDLE) ext_xrDestroyDebugUtilsMessengerEXT(xr_debug);
+	if (xr_instance != XR_NULL_HANDLE) xrDestroyInstance(xr_instance);
+}

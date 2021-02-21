@@ -435,7 +435,9 @@ HRESULT DeviceResources::Initialize()
 
 	if (SUCCEEDED(hr))
 	{
-		hr = this->_stereoRenderer->init(this);
+		g_bOpenXRInitialized = this->_stereoRenderer->init(this);
+		if (g_bOpenXRInitialized)
+			log_debug("[DBG][OpenXR] VR Renderer initialized");
 	}
 
 	if (FAILED(hr))
@@ -1502,7 +1504,7 @@ HRESULT DeviceResources::OnSizeChanged(HWND hWnd, DWORD dwWidth, DWORD dwHeight)
 			sd.BufferCount = 2;
 			sd.SwapEffect = DXGI_SWAP_EFFECT_SEQUENTIAL; // ORIGINAL = 0x1
 			//sd.SwapEffect = DXGI_SWAP_EFFECT_DISCARD;
-			//sd.SwapEffect = DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL;
+			//sd.SwapEffect = DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL; // Recommended for better performance. Can we use it?
 			sd.BufferDesc.Width  = g_bUseSteamVR ? g_steamVRWidth : 0;
 			sd.BufferDesc.Height = g_bUseSteamVR ? g_steamVRHeight : 0;
 			sd.BufferDesc.Format = BACKBUFFER_FORMAT;

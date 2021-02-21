@@ -431,10 +431,11 @@ void LoadVRParams() {
 				else if (_stricmp(svalue, VR_MODE_OPENXR_SVAL) == 0) {
 					//g_VRMode = VR_MODE_OPENXR;
 					g_bOpenXREnabled = true;
+					g_bOpenXRInitialized = false;
 					g_bEnableVR = true;
 					// Let's force AspectRatioPreserved in VR mode. The aspect ratio is easier to compute that way
 					g_config.AspectRatioPreserved = true;
-					log_debug("[DBG] Using OpenXR");
+					log_debug("[DBG][OpenXR] Using OpenXR");
 				}
 			}
 			else if (_stricmp(param, INTERLEAVED_REPROJ_VRPARAM) == 0) {

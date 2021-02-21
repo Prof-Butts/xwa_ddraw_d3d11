@@ -181,7 +181,7 @@ extern uint32_t* g_rawFOVDist; /* = (uint32_t *)0x91AB6C*/ // raw FOV dist(dword
 extern float* g_fRawFOVDist; /*= (float *)0x8B94CC;*/ // FOV dist(float), same value as above
 extern float* g_cachedFOVDist; /*= (float *)0x8B94BC;*/ // cached FOV dist / 512.0 (float), seems to be used for some sprite processing
 
-extern float g_fCurrentShipFocalLength, g_fCurrentShipLargeFocalLength, g_fVR_FOV;
+extern float g_fCurrentShipFocalLength, g_fCurrentShipLargeFocalLength;
 extern float g_fDebugFOVscale, g_fDebugYCenter;
 extern bool g_bCustomFOVApplied, g_bLastFrameWasExterior;
 extern float g_fRealHorzFOV, g_fRealVertFOV;

@@ -1142,10 +1142,12 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
 			// Do not attempt initalization again, no matter what happened
 			g_bSteamVRInitialized = true;
 		}
-		else if (g_bOpenXREnabled && !g_bOpenXRInitialized) {
+		else if (g_bOpenXREnabled && !g_bOpenXRInitialized) {			
 			g_bUseOpenXR = VRRendererOpenXR::is_available();
 			if (g_bUseOpenXR)
-				log_debug("[DBG] Enabling OpenXR mode");
+				log_debug("[DBG][OpenXR] OpenXR is available, enabling");
+			else
+				log_debug("[DBG][OpenXR] OpenXR runtime not available");
 			//Cannot initialize OpenXR yet because it needs the D3DDevice.
 			//Initialization will occur in DeviceResources::Initialize()
 		}
@@ -1333,6 +1335,8 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
 	case DLL_PROCESS_DETACH:
 		if (g_bUseSteamVR)
 			ShutDownSteamVR();
+		//if (g_bUseOpenXR)
+			//TODO: call StereoRender::ShutDown()
 		else if (g_bEnableVR)
 			ShutDownDirectSBS();
 		// Generic FreePIE shutdown, just in case...

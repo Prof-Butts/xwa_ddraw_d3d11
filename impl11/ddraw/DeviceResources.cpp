@@ -435,9 +435,12 @@ HRESULT DeviceResources::Initialize()
 
 	if (SUCCEEDED(hr))
 	{
-		g_bOpenXRInitialized = this->_stereoRenderer->init(this);
-		if (g_bOpenXRInitialized)
-			log_debug("[DBG][OpenXR] VR Renderer initialized");
+		if (g_bUseOpenXR)
+		{
+			g_bOpenXRInitialized = this->_stereoRenderer->init(this);
+			if (g_bOpenXRInitialized)
+				log_debug("[DBG][OpenXR] VR Renderer initialized");
+		}
 	}
 
 	if (FAILED(hr))

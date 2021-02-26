@@ -28,12 +28,14 @@ public:
 	static const char* ask_extensions[];
 	static bool is_available(); //Returns true if there is a valid OpenXR runtime available
 
+	VRRendererOpenXR::VRRendererOpenXR();
 	bool init(DeviceResources *deviceResources);
+	bool is_ready();
 	void WaitFrame();
 	void BeginFrame();
 	void UpdateViewMatrices();
 	void EndFrame();
-	void Submit(ID3D11DeviceContext* context, ID3D11Texture2D* eyeBuffer, VREye vrEye, bool implicitEndFrame);
+	void Submit(ID3D11DeviceContext* context, ID3D11Texture2D* eyeBuffer, VREye vrEye);
 	virtual void ShutDown();
 	VRRendererOpenXR::~VRRendererOpenXR();
 
@@ -48,11 +50,14 @@ private:
 	XrFormFactor            app_config_form = XR_FORM_FACTOR_HEAD_MOUNTED_DISPLAY;
 	XrViewConfigurationType app_config_view = XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO;
 	XrFrameState	frame_state = { XR_TYPE_FRAME_STATE };
+	XrEnvironmentBlendMode   xr_blend = { XR_ENVIRONMENT_BLEND_MODE_OPAQUE };
+	XrCompositionLayerBaseHeader* layer = nullptr;
+	XrCompositionLayerProjection layer_proj = { XR_TYPE_COMPOSITION_LAYER_PROJECTION };
+	std::vector<XrCompositionLayerProjectionView> layer_proj_views;
 
-	std::vector<XrView>                  xr_views;
+	std::vector<XrView> xr_views;
 	std::vector<XrViewConfigurationView> xr_config_views;
-	swapchain_t swapchainLeftEye;
-	swapchain_t swapchainRightEye;
+	std::vector<swapchain_t> xr_swapchains;
 
 	// Function pointers for some OpenXR extension methods we'll use.
 	PFN_xrGetD3D11GraphicsRequirementsKHR ext_xrGetD3D11GraphicsRequirementsKHR = nullptr;

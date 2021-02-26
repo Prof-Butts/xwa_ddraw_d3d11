@@ -537,7 +537,7 @@ LRESULT CALLBACK MyWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam
 			case 'V':
 				// We can't just switch to VR mode if the game was started with no VR support
 				if (!g_bEnableVR) {
-					if (g_bSteamVRInitialized || g_bDirectSBSInitialized)
+					if (g_bSteamVRInitialized || g_bDirectSBSInitialized || g_bOpenXREnabled)
 						g_bEnableVR = true;
 				}
 				else { // VR mode can always be disabled
@@ -713,7 +713,7 @@ LRESULT CALLBACK MyWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam
 				g_bTogglePostPresentHandoff = !g_bTogglePostPresentHandoff;
 				log_debug("[DBG] PostPresentHandoff: %d", g_bTogglePostPresentHandoff);
 				/*
-				if (g_bUseSteamVR && g_pVRScreenshots != NULL) {
+				if (g_bUseSeparateEyeBuffers && g_pVRScreenshots != NULL) {
 					static int scrCounter = 0;
 					char prevFileName[80], scrFileName[80];
 					sprintf_s(prevFileName, 80, "./preview%d", scrCounter);
@@ -728,7 +728,7 @@ LRESULT CALLBACK MyWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam
 					scrCounter++;
 				}
 				else {
-					log_debug("[DBG] !g_bUseSteamVR || g_pVRScreenshots is NULL");
+					log_debug("[DBG] !g_bUseSeparateEyeBuffers || g_pVRScreenshots is NULL");
 				}
 				*/
 				break;
@@ -908,8 +908,9 @@ LRESULT CALLBACK MyWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam
 				break;
 
 			case VK_OEM_PERIOD:
-				if (g_bUseSteamVR)
+				if (g_bSteamVRInitialized)
 					g_pHMD->ResetSeatedZeroPose();
+				//TODO OPENXR: implement recentering
 				g_bResetHeadCenter = true;
 
 				//g_contOriginWorldSpace.set(0.0f, 0.0f, 0.05f, 1);
@@ -1137,21 +1138,20 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
 		LoadVRParams();
 		// Initialize SteamVR
 		if (g_bSteamVREnabled && !g_bSteamVRInitialized) {
-			g_bUseSteamVR = InitSteamVR();
-			log_debug("[DBG] g_bUseSteamVR: %d", g_bUseSteamVR);
+			g_bSteamVRInitialized = InitSteamVR();
+			log_debug("[DBG] g_bSteamVRInitialized: %d", g_bSteamVRInitialized);
 			// Do not attempt initalization again, no matter what happened
 			g_bSteamVRInitialized = true;
+			g_bUseSeparateEyeBuffers = true;
 		}
-		else if (g_bOpenXREnabled && !g_bOpenXRInitialized) {			
-			g_bUseOpenXR = VRRendererOpenXR::is_available();
-			if (g_bUseOpenXR)
-				log_debug("[DBG][OpenXR] OpenXR is available, enabling");
-			else
-				log_debug("[DBG][OpenXR] OpenXR runtime not available");
-			//Cannot initialize OpenXR yet because it needs the D3DDevice.
-			//Initialization will occur in DeviceResources::Initialize()
+		else if (g_bOpenXREnabled && !g_bOpenXRInitialized) {
+			// Cannot initialize OpenXR yet because:
+			//   - it needs the D3DDevice.
+			//   - it runs functions that can cause a deadlock (https://docs.microsoft.com/en-us/windows/win32/dlls/dynamic-link-library-best-practices)
+			// Initialization will occur in DeviceResources::Initialize()
+			g_bUseSeparateEyeBuffers = true;
 		}
-		else if (g_bEnableVR && !g_bUseSteamVR &&!g_bUseOpenXR) {
+		else if (g_bEnableVR && !g_bUseSeparateEyeBuffers) {
 			log_debug("[DBG] Initializing DirectSBS mode");
 			InitDirectSBS();
 			g_bDirectSBSInitialized = true;
@@ -1333,7 +1333,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
 	case DLL_THREAD_DETACH:
 		break;
 	case DLL_PROCESS_DETACH:
-		if (g_bUseSteamVR)
+		if (g_bSteamVRInitialized)
 			ShutDownSteamVR();
 		//if (g_bUseOpenXR)
 			//TODO: call StereoRender::ShutDown()

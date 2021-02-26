@@ -440,7 +440,7 @@ void LoadVRParams() {
 			}
 			else if (_stricmp(param, INTERLEAVED_REPROJ_VRPARAM) == 0) {
 				g_bInterleavedReprojection = (bool)fValue;
-				if (g_bUseSteamVR) {
+				if (g_bSteamVRInitialized) {
 					log_debug("[DBG] Setting Interleaved Reprojection to: %d", g_bInterleavedReprojection);
 					g_pVRCompositor->ForceInterleavedReprojectionOn(g_bInterleavedReprojection);
 				}
@@ -582,12 +582,12 @@ void ResetVRParams() {
 	//g_bYawPitchFromMouseOverride = false;
 
 	g_bInterleavedReprojection = DEFAULT_INTERLEAVED_REPROJECTION;
-	if (g_bUseSteamVR) {
+	if (g_bSteamVRInitialized) {
 		g_pVRCompositor->ForceInterleavedReprojectionOn(g_bInterleavedReprojection);
 		g_bSteamVRDistortionEnabled = true;
 	}
 
-	//g_bDisableBarrelEffect = g_bUseSteamVR ? !DEFAULT_BARREL_EFFECT_STATE_STEAMVR : !DEFAULT_BARREL_EFFECT_STATE;
+	//g_bDisableBarrelEffect = g_bUseSeparateEyeBuffers ? !DEFAULT_BARREL_EFFECT_STATE_STEAMVR : !DEFAULT_BARREL_EFFECT_STATE;
 
 	g_bFixedGUI = DEFAULT_FIXED_GUI_STATE;
 
@@ -607,7 +607,7 @@ void ResetVRParams() {
 	g_iSteamVR_Remaining_ms = 3; g_iSteamVR_VSync_ms = 11;
 
 	// Recompute the eye and projection matrices
-	if (!g_bUseSteamVR)
+	if (!g_bUseSeparateEyeBuffers)
 		InitDirectSBS();
 
 	//g_bReshadeEnabled = DEFAULT_RESHADE_ENABLED_STATE;
@@ -1002,7 +1002,7 @@ void ComputeHyperFOVParams() {
 
 	// Compute the aspect-ratio fix factors
 	float g_fWindowAspectRatio = max(1.0f, (float)g_WindowWidth / (float)g_WindowHeight);
-	if (g_bUseSteamVR)
+	if (g_bUseSeparateEyeBuffers)
 		g_fWindowAspectRatio = max(1.0f, (float)g_steamVRWidth / (float)g_steamVRHeight);
 	// The point where fixed and non-fixed params are about the same is given by the window aspect ratio
 	bool bFixFactors = g_fCurInGameAspectRatio > g_fWindowAspectRatio;
@@ -1034,7 +1034,7 @@ void ComputeHyperFOVParams() {
 	{
 		float RealWindowAspectRatio = (float)g_WindowWidth / (float)g_WindowHeight;
 		// In SteamVR mode, the must compensate against the SteamVR window size
-		if (g_bUseSteamVR)
+		if (g_bUseSeparateEyeBuffers)
 			RealWindowAspectRatio = (float)g_steamVRWidth / (float)g_steamVRHeight;
 
 		if (RealWindowAspectRatio > g_fCurInGameAspectRatio) {
@@ -1080,7 +1080,7 @@ void ComputeHyperFOVParams() {
 	g_MetricRecCBuffer.mv_vr_vertexbuf_aspect_ratio_comp[1] = 1.0f;
 	g_MetricRecCBuffer.mr_vr_aspect_ratio = 1.0f;
 	if (g_bEnableVR) {
-		if (g_bUseSteamVR) {
+		if (g_bUseSeparateEyeBuffers) {
 			g_MetricRecCBuffer.mr_vr_aspect_ratio = (float)g_steamVRHeight / (float)g_steamVRWidth;
 		}
 		else {
@@ -1094,7 +1094,7 @@ void ComputeHyperFOVParams() {
 	}
 
 	if (g_bEnableVR) {
-		if (g_bUseSteamVR) {
+		if (g_bUseSeparateEyeBuffers) {
 			if (g_config.AspectRatioPreserved) {
 				g_MetricRecCBuffer.mv_vr_vertexbuf_aspect_ratio_comp[0] = 1.0f / g_ShadertoyBuffer.preserveAspectRatioComp[0];
 				g_MetricRecCBuffer.mv_vr_vertexbuf_aspect_ratio_comp[1] = 1.0f / g_ShadertoyBuffer.preserveAspectRatioComp[1];

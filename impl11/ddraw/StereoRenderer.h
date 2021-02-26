@@ -31,13 +31,18 @@ class StereoRenderer {
 		Matrix4 fullViewMatrix; // Traslation + rotation matrix to be applied on CockpitLook (except roll) (g_VSMatrixCB.fullViewMat)
 		Matrix4 eyeMatrixLeft; // Translation + projection matrix for left eye (g_VSMatrixCB.projEye)
 		Matrix4 eyeMatrixRight;// Translation + projection matrix for right eye (g_VSMatrixCB.projEye)
+							   
 		/*
-		ID3D11Texture2D* _PresentBufferLeft;
-		ID3D11Texture2D* _PresentBufferRight;
-		ID3D11Texture2D* _depthBufferLeft;
-		ID3D11Texture2D* _depthBufferRight;
+		* Initialize all the necessary resources for the VR runtime. To be called only once.
 		*/
 		virtual bool init(DeviceResources* deviceResources) = 0;	
+
+		/*
+		* Verifies if the VR runtime is ready to start rendering frames
+		* To be called once per frame, will poll for relevant events from VR runtime
+		* Returns true when the application should start the frame loop and synchronization
+		*/
+		virtual bool is_ready() = 0;
 
 		/*
 		* Takes the final rendered texture (eyeBuffer) for vrEye eye and sends it to the VR API.
@@ -45,7 +50,7 @@ class StereoRenderer {
 		*     true: Submit frame already launches the VR composition.
 		*     false: a subsequent call to EndFrame is needed to launch the VR composition
 		*/
-		virtual void Submit(ID3D11DeviceContext* context, ID3D11Texture2D *eyeBuffer, VREye vrEye, bool implicitEndFrame) = 0;
+		virtual void Submit(ID3D11DeviceContext* context, ID3D11Texture2D *eyeBuffer, VREye vrEye) = 0;
 
 		/*
 		* To be called each frame, to synchronize with the HMD display timing, just before the pose is needed

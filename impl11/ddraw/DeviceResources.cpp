@@ -462,6 +462,7 @@ HRESULT DeviceResources::Initialize()
 			log_debug("[DBG] [OpenXR] Checking if OpenXR and extensions are available");
 			g_bUseOpenXR = VRRendererOpenXR::is_available();
 			if (g_bUseOpenXR)
+			{
 				log_debug("[DBG] [OpenXR] OpenXR is available, enabling");
 				this->_stereoRenderer = g_stereoRenderer;
 				if (g_bOpenXRInitialized = this->_stereoRenderer->init(this))
@@ -470,8 +471,19 @@ HRESULT DeviceResources::Initialize()
 					g_steamVRWidth = this->_stereoRenderer->renderProperties.width;
 					g_steamVRHeight = this->_stereoRenderer->renderProperties.height;
 				}
+			}
 			else
+			{
 				log_debug("[DBG] [OpenXR] OpenXR runtime not available");
+				static bool messageShown = false;
+				if (!messageShown)
+				{
+					// Many people will have issues with OpenXR runtime configuration at the beginning
+					MessageBox(nullptr, "OpenXR runtime or required extensions not available", "OpenXR error", MB_ICONERROR);
+					messageShown = true;
+				}
+				return DDERR_GENERIC;
+			}
 		}
 	}
 

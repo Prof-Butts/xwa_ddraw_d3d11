@@ -151,6 +151,11 @@ bool VRRendererOpenXR::init(DeviceResources *deviceResources)
 		ref_space.poseInReferenceSpace = xr_pose_identity;
 		ref_space.referenceSpaceType = XR_REFERENCE_SPACE_TYPE_LOCAL;
 		xrCreateReferenceSpace(xr_session, &ref_space, &xr_app_space);
+		
+		// We need to create a Space for the HMD centroid to provide XWA for rendering
+		// Also, we need it to get the head to eye transform that ddraw needs
+		ref_space.referenceSpaceType = XR_REFERENCE_SPACE_TYPE_VIEW;
+		xrCreateReferenceSpace(xr_session, &ref_space, &xr_hmd_space);
 
 		// Check that the XR device is an HMD stereo device
 		uint32_t view_count = 0;
@@ -264,20 +269,32 @@ void VRRendererOpenXR::WaitFrame()
 
 void VRRendererOpenXR::UpdateViewMatrices()
 {
-	//TODO
-
+	XrSpaceLocation xr_hmd_location = {};
 	//To get the head pose locate the XR_REFERENCE_SPACE_TYPE_VIEW relative to XR_REFERENCE_SPACE_TYPE_LOCAL
-	//xrLocateSpace();
+	xrLocateSpace(xr_hmd_space, xr_app_space, frame_state.predictedDisplayTime, &xr_hmd_location);
 
-	//This is the "head" pose relative to the workd space, to provide to XWA for rendering.
+	// This is the "head" pose relative to the world space, to provide to XWA for rendering.
+	// TODO: update transform matrices based on HMD pose
+	// for now we disable tracking
 	rotViewMatrix.identity();
 	fullViewMatrix.identity();
+
 	//xrLocateViews relative to XR_REFERENCE_SPACE_TYPE_VIEW to get the head to eye transform.
 	//Set eyeMatrixLeft, eyeMatrixRight;
-	eyeMatrixLeft.identity();
-	eyeMatrixRight.identity();
-	//Set FOV
-	renderProperties.vFOV = 105;
+	uint32_t         view_count = 0;
+	XrViewState      view_state = { XR_TYPE_VIEW_STATE };
+	XrViewLocateInfo view_locate_info = { XR_TYPE_VIEW_LOCATE_INFO };
+	view_locate_info.viewConfigurationType = app_config_view;
+	view_locate_info.displayTime = frame_state.predictedDisplayTime;
+	view_locate_info.space = xr_hmd_space;
+	xrLocateViews(xr_session,&view_locate_info, &view_state, (uint32_t)xr_views.size(), &view_count, xr_views.data());
+	//TODO: translate eye view poses (XrQuaternion) to transform matrices (Matrix4).
+	//eyeMatrixLeft = xrPoseToTransform(xr_views[0].pose);
+	//eyeMatrixRight = xrPoseToTransform(xr_views[1].pose);
+
+	//Set FOV. OpenXR angles are in radians, from -pi/2 to pi/2
+	renderProperties.vFOV = (xr_views[0].fov.angleUp - xr_views[0].fov.angleDown);
+	renderProperties.hFOV = (xr_views[0].fov.angleLeft - xr_views[0].fov.angleRight);
 }
 
 void VRRendererOpenXR::BeginFrame()

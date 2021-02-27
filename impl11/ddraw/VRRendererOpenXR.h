@@ -37,7 +37,6 @@ public:
 	void EndFrame();
 	void Submit(ID3D11DeviceContext* context, ID3D11Texture2D* eyeBuffer, VREye vrEye);
 	virtual void ShutDown();
-	VRRendererOpenXR::~VRRendererOpenXR();
 
 private:
 	const XrPosef  xr_pose_identity = { {0,0,0,1}, {0,0,0} };
@@ -46,6 +45,7 @@ private:
 	XrSessionState xr_session_state = XR_SESSION_STATE_UNKNOWN;
 	bool           xr_running = false;
 	XrSpace        xr_app_space = {};
+	XrSpace        xr_hmd_space = {};
 	XrSystemId     xr_system_id = XR_NULL_SYSTEM_ID;
 	XrFormFactor            app_config_form = XR_FORM_FACTOR_HEAD_MOUNTED_DISPLAY;
 	XrViewConfigurationType app_config_view = XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO;

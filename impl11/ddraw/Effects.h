@@ -80,8 +80,20 @@ extern Matrix4 g_ReflRotX;
 
 extern bool g_bStart3DCapture, g_bDo3DCapture;
 extern FILE* g_HackFile;
-#ifdef DBR_VR
+
 extern bool g_bCapture2DOffscreenBuffer;
+#ifdef DBR_VR
+	extern bool g_bDo3DCapture, g_bStart3DCapture;
+	extern bool g_bDumpDebug = false;
+	//extern bool g_bDumpSpecificTex;
+	//extern int g_iDumpSpecificTexIdx;
+	void IncreaseCockpitThreshold(float Delta);
+	void IncreaseNoDrawBeforeIndex(int Delta);
+	void IncreaseNoDrawAfterIndex(int Delta);
+	//void IncreaseNoExecIndices(int DeltaBefore, int DeltaAfter);
+	//void IncreaseZOverride(float Delta);
+	void IncreaseSkipNonZBufferDrawIdx(int Delta);
+	void IncreaseNoDrawAfterHUD(int Delta);
 #endif
 
 extern bool g_b3DSunPresent, g_b3DSkydomePresent;

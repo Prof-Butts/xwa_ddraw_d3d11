@@ -1,5 +1,6 @@
 #include "commonVR.h"
 #include "EffectsCommon.h"
+#include "DirectXMath.h"
 
 const float DEFAULT_IPD = 6.5f; // Ignored in SteamVR mode.
 const float IPD_SCALE_FACTOR = 100.0f; // Transform centimeters to meters (IPD = 6.5 becomes 0.065)
@@ -33,4 +34,14 @@ void EvaluateIPD(float NewIPD) {
 void IncreaseIPD(float Delta) {
 	float NewIPD = g_fIPD * IPD_SCALE_FACTOR + Delta;
 	EvaluateIPD(NewIPD);
+}
+
+Matrix4 XMFLOAT44toMatrix4(const DirectX::XMFLOAT4X4 & mat) {
+	Matrix4 matrixObj(
+		mat.m[0][0], mat.m[1][0], mat.m[2][0], mat.m[3][0], //1st column
+		mat.m[0][1], mat.m[1][1], mat.m[2][1], mat.m[3][1], //2nd column
+		mat.m[0][2], mat.m[1][2], mat.m[2][2], mat.m[3][2], //3rd column
+		mat.m[0][3], mat.m[1][3], mat.m[2][3], mat.m[3][3]  //4th column
+	);
+	return matrixObj;
 }

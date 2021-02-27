@@ -428,7 +428,7 @@ LRESULT CALLBACK MyWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam
 		if (AltKey && CtrlKey && !ShiftKey) {
 			switch (wParam) {
 
-#if DBG_VR
+#if DBG_VR_DISABLED
 			case 'C':
 				log_debug("[DBG] Capture 3D");
 				//g_bDo3DCapture = true;
@@ -733,13 +733,13 @@ LRESULT CALLBACK MyWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam
 				*/
 				break;
 
-#if DBR_VR
+#if DBG_VR
 			case 'X':
 				g_bCapture2DOffscreenBuffer = true;
 				return 0;
-			case 'D':
+			/*case 'D':
 				g_bDumpDebug = !g_bDumpDebug;
-				return 0;
+				return 0;*/
 #endif
 
 			// Ctrl + Up

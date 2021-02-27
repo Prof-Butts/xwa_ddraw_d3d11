@@ -197,6 +197,10 @@ bool g_bInTechRoom = false; // Set to true in PrimarySurface Present 2D (Flip)
 
 D3DTLVERTEX g_SpeedParticles2D[MAX_SPEED_PARTICLES * 12];
 
+//#ifdef DBR_VR
+bool g_bCapture2DOffscreenBuffer = false;
+//#endif
+
 void SmallestK::insert(Vector3 P, Vector3 col) {
 	int i = _size - 1;
 	while (i >= 0 && P.z < _elems[i].P.z) {

@@ -82,21 +82,3 @@ bool LoadSSAOParams();
 bool LoadHyperParams();
 bool LoadDefaultGlobalMaterial();
 void ReloadMaterials();
-
-
-#ifdef DBG_VR
-extern bool g_bDo3DCapture, g_bStart3DCapture;
-extern bool g_bCapture2DOffscreenBuffer = false;
-extern bool g_bDumpDebug = false;
-//extern bool g_bDumpSpecificTex;
-//extern int g_iDumpSpecificTexIdx;
-void IncreaseCockpitThreshold(float Delta);
-void IncreaseNoDrawBeforeIndex(int Delta);
-void IncreaseNoDrawAfterIndex(int Delta);
-//void IncreaseNoExecIndices(int DeltaBefore, int DeltaAfter);
-//void IncreaseZOverride(float Delta);
-void IncreaseSkipNonZBufferDrawIdx(int Delta);
-void IncreaseNoDrawAfterHUD(int Delta);
-#endif
-
-

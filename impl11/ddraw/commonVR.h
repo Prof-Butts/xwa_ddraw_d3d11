@@ -13,6 +13,7 @@
 #include "FreePIE.h"
 #include "Vectors.h"
 #include "Matrices.h"
+#include "DirectXMath.h"
 
 //extern const float PI;
 //extern const float DEG2RAD;
@@ -46,6 +47,8 @@ extern StereoRenderer* g_stereoRenderer;
 
 void EvaluateIPD(float NewIPD);
 void IncreaseIPD(float Delta);
+
+Matrix4 XMFLOAT44toMatrix4(const DirectX::XMFLOAT4X4& mat);
 
 typedef enum {
 	TRACKER_NONE,

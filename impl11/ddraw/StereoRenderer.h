@@ -16,8 +16,8 @@ enum RenderType {
 };
 
 struct RenderProperties {
-	float vFOV; //Total vertical FOV in radians, to be used to calculate focal_length for rendering in XWA 
-	float hFOV; //Total horizontal FOV in radians. Probably not used, implicit in vFOV + display resolution aspect ratio.
+	float vFOV_rad; //Total vertical FOV in radians, to be used to calculate focal_length for rendering in XWA 
+	float hFOV_rad; //Total horizontal FOV in radians. Probably not used, implicit in vFOV + display resolution aspect ratio.
 	uint32_t width; //Recommended render horizontal resolution
 	uint32_t height; //Recommended render vertical resolution
 	RenderType renderType; //To identify the type of renderer (when other implementations are using the StereoRender abstract class)

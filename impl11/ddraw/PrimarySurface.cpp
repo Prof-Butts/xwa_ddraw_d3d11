@@ -17,7 +17,7 @@
 #include "XwaDrawTextHook.h"
 #include "XwaDrawRadarHook.h"
 #include "XwaDrawBracketHook.h"
-#include "effects.h"
+#include "Effects.h"
 #include "globals.h"
 #include "commonVR.h"
 #include "VRConfig.h"
@@ -269,7 +269,7 @@ struct MainVertex
 };
 
 // void capture()
-//#ifdef DBR_VR
+#ifdef DBG_VR
 void PrimarySurface::capture(int time_delay, ComPtr<ID3D11Texture2D> buffer, const wchar_t *filename)
 {
 	bool bDoCapture = false;
@@ -283,7 +283,7 @@ void PrimarySurface::capture(int time_delay, ComPtr<ID3D11Texture2D> buffer, con
 	else
 		log_debug("[DBG] NOT captured, hr: %d", hr);
 }
-//#endif
+#endif
 
 PrimarySurface::PrimarySurface(DeviceResources* deviceResources, bool hasBackbufferAttached)
 {
@@ -676,8 +676,8 @@ void PrimarySurface::barrelEffect2D(int iteration) {
 				this->_deviceResources->_backbufferWidth, this->_deviceResources->_backbufferHeight);
 		}
 		wchar_t filename[120];
-		swprintf_s(filename, 120, L"c:\\temp\\offscreenBuf-%d-A.jpg", frame++);
-		capture(0, this->_deviceResources->_offscreenBuffer2, filename);
+		swprintf_s(filename, 120, L"c:\\temp\\offscreenBufferAsInput-%d-A.jpg", frame++);
+		capture(0, this->_deviceResources->_offscreenBufferAsInput, filename);
 		if (frame >= 40)
 			g_bCapture2DOffscreenBuffer = false;
 	}
@@ -783,14 +783,11 @@ void PrimarySurface::barrelEffect3D() {
 		static int frame = 0;
 		wchar_t filename[120];
 
-		swprintf_s(filename, 120, L"c:\\temp\\offscreenBuf-%d.jpg", frame);
+		swprintf_s(filename, 120, L"c:\\temp\\offscreenBuffer-%d.jpg", frame);
 		capture(0, this->_deviceResources->_offscreenBuffer, filename);
 
-		swprintf_s(filename, 120, L"c:\\temp\\offscreenBuf2-%d.jpg", frame);
-		capture(0, this->_deviceResources->_offscreenBuffer2, filename);
-
-		swprintf_s(filename, 120, L"c:\\temp\\offscreenBuf3-%d.jpg", frame);
-		capture(0, this->_deviceResources->_offscreenBuffer3, filename);
+		swprintf_s(filename, 120, L"c:\\temp\\offscreenBufferPost-%d.jpg", frame);
+		capture(0, this->_deviceResources->_offscreenBufferPost, filename);
 
 		frame++;
 		if (frame >= 5)
@@ -860,7 +857,7 @@ void PrimarySurface::barrelEffectSteamVR() {
 		wchar_t filename[120];
 
 		log_debug("[DBG] Capturing buffers");
-		swprintf_s(filename, 120, L"c:\\temp\\offscreenBuf-%d.jpg", frame);
+		swprintf_s(filename, 120, L"c:\\temp\\offscreenBuffer-%d.jpg", frame);
 		capture(0, this->_deviceResources->_offscreenBuffer, filename);
 
 		swprintf_s(filename, 120, L"c:\\temp\\offscreenBufAsInput-%d.jpg", frame);
@@ -904,7 +901,7 @@ void PrimarySurface::barrelEffectSteamVR() {
 		static int frame = 0;
 		wchar_t filename[120];
 
-		swprintf_s(filename, 120, L"c:\\temp\\offscreenBufR-%d.jpg", frame);
+		swprintf_s(filename, 120, L"c:\\temp\\offscreenBuffeR-%d.jpg", frame);
 		capture(0, resources->_offscreenBufferR, filename);
 
 		swprintf_s(filename, 120, L"c:\\temp\\offscreenBufAsInputR-%d.jpg", frame);
@@ -993,7 +990,7 @@ void PrimarySurface::resizeForSteamVR(int iteration, bool is_2D) {
 				this->_deviceResources->_backbufferWidth, this->_deviceResources->_backbufferHeight);
 			log_debug("[DBG] screen_res_x,y: %0.1f, %0.1f", screen_res_x, screen_res_y);
 			log_debug("[DBG] g_steamVRWidth,Height: %d, %d", g_steamVRWidth, g_steamVRHeight);
-			log_debug("[DBG] scale, newWidth,Height: %0.3f, (%0.3f, %0.3f)", scale, newWidth, newHeight);
+//			log_debug("[DBG] scale, newWidth,Height: %0.3f, (%0.3f, %0.3f)", scale, newWidth, newHeight);
 		}
 		wchar_t filename[120];
 		swprintf_s(filename, 120, L"c:\\temp\\offscreenBuf-%d-A.jpg", frame++);
@@ -7429,9 +7426,11 @@ void UpdateViewMatrix()
 			// because the cockpit hook already applies the yaw/pitch rotation
 		}
 		else if (g_bUseOpenXR) {
-			//TODO: read head tracking data from OpenXR
-			g_viewMatrix.identity();
-			rotMatrixFull.identity();
+			g_stereoRenderer->UpdateViewMatrices();
+			g_FullProjMatrixLeft = g_stereoRenderer->eyeMatrixLeft;
+			g_FullProjMatrixRight = g_stereoRenderer->eyeMatrixRight;
+			g_viewMatrix = g_stereoRenderer->rotViewMatrix;
+			rotMatrixFull = g_stereoRenderer->fullViewMatrix;
 		}
 		g_VSMatrixCB.viewMat = g_viewMatrix;
 		g_VSMatrixCB.fullViewMat = rotMatrixFull;
@@ -9176,6 +9175,18 @@ HRESULT PrimarySurface::Flip(
 			// We may still need the PostPresentHandoff here...
 			if (g_bSteamVRInitialized && g_bTogglePostPresentHandoff) {
 				g_pVRCompositor->PostPresentHandoff();
+			}
+
+			if (g_bUseOpenXR && g_stereoRenderer->is_ready())
+			{
+				//First attempt at frame synchronization, naive. Everything happens here.
+				//this->_deviceResources->_stereoRenderer->EndFrame();
+				g_stereoRenderer->EndFrame();
+				//this->_deviceResources->_stereoRenderer->WaitFrame();
+				g_stereoRenderer->WaitFrame();
+				//TODO: move BeginFrame to the right place (CockpitLook? BeginScene?
+				//this->_deviceResources->_stereoRenderer->BeginFrame();
+				g_stereoRenderer->BeginFrame();
 			}
 		}
 		else

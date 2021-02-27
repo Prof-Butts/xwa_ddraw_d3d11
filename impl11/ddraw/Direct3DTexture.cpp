@@ -406,7 +406,7 @@ void Direct3DTexture::TagTexture() {
 	//log_debug("[DBG] %s", surface->_name);
 	{
 		// Capture the textures
-#ifdef DBG_VR
+#ifdef DBG_VR_DISABLED
 
 		{
 			static int TexIndex = 0;

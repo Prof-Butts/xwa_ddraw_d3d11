@@ -1,5 +1,6 @@
 #pragma once
 
-bool InitDirectSBS();
+extern bool g_bDirectSBSInitialized;
+
 bool InitDirectSBS();
 bool ShutDownDirectSBS();

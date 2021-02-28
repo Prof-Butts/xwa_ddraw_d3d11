@@ -4650,6 +4650,27 @@ HRESULT DeviceResources::RenderMain(char* src, DWORD width, DWORD height, DWORD 
 			goto out;
 		}
 
+		// DEBUG: Override the OpenXR matrices with values known to work. REMOVE THIS BLOCK LATER!
+		{
+			static bool bFirstTime = true;
+			if (bFirstTime) {
+				g_projLeft.set
+				(
+					0.847458f, 0.0f, 0.0f, 0.0f,
+					0.0f, 0.746269f, 0.0f, 0.0f,
+					0.0f, 0.0f, -1.000010f, -0.001f,
+					0.0f, 0.0f, -1.0f, 0.0f
+				);
+				g_projLeft.transpose();
+				g_projRight = g_projLeft;
+
+				g_FullProjMatrixLeft = g_projLeft * g_EyeMatrixLeftInv;
+				g_FullProjMatrixRight = g_projRight * g_EyeMatrixRightInv;
+				bFirstTime = false;
+			}
+		}
+		// DEBUG
+
 		// Let's do SBS rendering here. That'll make it compatible with the Tech Library where
 		// both 2D and 3D are mixed.
 		// Left viewport

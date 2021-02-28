@@ -7950,6 +7950,12 @@ HRESULT PrimarySurface::Flip(
 				}*/
 				// DEBUG
 
+				if (g_bDumpSSAOBuffers) {
+					DirectX::SaveWICTextureToFile(context, resources->_offscreenBuffer.Get(), GUID_ContainerFormatJpeg, L"c:\\Temp\\_offscreenBuffer.jpg");
+					if (resources->_offscreenBufferR != nullptr)
+						DirectX::SaveWICTextureToFile(context, resources->_offscreenBufferR.Get(), GUID_ContainerFormatJpeg, L"c:\\Temp\\_offscreenBufferR.jpg");
+				}
+
 				for (UINT i = 0; i < interval; i++)
 				{
 					// In the original code the offscreenBuffer is simply resolved into the backBuffer.

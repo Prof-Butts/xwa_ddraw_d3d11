@@ -8046,12 +8046,12 @@ HRESULT PrimarySurface::Flip(
 					if (g_bUseOpenXR && g_stereoRenderer->is_ready())
 					{					
 						//First attempt at frame synchronization, naive. Everything happens here.
-						//this->_deviceResources->_stereoRenderer->EndFrame();
-						g_stereoRenderer->EndFrame();
-						//this->_deviceResources->_stereoRenderer->WaitFrame();
+						//resources->_stereoRenderer->EndFrame();
+						g_stereoRenderer->EndFrame(device);
+						//resources->_stereoRenderer->WaitFrame();
 						g_stereoRenderer->WaitFrame();
 						//TODO: move BeginFrame to the right place (CockpitLook? BeginScene?
-						//this->_deviceResources->_stereoRenderer->BeginFrame();
+						//resources->_stereoRenderer->BeginFrame();
 						g_stereoRenderer->BeginFrame();
 					}
 				}
@@ -9181,7 +9181,7 @@ HRESULT PrimarySurface::Flip(
 			{
 				//First attempt at frame synchronization, naive. Everything happens here.
 				//this->_deviceResources->_stereoRenderer->EndFrame();
-				g_stereoRenderer->EndFrame();
+				g_stereoRenderer->EndFrame(device);
 				//this->_deviceResources->_stereoRenderer->WaitFrame();
 				g_stereoRenderer->WaitFrame();
 				//TODO: move BeginFrame to the right place (CockpitLook? BeginScene?

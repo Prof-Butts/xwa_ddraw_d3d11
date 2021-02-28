@@ -34,7 +34,7 @@ public:
 	void WaitFrame();
 	void BeginFrame();
 	void UpdateViewMatrices();
-	void EndFrame();
+	void EndFrame(ID3D11Device* d3dDevice);
 	void Submit(ID3D11DeviceContext* context, ID3D11Texture2D* eyeBuffer, VREye vrEye);
 	virtual void ShutDown();
 

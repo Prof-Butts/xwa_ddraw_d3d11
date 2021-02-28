@@ -190,7 +190,23 @@ bool VRRendererOpenXR::init(DeviceResources *deviceResources)
 		renderProperties.width = xr_config_views[0].recommendedImageRectWidth;
 		//FOV is not known at this time, only after calling XrLocateViews when inside the frame loop
 
+		//TODO: OpenXR applications should avoid submitting linear encoded 8 bit color data
+		// (e.g. DXGI_FORMAT_R8G8B8A8_UNORM) whenever possible as it may result in color banding.
+		// https://developer.nvidia.com/gpugems/gpugems3/part-iv-image-effects/chapter-24-importance-being-linear
 		int64_t swapchain_format = BACKBUFFER_FORMAT;
+		
+		/*
+		uint32_t formatCountOutput = 0;
+		std::vector<int64_t> formats;
+		xrEnumerateSwapchainFormats(xr_session, 0, &formatCountOutput, nullptr);
+		formats.resize(formatCountOutput);
+		xrEnumerateSwapchainFormats(xr_session, formats.size(), &formatCountOutput, (int64_t *) formats.data());
+		log_debug("[DBG] [OpenXR] Accepted Swapchain Formats: %d",formatCountOutput);
+		for (uint32_t i = 0; i < formatCountOutput; i++)
+		{
+			log_debug("[DBG] [OpenXR]   - %d", formats[i]);
+		}
+		*/
 
 		for (uint32_t i = 0; i < view_count; i++) {
 			// Create a swapchain for this viewpoint!
@@ -209,7 +225,7 @@ bool VRRendererOpenXR::init(DeviceResources *deviceResources)
 			swapchain_info.width = view.recommendedImageRectWidth;
 			swapchain_info.height = view.recommendedImageRectHeight;
 			swapchain_info.sampleCount = view.recommendedSwapchainSampleCount;
-			swapchain_info.usageFlags = XR_SWAPCHAIN_USAGE_SAMPLED_BIT | XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT;
+			swapchain_info.usageFlags = XR_SWAPCHAIN_USAGE_TRANSFER_DST_BIT;
 			xrCreateSwapchain(xr_session, &swapchain_info, &handle);
 
 			// Find out how many textures were generated for the swapchain
@@ -378,48 +394,65 @@ void VRRendererOpenXR::Submit(ID3D11DeviceContext* context, ID3D11Texture2D* eye
 		
 		// If the session is active, lets render our layer in the compositor		
 		if (frame_state.shouldRender && (xr_session_state == XR_SESSION_STATE_VISIBLE || xr_session_state == XR_SESSION_STATE_FOCUSED)) {
+			// Copy input buffer into the display swapchain buffer for the correct eye
+			context->ResolveSubresource(xr_swapchains[vrEye].surface_images[img_id].texture, 0, eye_buffer, 0, BACKBUFFER_FORMAT);
+			//context->CopyResource(xr_swapchains[vrEye].surface_images[img_id].texture, eye_buffer);
+
 			// Set up our rendering information for the viewpoint we're using right now
-			layer_proj_views[vrEye] = { XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW };
-			layer_proj_views[vrEye].pose = xr_views[vrEye].pose;
-			layer_proj_views[vrEye].fov = xr_views[vrEye].fov;
-			layer_proj_views[vrEye].subImage.swapchain = xr_swapchains[vrEye].handle;
+			this->layer_proj_views[vrEye] = { XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW };
+			this->layer_proj_views[vrEye].pose = this->xr_views[vrEye].pose;
+			this->layer_proj_views[vrEye].fov = this->xr_views[vrEye].fov;
+			this->layer_proj_views[vrEye].subImage.swapchain = this->xr_swapchains[vrEye].handle;
+			log_debug("[DBG] [OpenXR] xr_swapchains[vrEye].handle = %d", this->xr_swapchains[vrEye].handle);
+			log_debug("[DBG] [OpenXR] this->layer_proj_views[vrEye].subImage.swapchain = %d", this->layer_proj_views[vrEye].subImage.swapchain);
 			// As we are using separate swapchains for each eye, the layer corresponds to the full size.
 			// TODO: test double-width rendering like DirectSBS and here choose the correct half for each XrCompositionLayerProjectionView.
-			layer_proj_views[vrEye].subImage.imageRect.offset = { 0, 0 };
-			layer_proj_views[vrEye].subImage.imageRect.extent = { xr_swapchains[vrEye].width, xr_swapchains[vrEye].height };
-			
-			// Copy input buffer into the display swapchain buffer for the correct eye
-			//context->ResolveSubresource(xr_swapchains[vrEye].surface_images[img_id].texture, 0, eye_buffer, 0, BACKBUFFER_FORMAT);
-			// TODO: Create the layer and link with the swapchain images.
-
+			this->layer_proj_views[vrEye].subImage.imageRect.offset = { 0, 0 };
+			this->layer_proj_views[vrEye].subImage.imageRect.extent = { this->xr_swapchains[vrEye].width, this->xr_swapchains[vrEye].height };
 		}
+
+		this->layer_proj.space = this->xr_app_space;
+		this->layer_proj.viewCount = (uint32_t)this->layer_proj_views.size();
+		this->layer_proj.views = this->layer_proj_views.data();
+
 		//The swapchain buffer now contains the rendered content, we can release it
 		xrResult = xrReleaseSwapchainImage(xr_swapchains[vrEye].handle, nullptr);
-
-		layer_proj.space = xr_app_space;
-		layer_proj.viewCount = (uint32_t)layer_proj_views.size();
-		layer_proj.views = layer_proj_views.data();
 	}
 }
 
-void VRRendererOpenXR::EndFrame()
+void VRRendererOpenXR::EndFrame(ID3D11Device* d3dDevice)
 {
 	//We only have one layer with both eyes
-	layer = (XrCompositionLayerBaseHeader*)&layer_proj;
+	layer = (XrCompositionLayerBaseHeader*)&this->layer_proj;
 
 	XrFrameEndInfo end_info{ XR_TYPE_FRAME_END_INFO };
 	end_info.displayTime = frame_state.predictedDisplayTime;
 	end_info.environmentBlendMode = xr_blend;
-	end_info.layerCount = layer == nullptr ? 0 : 1;
+	end_info.layerCount = (layer == nullptr) ? 0 : 1;
 	end_info.layers = &layer;
 	// This effectively submits the layer to the compositor
-	xrEndFrame(xr_session, &end_info);
-
-	//ID3D11Device* device;
-	//context->GetDevice(&device);
-	//HRESULT reason = device->GetDeviceRemovedReason();
-	//if (reason != 0)
-	//	log_debug("[DBG] [OpenXR] D3D11 Device removed! DXGI_ERROR code: 0x%X", reason);
+	XrResult xrResult = XR_SUCCESS;
+	xrResult = xrEndFrame(xr_session, &end_info);
+	if (FAILED(xrResult))
+	{
+		XrCompositionLayerProjection* output_layers;
+		output_layers = (XrCompositionLayerProjection *) end_info.layers;
+		switch (xrResult) {
+		case XR_ERROR_CALL_ORDER_INVALID:
+			//First frame, xrEndFrame is called before the rendering starts.
+			break;
+		case XR_ERROR_HANDLE_INVALID:
+			log_debug("[DBG] [OpenXR] xrEndFrame error XR_ERROR_HANDLE_INVALID", xrResult);
+			log_debug("[DBG] [OpenXR] Left  Eye Swapchain handle: %d", this->layer_proj.views[0].subImage.swapchain);
+			log_debug("[DBG] [OpenXR] Right Eye Swapchain handle: %d", this->layer_proj.views[1].subImage.swapchain);
+			break;
+		default:
+			log_debug("[DBG] [OpenXR] xrEndFrame error: %d", xrResult);
+		}
+		//HRESULT reason = d3dDevice->GetDeviceRemovedReason();
+		//if (reason != 0)
+		//	log_debug("[DBG] [OpenXR] D3D11 Device removed! DXGI_ERROR code: 0x%X", reason);
+	}
 }
 
 void VRRendererOpenXR::ShutDown()

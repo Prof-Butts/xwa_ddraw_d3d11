@@ -50,7 +50,7 @@ class StereoRenderer {
 		*     true: Submit frame already launches the VR composition.
 		*     false: a subsequent call to EndFrame is needed to launch the VR composition
 		*/
-		virtual void Submit(ID3D11DeviceContext* context, ID3D11Texture2D *eyeBuffer, VREye vrEye) = 0;
+		virtual void Submit(ID3D11DeviceContext* context, ID3D11Texture2D* eyeBuffer, VREye vrEye) = 0;
 
 		/*
 		* To be called each frame, to synchronize with the HMD display timing, just before the pose is needed
@@ -75,7 +75,7 @@ class StereoRenderer {
 		* To be called after the frame is submitted to the HMD swapchain.
 		* Is it better to call it before or after Present in the 2D monitor swapchain?
 		*/
-		virtual void EndFrame() = 0;
+		virtual void EndFrame(ID3D11Device* d3dDevice) = 0;
 
 		virtual void ShutDown() = 0;
 };

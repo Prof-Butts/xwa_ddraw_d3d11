@@ -31,6 +31,7 @@ class StereoRenderer {
 		Matrix4 fullViewMatrix; // Traslation + rotation matrix to be applied on CockpitLook (except roll) (g_VSMatrixCB.fullViewMat)
 		Matrix4 eyeMatrixLeft; // Translation + projection matrix for left eye (g_VSMatrixCB.projEye)
 		Matrix4 eyeMatrixRight;// Translation + projection matrix for right eye (g_VSMatrixCB.projEye)
+		bool unfinishedFrame = false;
 							   
 		/*
 		* Initialize all the necessary resources for the VR runtime. To be called only once.

@@ -284,6 +284,8 @@ void VRRendererOpenXR::WaitFrame()
 	xrResult = xrWaitFrame(xr_session, nullptr, &frame_state);
 	//log_debug("frame_state.ShouldRender = %d", frame_state.shouldRender);
 	//log_debug("frame_state.predictedDisplayTime = %x", frame_state.predictedDisplayTime);
+
+	unfinishedFrame = true;
 }
 
 void VRRendererOpenXR::UpdateViewMatrices()
@@ -373,6 +375,7 @@ void VRRendererOpenXR::UpdateViewMatrices()
 void VRRendererOpenXR::BeginFrame()
 {
 	xrBeginFrame(xr_session, nullptr);
+	unfinishedFrame = true;
 }
 
 void VRRendererOpenXR::Submit(ID3D11DeviceContext* context, ID3D11Texture2D* eye_buffer, VREye vrEye)
@@ -423,7 +426,10 @@ void VRRendererOpenXR::Submit(ID3D11DeviceContext* context, ID3D11Texture2D* eye
 void VRRendererOpenXR::EndFrame(ID3D11Device* d3dDevice)
 {
 	//We only have one layer with both eyes
-	layer = (XrCompositionLayerBaseHeader*)&this->layer_proj;
+	if (frame_state.shouldRender)
+		layer = (XrCompositionLayerBaseHeader*)&this->layer_proj;
+	else
+		layer = nullptr;
 
 	XrFrameEndInfo end_info{ XR_TYPE_FRAME_END_INFO };
 	end_info.displayTime = frame_state.predictedDisplayTime;
@@ -433,6 +439,8 @@ void VRRendererOpenXR::EndFrame(ID3D11Device* d3dDevice)
 	// This effectively submits the layer to the compositor
 	XrResult xrResult = XR_SUCCESS;
 	xrResult = xrEndFrame(xr_session, &end_info);
+	unfinishedFrame = false;
+
 	if (FAILED(xrResult))
 	{
 		XrCompositionLayerProjection* output_layers;
@@ -449,9 +457,9 @@ void VRRendererOpenXR::EndFrame(ID3D11Device* d3dDevice)
 		default:
 			log_debug("[DBG] [OpenXR] xrEndFrame error: %d", xrResult);
 		}
-		//HRESULT reason = d3dDevice->GetDeviceRemovedReason();
-		//if (reason != 0)
-		//	log_debug("[DBG] [OpenXR] D3D11 Device removed! DXGI_ERROR code: 0x%X", reason);
+		HRESULT reason = d3dDevice->GetDeviceRemovedReason();
+		if (reason != 0)
+			log_debug("[DBG] [OpenXR] D3D11 Device removed! DXGI_ERROR code: 0x%X", reason);
 	}
 }
 

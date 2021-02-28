@@ -8047,7 +8047,8 @@ HRESULT PrimarySurface::Flip(
 					{					
 						//First attempt at frame synchronization, naive. Everything happens here.
 						//resources->_stereoRenderer->EndFrame();
-						g_stereoRenderer->EndFrame(device);
+						if (g_stereoRenderer->unfinishedFrame == true)
+							g_stereoRenderer->EndFrame(device);
 						//resources->_stereoRenderer->WaitFrame();
 						g_stereoRenderer->WaitFrame();
 						//TODO: move BeginFrame to the right place (CockpitLook? BeginScene?

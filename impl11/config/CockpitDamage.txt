@@ -1,0 +1,24 @@
+0x0
+
+The first line is a bitmask in hex format that specifies which cockpit
+instruments will be enabled. The rest of the lines are simply ignored. Try the
+following masks and press Ctrl+C to apply them:
+
+0x01FFF: All cockpit instruments are enabled.
+0x01FFE: Disable the CMD
+0x01FF1: Disable Laser/Ion energy levels.
+0x01FEF: Disable the beam weapon.
+0x01FDF: Disable the Shields.
+0x01FBF: Disable the throttle display.
+0x01E7F: Disable Sensors.
+0x01DFF: Disable Laser recharge rate.
+0x01BFF: Disable Engine Power.
+0x017FF: Disable Shields recharge rate.
+0x00FFF: Disable the beam recharge rate.
+
+Since this is a bitmask, multiple instruments can be enabled or disabled at the
+same time by combining their masks. That's why a value of 0x0 disables
+everything. A value of 0x01FF0 will disable both the CMD and the laser/ion
+energy levels, etc.
+
+Pressing Ctrl+Shift+C removes any damage applied to the cockpit.

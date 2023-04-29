@@ -1,9 +1,0 @@
-[Default]
-Metallic   = 0.25
-Intensity  = 0.5
-Glossiness = 0.1
-
-[TEX00000,TEX00001,TEX00010,TEX00011,TEX00012,TEX00013,TEX00014,TEX00015]
-Metallic   = 0.5
-Intensity  = 0.8
-Glossiness = 0.1

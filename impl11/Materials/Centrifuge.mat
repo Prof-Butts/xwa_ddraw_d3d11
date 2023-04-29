@@ -1,9 +1,0 @@
-[Default]
-Metallic   = 0.5
-Intensity  = 0.25
-Glossiness = 0.04
-
-[TEX00020,TEX00021,TEX00022,TEX00023]
-Lava = 1
-LavaSpeed = 20
-LavaSize = 1

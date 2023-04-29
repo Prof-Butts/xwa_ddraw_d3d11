@@ -1,6 +1,0 @@
-[Default]
-; MechDonald's explosions are great, but for the DSII mission they might be a
-; bit long, so here I'm going to use half the frames they actually have
-TotalFrames = 16
-ExplosionBlendMode = 0
-ExplosionScale = 3.5

@@ -12,7 +12,7 @@
 #include <shellapi.h>
 
 // SteamVR
-#include <headers/openvr.h>
+#include <openvr.h>
 
 #pragma comment(lib, "Gdiplus")
 

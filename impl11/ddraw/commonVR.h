@@ -2,7 +2,7 @@
 
 #include <Windows.h>
 #include <stdio.h>
-#include <headers/openvr.h>
+#include <openvr.h>
 #include "common.h"
 #include "utils.h"
 #include "config.h"

@@ -5,7 +5,7 @@
 #include "commonVR.h"
 #include "SteamVR.h"
 #include "globals.h"
-#include <openvr.h>
+#include <headers/openvr.h>
 #include "FreePIE.h"
 #include "SharedMem.h"
 #include "XWAFramework.h"

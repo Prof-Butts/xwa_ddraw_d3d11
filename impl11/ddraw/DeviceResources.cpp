@@ -152,7 +152,7 @@
 #endif
 
 #include <WICTextureLoader.h>
-#include <openvr.h>
+#include <headers/openvr.h>
 #include <vector>
 #include "SteamVR.h"
 #include "globals.h"

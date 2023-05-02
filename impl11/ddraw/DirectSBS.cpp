@@ -4,7 +4,7 @@
 #include "utils.h"
 #include "commonVR.h"
 #include "DirectSBS.h"
-#include <openvr.h>
+#include <headers/openvr.h>
 #include "FreePIE.h"
 #include "effects.h"
 

@@ -5,7 +5,7 @@
 #include "Vectors.h"
 #include "Matrices.h"
 #include "config.h"
-#include <headers/openvr.h>
+#include <openvr.h>
 
 constexpr float DEFAULT_STEAMVR_OVERLAY_WIDTH = 5.0f;
 

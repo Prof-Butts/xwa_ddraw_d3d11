@@ -168,6 +168,14 @@ public:
 			(min.z + max.z) / 2.0f);
 	}
 
+	inline Vector3 GetCentroidVector3()
+	{
+		return Vector3(
+			(min.x + max.x) / 2.0f,
+			(min.y + max.y) / 2.0f,
+			(min.z + max.z) / 2.0f);
+	}
+
 	inline void Expand(const std::vector<Vector4> &Limits)
 	{
 		for each (Vector4 v in Limits)
@@ -176,6 +184,27 @@ public:
 
 	inline Vector3 GetRange() {
 		return max - min;
+	}
+
+	inline int GetLargestDimension()
+	{
+		Vector3 range = GetRange();
+		float max = range.x;
+		int idx = 0;
+
+		if (range.y > max)
+		{
+			max = range.y;
+			idx = 1;
+		}
+
+		if (range.z > max)
+		{
+			max = range.z;
+			idx = 2;
+		}
+
+		return idx;
 	}
 
 	void UpdateLimits() {

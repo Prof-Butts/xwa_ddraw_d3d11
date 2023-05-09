@@ -3875,6 +3875,86 @@ TreeNode* BuildDirectBVH(AABB& sceneAABB,
 	return tree;
 }
 
+// <parentIndex, left-or-right-child>
+using BuilderItem = std::tuple<int, uint8_t>;
+uint32_t g_directBuilderNextNode = 0;
+
+TreeNode* DirectBVHBuilder(
+	AABB sceneAABB,
+	std::vector<LeafItem>& leafItems,
+	std::vector<int> &leafIndices,
+	std::vector<BuilderItem> &leafParents,
+	int dim,
+	int newNodeIndex)
+{
+	float split = 0.5f * (sceneAABB.max[dim] + sceneAABB.min[dim]);
+	AABB boxL, boxR;
+	int countL = 0, countR = 0;
+	std::vector<int> indicesL, indicesR;
+
+	// DEBUG
+	log_debug("[DBG] [BVH] --------------------------------------------");
+	log_debug("[DBG] [BVH] newNode: %d, split: %0.3f, dim: %d, [%0.3f, %0.3f]",
+		newNodeIndex, split, dim, sceneAABB.min[dim], sceneAABB.max[dim]);
+	std::string msg = "[DBG] [BVH] ";
+
+	for (uint32_t k = 0; k < leafIndices.size(); k++)
+	{
+		const uint32_t i = leafIndices[k];
+		LeafItem leaf = leafItems[i];
+		AABB aabb = GetAABB(leaf);
+		Vector3 centroid = aabb.GetCentroidVector3();
+
+		BuilderItem& parentItem = leafParents[i];
+		int parent = std::get<0>(parentItem);
+		//int isRightChild = std::get<1>(parentItem);
+
+		//if (parent != -1)
+		//{
+			// Disconnect from previous parent ... (TODO)
+		//}
+
+		if (centroid[dim] < split)
+		{
+			leafParents[i] = BuilderItem(newNodeIndex, 0);
+			boxL.Expand(aabb);
+			countL++;
+			indicesL.push_back(i);
+			// DEBUG
+			msg += "(" + std::to_string(i) + "," + std::to_string(centroid[dim]) + ")->" + std::to_string(newNodeIndex) + ", ";
+		}
+		else
+		{
+			leafParents[i] = BuilderItem(newNodeIndex, 1);
+			boxR.Expand(aabb);
+			countR++;
+			indicesR.push_back(i);
+			// DEBUG
+			msg += std::to_string(newNodeIndex) + "<-(" + std::to_string(i) + "," + std::to_string(centroid[dim]) + "), ";
+		}
+	}
+	// DEBUG
+	log_debug(msg.c_str());
+	log_debug("[DBG] [BVH] countL,R: (%d, %d), boxL: [%0.3f, %0.3f], boxR: [%0.3f, %0.3f]",
+		countL, countR, boxL.min[dim], boxL.max[dim], boxR.min[dim], boxR.max[dim]);
+
+	if (countL > 1)
+	{
+		g_directBuilderNextNode++; // ATOMIC
+		log_debug("[DBG] [BVH] %d->%d", g_directBuilderNextNode, newNodeIndex);
+		DirectBVHBuilder(boxL, leafItems, indicesL, leafParents, boxL.GetLargestDimension(), g_directBuilderNextNode);
+	}
+
+	if (countR > 1)
+	{
+		g_directBuilderNextNode++; // ATOMIC
+		log_debug("[DBG] [BVH] %d<-%d", newNodeIndex, g_directBuilderNextNode);
+		DirectBVHBuilder(boxR, leafItems, indicesR, leafParents, boxR.GetLargestDimension(), g_directBuilderNextNode);
+	}
+
+	return nullptr;
+}
+
 void TestFastLBVH()
 {
 	log_debug("[DBG] [BVH] ****************************************************************");
@@ -4097,7 +4177,7 @@ void TestRedBlackBVH()
 	log_debug("[DBG] [BVH] TestRedBlackBVH() END");
 }
 
-void TestKDTree()
+void TestDirectBVH()
 {
 	log_debug("[DBG] [BVH] ****************************************************************");
 	log_debug("[DBG] [BVH] TestKDTree() START");
@@ -4167,6 +4247,119 @@ void TestKDTree()
 	//TreeNode *tree = BuildKDTree(sceneAABB, leafItems);
 	TreeNode* tree = BuildDirectBVH(sceneAABB, leafItems, leafIndices, sceneAABB.GetLargestDimension());
 
+	PrintTree("", tree);
+
+	DeleteTree(tree);
+	return;
+	BVHNode* QBVHBuffer = new BVHNode[numQBVHNodes];
+
+	// Encode the leaves
+	//int LeafOfs = numQBVHInnerNodes * sizeof(BVHNode) / 4;
+	int LeafEncodeIdx = numQBVHInnerNodes;
+	for (unsigned int i = 0; i < leafItems.size(); i++)
+	{
+		EncodeLeafNode(QBVHBuffer, leafItems, i, LeafEncodeIdx++, nullptr, nullptr);
+	}
+
+	int root = -1;
+	SingleStepFastLQBVH(QBVHBuffer, numQBVHInnerNodes, leafItems, root);
+	int totalNodes = numQBVHNodes - root;
+
+	log_debug("[DBG] [BVH] root: %d, totalNodes: %d", root, totalNodes);
+	log_debug("[DBG] [BVH] ****************************************************************");
+
+	//log_debug("[DBG] [BVH] ****************************************************************");
+	//log_debug("[DBG] [BVH] Printing Tree");
+	//printTree(0, inner_root, false, innerNodes);
+	//delete[] innerNodes;
+
+	log_debug("[DBG] [BVH] ****************************************************************");
+	log_debug("[DBG] [BVH] Printing Buffer");
+	PrintTreeBuffer("", QBVHBuffer, root);
+	delete[] QBVHBuffer;
+	log_debug("[DBG] [BVH] ****************************************************************");
+	log_debug("[DBG] [BVH] TestFastLQBVHEncode() END");
+}
+
+void TestImplicitMortonCodes()
+{
+	log_debug("[DBG] [BVH] ****************************************************************");
+	log_debug("[DBG] [BVH] TestKDTree() START");
+	// using LeafItem = std::tuple<MortonCode_t, AABB, int>;
+	std::vector<LeafItem> leafItems;
+	std::vector<int> leafIndices;
+
+	AABB aabb, sceneAABB;
+	// This is the example from Apetrei 2014.
+	// Here the TriID is the same as the morton code for debugging purposes.
+	aabb.min = Vector3(3.0f, 0.0f, 0.0f);
+	aabb.max = Vector3(3.0f, 0.0f, 0.0f);
+	leafItems.push_back(std::make_tuple(4, aabb, 0));
+	leafIndices.push_back(0);
+	sceneAABB.Expand(aabb);
+
+	aabb.min = Vector3(1.0f, 0.0f, 0.0f);
+	aabb.max = Vector3(1.0f, 0.0f, 0.0f);
+	leafItems.push_back(std::make_tuple(12, aabb, 1));
+	leafIndices.push_back(1);
+	sceneAABB.Expand(aabb);
+
+	aabb.min = Vector3(2.8f, 0.0f, 0.0f);
+	aabb.max = Vector3(2.8f, 0.0f, 0.0f);
+	leafItems.push_back(std::make_tuple(3, aabb, 2));
+	leafIndices.push_back(2);
+	sceneAABB.Expand(aabb);
+
+	aabb.min = Vector3(5.0f, 0.0f, 0.0f);
+	aabb.max = Vector3(5.0f, 0.0f, 0.0f);
+	leafItems.push_back(std::make_tuple(13, aabb, 3));
+	leafIndices.push_back(3);
+	sceneAABB.Expand(aabb);
+
+	aabb.min = Vector3(7.0f, 0.0f, 0.0f);
+	aabb.max = Vector3(7.0f, 0.0f, 0.0f);
+	leafItems.push_back(std::make_tuple(5, aabb, 4));
+	leafIndices.push_back(4);
+	sceneAABB.Expand(aabb);
+
+	aabb.min = Vector3(4.0f, 0.0f, 0.0f);
+	aabb.max = Vector3(4.0f, 0.0f, 0.0f);
+	leafItems.push_back(std::make_tuple(2, aabb, 5));
+	leafIndices.push_back(5);
+	sceneAABB.Expand(aabb);
+
+	aabb.min = Vector3(2.0f, 0.0f, 0.0f);
+	aabb.max = Vector3(2.0f, 0.0f, 0.0f);
+	leafItems.push_back(std::make_tuple(15, aabb, 6));
+	leafIndices.push_back(6);
+	sceneAABB.Expand(aabb);
+
+	int numTris = leafItems.size();
+	int numQBVHInnerNodes = CalcNumInnerQBVHNodes(numTris);
+	int numQBVHNodes = numTris + numQBVHInnerNodes;
+
+	std::vector<BuilderItem> leafParents;
+	for (uint32_t i = 0; i < leafItems.size(); i++)
+		leafParents.push_back(BuilderItem(-1, 0));
+
+	log_debug("[DBG] [BVH] numTris: %d, numQBVHInnerNodes: %d, numQBVHNodes: %d",
+		numTris, numQBVHInnerNodes, numQBVHNodes);
+	log_debug("[DBG] [BVH] scene: %s", sceneAABB.ToString().c_str());
+
+	//TreeNode *tree = BuildKDTree(sceneAABB, leafItems);
+	TreeNode* tree = DirectBVHBuilder(sceneAABB, leafItems, leafIndices,
+		leafParents, sceneAABB.GetLargestDimension(), 0);
+
+	for (uint32_t i = 0; i < leafParents.size(); i++)
+	{
+		AABB box = GetAABB(leafItems[i]);
+		int parent = std::get<0>(leafParents[i]);
+		uint32_t side = std::get<1>(leafParents[i]);
+
+		std::string msg = "[DBG] [BVH] (" + std::to_string(i) + ", " + std::to_string(box.min[0]) + ")->" +
+			"(" + std::to_string(parent) + "," + std::to_string(side) + ")";
+		log_debug(msg.c_str());
+	}
 	PrintTree("", tree);
 
 	DeleteTree(tree);

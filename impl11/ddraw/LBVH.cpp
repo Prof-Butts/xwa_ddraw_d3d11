@@ -3882,11 +3882,11 @@ uint32_t g_directBuilderNextNode = 0;
 TreeNode* DirectBVHBuilder(
 	AABB sceneAABB,
 	InnerNode* innerNodes,
-	std::vector<LeafItem>& leafItems,
+	std::vector<LeafItem> &leafItems,
 	std::vector<int> &leafIndices,
 	std::vector<BuilderItem> &leafParents,
 	int dim,
-	int curNodeIndex)
+	int curParentNodeIndex)
 {
 	float split = 0.5f * (sceneAABB.max[dim] + sceneAABB.min[dim]);
 	AABB boxL, boxR;
@@ -3895,8 +3895,8 @@ TreeNode* DirectBVHBuilder(
 
 	// DEBUG
 	log_debug("[DBG] [BVH] --------------------------------------------");
-	log_debug("[DBG] [BVH] newNode: %d, split: %0.3f, dim: %d, [%0.3f, %0.3f]",
-		curNodeIndex, split, dim, sceneAABB.min[dim], sceneAABB.max[dim]);
+	log_debug("[DBG] [BVH] curParentNodeIndex: %d, split: %0.3f, dim: %d, [%0.3f, %0.3f]",
+		curParentNodeIndex, split, dim, sceneAABB.min[dim], sceneAABB.max[dim]);
 	std::string msg = "[DBG] [BVH] ";
 
 	for (uint32_t k = 0; k < leafIndices.size(); k++)
@@ -3908,36 +3908,55 @@ TreeNode* DirectBVHBuilder(
 
 		BuilderItem& parentItem = leafParents[i];
 		int parent = std::get<0>(parentItem);
-		//int isRightChild = std::get<1>(parentItem);
-
-		//if (parent != -1)
-		//{
-			// Disconnect from previous parent ... (TODO)
-		//}
 
 		if (centroid[dim] < split)
 		{
-			leafParents[i] = BuilderItem(curNodeIndex, 0);
-			boxL.Expand(aabb);
+			leafParents[i] = BuilderItem(curParentNodeIndex, 0);
+			// The problem with maintaining boxL and boxR like this, is that in a GPU
+			// architecture this needs a global atomic, which will limit parallelism.
+			// In the CPU it doesn't matter, but here we're proving that this approach
+			// also works and it's approximately equivalent to using Morton Codes anyway.
+			//boxL.Expand(aabb);
 			countL++;
 			indicesL.push_back(i);
 			// DEBUG
-			msg += "(" + std::to_string(i) + "," + std::to_string(centroid[dim]) + ")->" + std::to_string(curNodeIndex) + ", ";
+			msg += "(" + std::to_string(i) + "," + std::to_string(centroid[dim]) + ")->" + std::to_string(curParentNodeIndex) + ", ";
 		}
 		else
 		{
-			leafParents[i] = BuilderItem(curNodeIndex, 1);
-			boxR.Expand(aabb);
+			leafParents[i] = BuilderItem(curParentNodeIndex, 1);
+			//boxR.Expand(aabb);
 			countR++;
 			indicesR.push_back(i);
 			// DEBUG
-			msg += std::to_string(curNodeIndex) + "<-(" + std::to_string(i) + "," + std::to_string(centroid[dim]) + "), ";
+			msg += std::to_string(curParentNodeIndex) + "<-(" + std::to_string(i) + "," + std::to_string(centroid[dim]) + "), ";
 		}
 	}
+
+	// The new boxL is the parent's box up to the split point. Note how this box
+	// can be computed independently of the core iteration above. In fact, we can
+	// postpone it until the point where we do the recursion below.
+	boxL = sceneAABB;
+	boxR = sceneAABB;
+	boxL.max[dim] = split;
+	boxR.min[dim] = split;
+
 	// DEBUG
 	log_debug(msg.c_str());
 	log_debug("[DBG] [BVH] countL,R: (%d, %d), boxL: [%0.3f, %0.3f], boxR: [%0.3f, %0.3f]",
 		countL, countR, boxL.min[dim], boxL.max[dim], boxR.min[dim], boxR.max[dim]);
+
+	if (countL == 0)
+	{
+		// All our nodes landed on the right side, re-compute the split and try again
+		return DirectBVHBuilder(boxR, innerNodes, leafItems, indicesR, leafParents, boxR.GetLargestDimension(), curParentNodeIndex);
+	}
+
+	if (countR == 0)
+	{
+		// All our nodes landed on the left side, re-compute the split and try again
+		return DirectBVHBuilder(boxL, innerNodes, leafItems, indicesL, leafParents, boxL.GetLargestDimension(), curParentNodeIndex);
+	}
 
 	if (countL > 1)
 	{
@@ -3945,15 +3964,15 @@ TreeNode* DirectBVHBuilder(
 		// DEBUG
 		//log_debug("[DBG] [BVH] %d->%d", g_directBuilderNextNode, curNodeIndex);
 		// Connect g_directBuilderNextNode as the left child of curNodeIndex
-		innerNodes[curNodeIndex].left = g_directBuilderNextNode;
-		innerNodes[curNodeIndex].leftIsLeaf = false;
+		innerNodes[curParentNodeIndex].left = g_directBuilderNextNode;
+		innerNodes[curParentNodeIndex].leftIsLeaf = false;
 		DirectBVHBuilder(boxL, innerNodes, leafItems, indicesL, leafParents, boxL.GetLargestDimension(), g_directBuilderNextNode);
 	}
-	else
+	else // countL is 1
 	{
 		// The node on the left is a leaf
-		innerNodes[curNodeIndex].left = indicesL[0];
-		innerNodes[curNodeIndex].leftIsLeaf = true;
+		innerNodes[curParentNodeIndex].left = indicesL[0];
+		innerNodes[curParentNodeIndex].leftIsLeaf = true;
 	}
 
 	if (countR > 1)
@@ -3962,15 +3981,15 @@ TreeNode* DirectBVHBuilder(
 		// DEBUG
 		//log_debug("[DBG] [BVH] %d<-%d", curNodeIndex, g_directBuilderNextNode);
 		// Connect g_directBuilderNextNode as the right child of curNodeIndex
-		innerNodes[curNodeIndex].right = g_directBuilderNextNode;
-		innerNodes[curNodeIndex].rightIsLeaf = false;
+		innerNodes[curParentNodeIndex].right = g_directBuilderNextNode;
+		innerNodes[curParentNodeIndex].rightIsLeaf = false;
 		DirectBVHBuilder(boxR, innerNodes, leafItems, indicesR, leafParents, boxR.GetLargestDimension(), g_directBuilderNextNode);
 	}
-	else
+	else // countR is 1
 	{
 		// The node on the right is a leaf
-		innerNodes[curNodeIndex].right = indicesR[0];
-		innerNodes[curNodeIndex].rightIsLeaf = true;
+		innerNodes[curParentNodeIndex].right = indicesR[0];
+		innerNodes[curParentNodeIndex].rightIsLeaf = true;
 	}
 
 	return nullptr;

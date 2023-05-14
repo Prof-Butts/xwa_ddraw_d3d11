@@ -14,17 +14,19 @@ extern char g_curOPTLoaded[MAX_OPT_NAME];
 extern bool g_bEnableQBVHwSAH;
 //BVHBuilderType g_BVHBuilderType = BVHBuilderType_BVH2;
 //BVHBuilderType g_BVHBuilderType = BVHBuilderType_QBVH;
-BVHBuilderType g_BVHBuilderType = BVHBuilderType_FastQBVH;
+//BVHBuilderType g_BVHBuilderType = BVHBuilderType_FastQBVH;
 //BVHBuilderType g_BVHBuilderType = BVHBuilderType_Embree;
+BVHBuilderType g_BVHBuilderType = DEFAULT_BVH_BUILDER;
 
 RTCDevice g_rtcDevice = nullptr;
 RTCScene g_rtcScene = nullptr;
 
 char* g_sBVHBuilderTypeNames[BVHBuilderType_MAX] = {
-	"    BVH2",
-	"    QBVH",
-	"FastQBVH",
-	"  Embree",
+	"      BVH2",
+	"      QBVH",
+	"  FastQBVH",
+	"    Embree",
+	"DirectBVH2",
 };
 
 bool g_bRTEnabledInTechRoom = true;

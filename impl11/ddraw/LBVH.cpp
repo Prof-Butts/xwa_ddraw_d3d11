@@ -3780,8 +3780,8 @@ bool LoadEmbree()
 	{
 		g_bEmbreeLoaded = false;
 		g_bRTEnableEmbree = false;
-		g_BVHBuilderType = BVHBuilderType_FastQBVH;
-		log_debug("[DBG] [BVH] [EMB] Embree could not be loaded. Using FastLQBVH instead");
+		g_BVHBuilderType = DEFAULT_BVH_BUILDER;
+		log_debug("[DBG] [BVH] [EMB] Embree could not be loaded. Using DEFAULT_BVH_BUILDER instead");
 		return false;
 	}
 
@@ -3973,21 +3973,15 @@ struct InnerNodeBuildData
 
 int g_directBuilderNextNode = 0;
 
-//#define DEBUG_BU 1
-#undef DEBUG_BU
+#define DEBUG_BU 1
+//#undef DEBUG_BU
 
-InnerNode* DirectBVH2Builder(AABB sceneAABB, std::vector<LeafItem> &leafItems, int &root_out)
+static void DirectBVH2Init(AABB sceneAABB,
+	std::vector<LeafItem>& leafItems,
+	std::vector<BuilderItem> &leafParents, InnerNodeBuildData* innerNodeBuildData, int& root_out)
 {
 	const int numPrimitives = (int)leafItems.size();
 	const int numInnerNodes = numPrimitives - 1;
-	InnerNode*   innerNodes = new InnerNode[numInnerNodes];
-
-	InnerNodeBuildData* innerNodeBuildData = new InnerNodeBuildData[numInnerNodes];
-	std::vector<BuilderItem> leafParents;
-
-	// ********************************************************
-	// PHASE 1: Initialize the algorithm
-	// ********************************************************
 
 	root_out = 0;
 	g_directBuilderNextNode = 1;
@@ -4003,305 +3997,347 @@ InnerNode* DirectBVH2Builder(AABB sceneAABB, std::vector<LeafItem> &leafItems, i
 		innerNodeBuildData[i] = { 0, 0, 0, 0.0f, AABB(), 0 };
 	// Initialize the node counters for the root, along with the box and split data
 	innerNodeBuildData[root_out] = { 0, 0, dim, split, sceneAABB, 0 };
+}
+
+static bool DirectBVH2Classify(int iteration,
+	std::vector<LeafItem>& leafItems,
+	std::vector<BuilderItem>& leafParents, InnerNodeBuildData* innerNodeBuildData)
+{
+	const int numPrimitives = (int)leafItems.size();
+	const int numInnerNodes = numPrimitives - 1;
+
+#ifdef DEBUG_BU
+	log_debug("[DBG] [BVH] --------------------------------------------");
+	log_debug("[DBG] [BVH] ITER: %d, PHASE 2. Classify prims", iteration);
+#endif
+
+	bool done = true;
+	for (int i = 0; i < numPrimitives; i++)
+	{
+		int parentNodeIndex = leafParents[i].parentIndex;
+		LeafItem leaf       = leafItems[i];
+
+		// Skip inactive primitives
+		if (parentNodeIndex == -1)
+			continue;
+
+		// We're going to process at least one primitive, so we're not done yet.
+		// This is a global, but it doesn't have to be an atomic because all threads
+		// will attempt to write the same value.
+		done = false;
+
+		InnerNodeBuildData& innerNodeBD = innerNodeBuildData[parentNodeIndex];
+		const int   dim   = innerNodeBD.dim;
+		const float split = innerNodeBD.split;
+#ifdef DEBUG_BU
+		const AABB  box   = innerNodeBD.box;
+#endif
+
+		if (leaf.centroid[dim] < split)
+		{
+			leafParents[i] = { parentNodeIndex, BU_LEFT };
+			innerNodeBD.countL++; // ATOMIC
+#ifdef DEBUG_BU
+			log_debug("[DBG] [BVH] (%d, %0.3f) -> L:%d, [%0.3f, %0.3f, %0.3f]",
+				i, leaf.centroid[dim],
+				parentNodeIndex, box.min[dim], split, box.max[dim]);
+#endif
+		}
+		else
+		{
+			leafParents[i] = { parentNodeIndex, BU_RIGHT };
+			innerNodeBD.countR++; // ATOMIC
+#ifdef DEBUG_BU
+			log_debug("[DBG] [BVH] (%d, %0.3f) -> R:%d, [%0.3f, %0.3f, %0.3f]",
+				i, leaf.centroid[dim],
+				parentNodeIndex, box.min[dim], split, box.max[dim]);
+#endif
+		}
+	}
+
+	return done;
+}
+
+static void DirectBVH2EmitInnerNodes(int iteration,
+	InnerNodeBuildData* innerNodeBuildData, InnerNode* innerNodes)
+{
+#ifdef DEBUG_BU
+	log_debug("[DBG] [BVH] --------------------------------------------");
+	log_debug("[DBG] [BVH] ITER: %d, PHASE 3. Emit inner nodes", iteration);
+#endif
+
+	// We don't need to iterate over all the inner nodes, since only a fraction of them
+	// will actually be active during the algorithm
+	const int lastActiveInnerNode = g_directBuilderNextNode;
+
+#ifdef DEBUG_BU
+	log_debug("[DBG] [BVH] lastActiveInnerNode: %d", lastActiveInnerNode);
+#endif
+
+	for (int i = 0; i < lastActiveInnerNode; i++)
+	{
+		InnerNodeBuildData& innerNodeBD = innerNodeBuildData[i];
+		// Skip full nodes
+		if (innerNodeBD.numChildren >= BU_MAX_CHILDREN)
+		{
+#ifdef DEBUG_BU
+			log_debug("[DBG] [BVH] Skipping inner node %d (it's full)", i);
+#endif
+			continue;
+		}
+
+		AABB  innerNodeBox = innerNodeBD.box;
+		int   dim          = innerNodeBD.dim;
+		float split        = innerNodeBD.split;
+
+		// Prepare the boxes for the next split
+		AABB boxL = innerNodeBox;
+		AABB boxR = innerNodeBox;
+		boxL.max[dim] = split;
+		boxR.min[dim] = split;
+
+		if (innerNodeBD.countL == 0)
+		{
+			// Bad split, repeat the iteration
+			int dim = boxR.GetLargestDimension();
+			float split = 0.5f * (boxR.max[dim] + boxR.min[dim]);
+
+			innerNodeBuildData[i].box = boxR;
+			innerNodeBuildData[i].dim = dim;
+			innerNodeBuildData[i].split = split;
+			innerNodeBuildData[i].countR = 0;
+#ifdef DEBUG_BU
+			log_debug("[DBG] [BVH] inner node %d has a bad split (countL == 0), repeat", i);
+#endif
+		}
+		else if (innerNodeBD.countR == 0)
+		{
+			// Bad split, repeat the iteration
+			int dim = boxL.GetLargestDimension();
+			float split = 0.5f * (boxL.max[dim] + boxL.min[dim]);
+
+			innerNodeBuildData[i].box = boxL;
+			innerNodeBuildData[i].dim = dim;
+			innerNodeBuildData[i].split = split;
+			innerNodeBuildData[i].countL = 0;
+#ifdef DEBUG_BU
+			log_debug("[DBG] [BVH] inner node %d has a bad split (countR == 0), repeat", i);
+#endif
+		}
+		else
+		{
+			if (innerNodeBD.countL > 1)
+			{
+				// Emit an inner node and split the left subrange again
+				int newNodeIndex = g_directBuilderNextNode;
+				g_directBuilderNextNode++; // ATOMIC
+				// Connect the current inner node to the new one
+				innerNodes[i].left = newNodeIndex;
+				innerNodes[i].leftIsLeaf = false;
+
+				// Split the left subrange again
+				int dim = boxL.GetLargestDimension();
+				float split = 0.5f * (boxL.max[dim] + boxL.min[dim]);
+
+				innerNodeBuildData[i].numChildren++;
+
+				// Enable the new inner node
+				innerNodeBuildData[newNodeIndex].box = boxL;
+				innerNodeBuildData[newNodeIndex].dim = dim;
+				innerNodeBuildData[newNodeIndex].split = split;
+				innerNodeBuildData[newNodeIndex].numChildren = 0;
+
+#ifdef DEBUG_BU
+				log_debug("[DBG] [BVH] %d->%d", innerNodes[i].left, i);
+#endif
+				if (innerNodeBuildData[i].numChildren == BU_MAX_CHILDREN)
+				{
+#ifdef DEBUG_BU
+					log_debug("[DBG] [BVH] Inner node %d is full, refit", i);
+#endif
+				}
+			}
+
+			if (innerNodeBD.countR > 1)
+			{
+				// Emit an inner node and split the right subrange again
+				int newNodeIndex = g_directBuilderNextNode;
+				g_directBuilderNextNode++; // ATOMIC
+				// Connect the current inner node to the new one
+				innerNodes[i].right = newNodeIndex;
+				innerNodes[i].rightIsLeaf = false;
+
+				// Split the left subrange again
+				int dim = boxR.GetLargestDimension();
+				float split = 0.5f * (boxR.max[dim] + boxR.min[dim]);
+
+				// Disable the previous inner node
+				innerNodeBuildData[i].numChildren++;
+
+				innerNodeBuildData[newNodeIndex].box = boxR;
+				innerNodeBuildData[newNodeIndex].dim = dim;
+				innerNodeBuildData[newNodeIndex].split = split;
+				innerNodeBuildData[newNodeIndex].numChildren = 0;
+
+#ifdef DEBUG_BU
+				log_debug("[DBG] [BVH] %d<-%d", i, innerNodes[i].right);
+#endif
+				if (innerNodeBuildData[i].numChildren == BU_MAX_CHILDREN)
+				{
+#ifdef DEBUG_BU
+					log_debug("[DBG] [BVH] Inner node %d is full, refit", i);
+#endif
+				}
+			}
+		}
+	}
+}
+
+static void DirectBVH2InitNextIteration(int iteration, const int numPrimitives,
+	std::vector<BuilderItem>& leafParents,
+	InnerNodeBuildData* innerNodeBuildData, InnerNode* innerNodes)
+{
+	const int numInnerNodes = numPrimitives - 1;
+
+#ifdef DEBUG_BU
+	log_debug("[DBG] [BVH] --------------------------------------------");
+	log_debug("[DBG] [BVH] ITER: %d, PHASE 4. Init next iteration, disable prims", iteration);
+#endif
+
+	for (int i = 0; i < numPrimitives; i++)
+	{
+		int parentIndex = leafParents[i].parentIndex;
+		int leftOrRight = leafParents[i].leftOrRight;
+
+		// Skip inactive primitives
+		if (parentIndex == -1)
+			continue;
+
+		// Emit leaves if applicable or update parent pointers
+		InnerNodeBuildData& innerNodeBD = innerNodeBuildData[parentIndex];
+
+		if (innerNodeBD.countL == 0 || innerNodeBD.countR == 0)
+		{
+			leafParents[i].leftOrRight = BU_NONE;
+#ifdef DEBUG_BU
+			log_debug("[DBG] [BVH] Skipping prim %d, it points to an inner node with a bad split", i);
+#endif
+			continue;
+		}
+
+		if (leftOrRight == BU_LEFT)
+		{
+			if (innerNodeBD.countL == 1)
+			{
+				// This node is a left leaf of parentIndex
+				innerNodes[parentIndex].left = i;
+				innerNodes[parentIndex].leftIsLeaf = true;
+				innerNodeBuildData[parentIndex].numChildren++;
+
+				// Deactivate this primitive for the next iteration
+				leafParents[i].parentIndex = -1;
+
+#ifdef DEBUG_BU
+				log_debug("[DBG] [BVH] prim %d still points to L:%d and it's a leaf, deactivated", i, parentIndex);
+#endif
+				if (innerNodeBuildData[parentIndex].numChildren == BU_MAX_CHILDREN)
+				{
+#ifdef DEBUG_BU
+					log_debug("[DBG] [BVH] Inner node %d is full, refit", parentIndex);
+#endif
+				}
+			}
+			else if (innerNodeBD.countL > 1)
+			{
+				// This leaf points to a node on the left, but this node doesn't
+				// have a leaf on that side, we need to update the parent of this leaf
+				// and loop again
+				leafParents[i].parentIndex = innerNodes[parentIndex].left;
+				leafParents[i].leftOrRight = BU_NONE;
+#ifdef DEBUG_BU
+				log_debug("[DBG] [BVH] prim %d now points to L:%d", i, innerNodes[parentIndex].left);
+#endif
+			}
+		}
+		else // leftOrRight == BU_RIGHT
+		{
+			if (innerNodeBD.countR == 1)
+			{
+				// This node is a left leaf of parentIndex
+				innerNodes[parentIndex].right = i;
+				innerNodes[parentIndex].rightIsLeaf = true;
+				innerNodeBuildData[parentIndex].numChildren++;
+
+				// Deactivate this primitive for the next iteration
+				leafParents[i].parentIndex = -1;
+
+#ifdef DEBUG_BU
+				log_debug("[DBG] [BVH] prim %d still points to R:%d and it's a leaf, deactivated", i, parentIndex);
+#endif
+				if (innerNodeBuildData[parentIndex].numChildren == BU_MAX_CHILDREN)
+				{
+#ifdef DEBUG_BU
+					log_debug("[DBG] [BVH] Inner node %d is full, refit", parentIndex);
+#endif
+				}
+			}
+			else if (innerNodeBD.countR > 1)
+			{
+				// This leaf points to a node on the right, but this node doesn't
+				// have a leaf on that side, we need to update the parent of this leaf
+				// and loop again
+				leafParents[i].parentIndex = innerNodes[parentIndex].right;
+				leafParents[i].leftOrRight = BU_NONE;
+#ifdef DEBUG_BU
+				log_debug("[DBG] [BVH] prim %d now points to R:%d", i, innerNodes[parentIndex].right);
+#endif
+			}
+		}
+	}
+}
+
+InnerNode* DirectBVH2Builder(AABB sceneAABB, std::vector<LeafItem> &leafItems, int &root_out)
+{
+	const int numPrimitives = (int)leafItems.size();
+	const int numInnerNodes = numPrimitives - 1;
+	InnerNode*   innerNodes = new InnerNode[numInnerNodes];
+
+	InnerNodeBuildData* innerNodeBuildData = new InnerNodeBuildData[numInnerNodes];
+	std::vector<BuilderItem> leafParents;
+
+	// ********************************************************
+	// PHASE 1: Initialize the algorithm
+	// ********************************************************
+	DirectBVH2Init(sceneAABB, leafItems, leafParents, innerNodeBuildData, root_out);
 
 	int maxNumIters = (int)ceil(log2((float)numPrimitives)) + 4;
 
 	for (int iteration = 0; iteration < maxNumIters; iteration++)
 	{
-		bool done = true;
-
-#ifdef DEBUG_BU
-		log_debug("[DBG] [BVH] --------------------------------------------");
-		log_debug("[DBG] [BVH] ITER: %d, PHASE 2. Classify prims", level);
-#endif
-
 		// ********************************************************
 		// PHASE 2: Classify the primitives
 		// ********************************************************
-
-		for (int i = 0; i < numPrimitives; i++)
-		{
-			int parentNodeIndex = leafParents[i].parentIndex;
-			LeafItem leaf = leafItems[i];
-
-			// Skip inactive primitives
-			if (parentNodeIndex == -1)
-				continue;
-
-			// We're going to process at least one primitive, so we're not done yet.
-			// This is a global, but it doesn't have to be an atomic because all threads
-			// will attempt to write the same value.
-			done = false;
-
-			InnerNodeBuildData& innerNodeBD = innerNodeBuildData[parentNodeIndex];
-			const int   dim = innerNodeBD.dim;
-			const float split = innerNodeBD.split;
-			const AABB  box = innerNodeBD.box;
-
-			if (leaf.centroid[dim] < split)
-			{
-				leafParents[i] = { parentNodeIndex, BU_LEFT };
-				innerNodeBD.countL++; // ATOMIC
-#ifdef DEBUG_BU
-				log_debug("[DBG] [BVH] (%d, %0.3f) -> %d, [%0.3f, %0.3f, %0.3f]",
-					i, leaf.centroid[dim],
-					parentNodeIndex, box.min[dim], split, box.max[dim]);
-#endif
-			}
-			else
-			{
-				leafParents[i] = { parentNodeIndex, BU_RIGHT };
-				innerNodeBD.countR++; // ATOMIC
-#ifdef DEBUG_BU
-				log_debug("[DBG] [BVH] %d, [%0.3f, %0.3f, %0.3f] <- (%d, %0.3f, s:%0.3f)",
-					parentNodeIndex, box.min[dim], split, box.max[dim],
-					i, leaf.centroid[dim]);
-#endif
-			}
-		}
+		const bool done = DirectBVH2Classify(iteration, leafItems, leafParents, innerNodeBuildData);
 
 		// The algorithm has finished
 		if (done)
 		{
+//#ifdef DEBUG_BU
 			log_debug("[DBG] [BVH] Finished at iteration: %d, maxNumIters: %d",
 				iteration, maxNumIters);
+//#endif
 			break;
 		}
 
 		// ********************************************************
 		// PHASE 3: Emit inner nodes
 		// ********************************************************
-
-#ifdef DEBUG_BU
-		log_debug("[DBG] [BVH] --------------------------------------------");
-		log_debug("[DBG] [BVH] ITER: %d, PHASE 3. Emit inner nodes", level);
-#endif
-
-		// We don't need to iterate over all the inner nodes, since only a fraction of them
-		// will actually be active during the algorithm
-		const int lastActiveInnerNode = g_directBuilderNextNode;
-
-#ifdef DEBUG_BU
-		log_debug("[DBG] [BVH] lastActiveInnerNode: %d", lastActiveInnerNode);
-#endif
-
-		for (int i = 0; i < lastActiveInnerNode; i++)
-		{
-			InnerNodeBuildData& innerNodeBD = innerNodeBuildData[i];
-			// Skip full nodes
-			if (innerNodeBD.numChildren >= BU_MAX_CHILDREN)
-			{
-#ifdef DEBUG_BU
-				log_debug("[DBG] [BVH] Skipping inner node %d (it's full)", i);
-#endif
-				continue;
-			}
-
-			AABB innerNodeBox = innerNodeBD.box;
-			int dim = innerNodeBD.dim;
-			float split = innerNodeBD.split;
-
-			// Prepare the boxes for the next split
-			AABB boxL = innerNodeBox;
-			AABB boxR = innerNodeBox;
-			boxL.max[dim] = split;
-			boxR.min[dim] = split;
-
-			if (innerNodeBD.countL == 0)
-			{
-				// Bad split, repeat the iteration
-				int dim = boxR.GetLargestDimension();
-				float split = 0.5f * (boxR.max[dim] + boxR.min[dim]);
-
-				innerNodeBuildData[i].box = boxR;
-				innerNodeBuildData[i].dim = dim;
-				innerNodeBuildData[i].split = split;
-				innerNodeBuildData[i].countR = 0;
-#ifdef DEBUG_BU
-				log_debug("[DBG] [BVH] inner node %d has a bad split (countL == 0), repeat", i);
-#endif
-			}
-			else if (innerNodeBD.countR == 0)
-			{
-				// Bad split, repeat the iteration
-				int dim = boxL.GetLargestDimension();
-				float split = 0.5f * (boxL.max[dim] + boxL.min[dim]);
-
-				innerNodeBuildData[i].box = boxL;
-				innerNodeBuildData[i].dim = dim;
-				innerNodeBuildData[i].split = split;
-				innerNodeBuildData[i].countL = 0;
-#ifdef DEBUG_BU
-				log_debug("[DBG] [BVH] inner node %d has a bad split (countR == 0), repeat", i);
-#endif
-			}
-			else
-			{
-				if (innerNodeBD.countL > 1)
-				{
-					// Emit an inner node and split the left subrange again
-					int newNodeIndex = g_directBuilderNextNode;
-					g_directBuilderNextNode++; // ATOMIC
-					// Connect the current inner node to the new one
-					innerNodes[i].left = newNodeIndex;
-					innerNodes[i].leftIsLeaf = false;
-
-					// Split the left subrange again
-					int dim = boxL.GetLargestDimension();
-					float split = 0.5f * (boxL.max[dim] + boxL.min[dim]);
-
-					innerNodeBuildData[i].numChildren++;
-
-					// Enable the new inner node
-					innerNodeBuildData[newNodeIndex].box = boxL;
-					innerNodeBuildData[newNodeIndex].dim = dim;
-					innerNodeBuildData[newNodeIndex].split = split;
-					innerNodeBuildData[newNodeIndex].numChildren = 0;
-
-#ifdef DEBUG_BU
-					log_debug("[DBG] [BVH] %d->%d", innerNodes[i].left, i);
-#endif
-					if (innerNodeBuildData[i].numChildren == BU_MAX_CHILDREN)
-					{
-#ifdef DEBUG_BU
-						log_debug("[DBG] [BVH] Inner node %d is full, refit", i);
-#endif
-					}
-				}
-
-				if (innerNodeBD.countR > 1)
-				{
-					// Emit an inner node and split the right subrange again
-					int newNodeIndex = g_directBuilderNextNode;
-					g_directBuilderNextNode++; // ATOMIC
-					// Connect the current inner node to the new one
-					innerNodes[i].right = newNodeIndex;
-					innerNodes[i].rightIsLeaf = false;
-
-					// Split the left subrange again
-					int dim = boxR.GetLargestDimension();
-					float split = 0.5f * (boxR.max[dim] + boxR.min[dim]);
-
-					// Disable the previous inner node
-					innerNodeBuildData[i].numChildren++;
-
-					innerNodeBuildData[newNodeIndex].box = boxR;
-					innerNodeBuildData[newNodeIndex].dim = dim;
-					innerNodeBuildData[newNodeIndex].split = split;
-					innerNodeBuildData[newNodeIndex].numChildren = 0;
-
-#ifdef DEBUG_BU
-					log_debug("[DBG] [BVH] %d<-%d", i, innerNodes[i].right);
-#endif
-					if (innerNodeBuildData[i].numChildren == BU_MAX_CHILDREN)
-					{
-#ifdef DEBUG_BU
-						log_debug("[DBG] [BVH] Inner node %d is full, refit", i);
-#endif
-					}
-				}
-			}
-		}
+		DirectBVH2EmitInnerNodes(iteration, innerNodeBuildData, innerNodes);
 
 		// ********************************************************
 		// PHASE 4: Init the next iteration and disable primitives
 		// ********************************************************
-
-#ifdef DEBUG_BU
-		log_debug("[DBG] [BVH] --------------------------------------------");
-		log_debug("[DBG] [BVH] ITER: %d, PHASE 4. Init next iteration, disable prims", level);
-#endif
-
-		for (int i = 0; i < numPrimitives; i++)
-		{
-			int parentIndex = leafParents[i].parentIndex;
-			int leftOrRight = leafParents[i].leftOrRight;
-
-			// Skip inactive primitives
-			if (parentIndex == -1)
-				continue;
-
-			// Emit leaves if applicable or update parent pointers
-			InnerNodeBuildData& innerNodeBD = innerNodeBuildData[parentIndex];
-
-			if (innerNodeBD.countL == 0 || innerNodeBD.countR == 0)
-			{
-				leafParents[i].leftOrRight = BU_NONE;
-#ifdef DEBUG_BU
-				log_debug("[DBG] [BVH] Skipping prim %d, it points to an inner node with a bad split", i);
-#endif
-				continue;
-			}
-
-			if (leftOrRight == BU_LEFT)
-			{
-				if (innerNodeBD.countL == 1)
-				{
-					// This node is a left leaf of parentIndex
-					innerNodes[parentIndex].left = i;
-					innerNodes[parentIndex].leftIsLeaf = true;
-					innerNodeBuildData[parentIndex].numChildren++;
-
-					// Deactivate this primitive for the next iteration
-					leafParents[i].parentIndex = -1;
-
-#ifdef DEBUG_BU
-					log_debug("[DBG] [BVH] prim %d still points to L:%d and it's a leaf, deactivated", i, parentIndex);
-#endif
-					if (innerNodeBuildData[parentIndex].numChildren == BU_MAX_CHILDREN)
-					{
-#ifdef DEBUG_BU
-						log_debug("[DBG] [BVH] Inner node %d is full, refit", parentIndex);
-#endif
-					}
-				}
-				else if (innerNodeBD.countL > 1)
-				{
-					// This leaf points to a node on the left, but this node doesn't
-					// have a leaf on that side, we need to update the parent of this leaf
-					// and loop again
-					leafParents[i].parentIndex = innerNodes[parentIndex].left;
-					leafParents[i].leftOrRight = BU_NONE;
-#ifdef DEBUG_BU
-					log_debug("[DBG] [BVH] prim %d now points to L:%d", i, innerNodes[parentIndex].left);
-#endif
-				}
-			}
-			else // leftOrRight == BU_RIGHT
-			{
-				if (innerNodeBD.countR == 1)
-				{
-					// This node is a left leaf of parentIndex
-					innerNodes[parentIndex].right = i;
-					innerNodes[parentIndex].rightIsLeaf = true;
-					innerNodeBuildData[parentIndex].numChildren++;
-
-					// Deactivate this primitive for the next iteration
-					leafParents[i].parentIndex = -1;
-
-#ifdef DEBUG_BU
-					log_debug("[DBG] [BVH] prim %d still points to R:%d and it's a leaf, deactivated", i, parentIndex);
-#endif
-					if (innerNodeBuildData[parentIndex].numChildren == BU_MAX_CHILDREN)
-					{
-#ifdef DEBUG_BU
-						log_debug("[DBG] [BVH] Inner node %d is full, refit", parentIndex);
-#endif
-					}
-				}
-				else if (innerNodeBD.countR > 1)
-				{
-					// This leaf points to a node on the right, but this node doesn't
-					// have a leaf on that side, we need to update the parent of this leaf
-					// and loop again
-					leafParents[i].parentIndex = innerNodes[parentIndex].right;
-					leafParents[i].leftOrRight = BU_NONE;
-#ifdef DEBUG_BU
-					log_debug("[DBG] [BVH] prim %d now points to R:%d", i, innerNodes[parentIndex].right);
-#endif
-				}
-			}
-		}
+		DirectBVH2InitNextIteration(iteration, numPrimitives, leafParents, innerNodeBuildData, innerNodes);
 
 #ifdef DEBUG_BU
 		log_debug("[DBG] [BVH] **************************************************");

@@ -1421,8 +1421,8 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
 		//}
 		{
 			g_bRTEnableEmbree = false;
-			g_BVHBuilderType = BVHBuilderType_FastQBVH;
-			log_debug("[DBG] [BVH] [EMB] Embree was not loaded. Using FastLQBVH instead");
+			g_BVHBuilderType = DEFAULT_BVH_BUILDER;
+			log_debug("[DBG] [BVH] [EMB] Embree was not loaded. Using DEFAULT_BVH_BUILDER instead");
 		}
 
 		if (IsXwaExe())

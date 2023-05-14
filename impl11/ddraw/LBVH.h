@@ -245,38 +245,34 @@ using MortonCode_t = uint32_t;
 using MortonCode_t = uint64_t;
 #endif
 // 0: Morton Code, 1: Bounding Box, 2: TriID
-using LeafItem = std::tuple<MortonCode_t, AABB, int>;
+//using LeafItem = std::tuple<MortonCode_t, AABB, int>;
 // 0: Morton Code, 1: aabbFromOBB, 2: BlasID, 3: Centroid, 4: MatrixSlot, 5: Oriented Bounding Box
-using TLASLeafItem = std::tuple<MortonCode_t, AABB, int, XwaVector3, int, AABB>;
+//using TLASLeafItem = std::tuple<MortonCode_t, AABB, int, XwaVector3, int, AABB>;
 // Used in the DirectBVH algorithms
-struct LeafItemCentroid
+struct LeafItem
 {
+	MortonCode_t code;
 	Vector3 centroid;
 	AABB aabb;
 	int PrimID;
 };
 // Used in the DirectBVH algorithms
-struct TLASLeafItemCentroid : LeafItemCentroid
+struct TLASLeafItem : LeafItem
 {
 	int matrixSlot;
 	AABB obb;
 };
 
-inline MortonCode_t &GetMortonCode(LeafItem& X) { return std::get<0>(X); }
-inline MortonCode_t &GetMortonCode(TLASLeafItem& X) { return std::get<0>(X); }
+inline MortonCode_t &GetMortonCode(LeafItem& X) { return X.code; }
+inline AABB &GetAABB(LeafItem& X) { return X.aabb; }
+inline int& GetID(LeafItem& X) { return X.PrimID; }
 
-inline AABB &GetAABB(LeafItem& X) { return std::get<1>(X); }
-inline AABB &GetAABB(TLASLeafItem& X) { return std::get<1>(X); }
-
-inline int& GetID(LeafItem& X) { return std::get<2>(X); }
-inline int& GetID(TLASLeafItem& X) { return std::get<2>(X); }
-
-inline MortonCode_t& TLASGetMortonCode(TLASLeafItem& X) { return std::get<0>(X); }
-inline AABB& TLASGetAABBFromOBB(TLASLeafItem& X) { return std::get<1>(X); }
-inline int& TLASGetID(TLASLeafItem& X) { return std::get<2>(X); }
-inline XwaVector3& TLASGetCentroid(TLASLeafItem& X) { return std::get<3>(X); }
-inline int& TLASGetMatrixSlot(TLASLeafItem& X) { return std::get<4>(X); }
-inline AABB& TLASGetOBB(TLASLeafItem& X) { return std::get<5>(X); }
+inline MortonCode_t& TLASGetMortonCode(TLASLeafItem& X) { return X.code; }
+inline AABB& TLASGetAABBFromOBB(TLASLeafItem& X) { return X.aabb; }
+inline int& TLASGetID(TLASLeafItem& X) { return X.PrimID; }
+inline Vector3& TLASGetCentroid(TLASLeafItem& X) { return X.centroid; }
+inline int& TLASGetMatrixSlot(TLASLeafItem& X) { return X.matrixSlot; }
+inline AABB& TLASGetOBB(TLASLeafItem& X) { return X.obb; }
 
 struct InnerNode
 {
@@ -754,9 +750,9 @@ using NodeChildKey = std::tuple<uint32_t, int>;
 
 int CalcNumInnerQBVHNodes(int numPrimitives);
 
-void Normalize(XwaVector3& A, const AABB& sceneBox, const XwaVector3& range);
+void Normalize(Vector3& A, const AABB& sceneBox, const XwaVector3& range);
 
-MortonCode_t GetMortonCode(const XwaVector3& V);
+MortonCode_t GetMortonCode(const Vector3& V);
 
 // Red-Black balanced insertion
 TreeNode* InsertRB(TreeNode* T, int TriID, MortonCode_t code, const AABB& box, const Matrix4& m);

@@ -769,7 +769,7 @@ void BuildTLAS()
 	for (uint32_t i = 0; i < numLeaves; i++)
 	{
 		auto& leaf = tlasLeaves[i];
-		XwaVector3 centroid = TLASGetCentroid(leaf);
+		Vector3 centroid = TLASGetCentroid(leaf);
 		Normalize(centroid, g_GlobalAABB, g_GlobalRange);
 		TLASGetMortonCode(leaf) = GetMortonCode(centroid);
 	}
@@ -3717,11 +3717,11 @@ void EffectsRenderer::UpdateBVHMaps(const SceneCompData* scene, int LOD)
 		// Fetch the AABB for this mesh
 		auto aabb_it = _AABBs.find(meshKey);
 		if (aabb_it != _AABBs.end()) {
-			AABB obb = aabb_it->second;					// The AABB in object space
-			obb.UpdateLimits();							// Generate all the vertices (8) so that we can transform them.
-			obb.TransformLimits(W);						// Now it's an OBB in WorldView space...
-			AABB aabb = obb.GetAABBFromCurrentLimits(); // so we get the AABB from this OBB...
-			XwaVector3 centroid = aabb.GetCentroid();   // and its centroid.
+			AABB obb = aabb_it->second;                   // The AABB in object space
+			obb.UpdateLimits();                           // Generate all the vertices (8) so that we can transform them.
+			obb.TransformLimits(W);                       // Now it's an OBB in WorldView space...
+			AABB aabb = obb.GetAABBFromCurrentLimits();   // so we get the AABB from this OBB...
+			Vector3 centroid = aabb.GetCentroidVector3(); // and its centroid.
 
 			IDCentroid_t IDCentroidKey = IDCentroid_t(blasID, centroid.x, centroid.y, centroid.z);
 			auto it = g_TLASMap.find(IDCentroidKey);
@@ -3743,7 +3743,7 @@ void EffectsRenderer::UpdateBVHMaps(const SceneCompData* scene, int LOD)
 				// Add a new entry to tlasLeaves and update the global centroid
 				//AddAABBToTLAS(W, meshKey, obb, centroid, matrixSlot);
 				g_GlobalAABB.Expand(aabb);
-				tlasLeaves.push_back(TLASLeafItem(0, aabb, blasID, centroid, matrixSlot, obb));
+				tlasLeaves.push_back({ 0, centroid, aabb, blasID, matrixSlot, obb });
 			}
 			else
 			{

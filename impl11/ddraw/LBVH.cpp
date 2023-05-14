@@ -32,6 +32,7 @@ rtcThreadLocalAllocFun g_rtcThreadLocalAlloc = nullptr;
 rtcReleaseBVHFun g_rtcReleaseBVH = nullptr;
 
 void PrintTreeBuffer(std::string level, BVHNode* buffer, int curNode);
+InnerNode* DirectBVH2Builder(AABB sceneAABB, std::vector<LeafItem>& leafItems, int& root_out);
 
 // Load a BVH2, deprecated since the BVH4 are more better
 #ifdef DISABLED
@@ -209,12 +210,12 @@ int CalcNumInnerQBVHNodes(int numPrimitives)
 
 bool leafSorter(const LeafItem& i, const LeafItem& j)
 {
-	return std::get<0>(i) < std::get<0>(j);
+	return i.code < j.code;
 }
 
 bool tlasLeafSorter(const TLASLeafItem& i, const TLASLeafItem& j)
 {
-	return std::get<0>(i) < std::get<0>(j);
+	return i.code < j.code;
 }
 
 // Load a BVH4
@@ -556,7 +557,7 @@ MortonCode_t GetMortonCode(uint32_t x, uint32_t y, uint32_t z)
 }
 
 #ifdef MORTON_CODE_30
-MortonCode_t GetMortonCode(const XwaVector3 &V)
+MortonCode_t GetMortonCode(const Vector3 &V)
 {
 	constexpr float k = 1023.0f; // 0x3FF
 	uint32_t x = (uint32_t)(V.x * k);
@@ -565,7 +566,7 @@ MortonCode_t GetMortonCode(const XwaVector3 &V)
 	return GetMortonCode(x, y, z);
 }
 #else
-MortonCode_t GetMortonCode(const XwaVector3& V)
+MortonCode_t GetMortonCode(const Vector3& V)
 {
 	constexpr float k = 2097151.0f; // 0x1FFFFF
 	uint32_t x = (uint32_t)(V.x * k);
@@ -579,8 +580,8 @@ MortonCode_t GetMortonCode(const XwaVector3& V)
 template<class T>
 static MortonCode_t delta(const std::vector<T> &leafItems, int i)
 {
-	MortonCode_t mi = std::get<0>(leafItems[i]);
-	MortonCode_t mj = std::get<0>(leafItems[i + 1]);
+	MortonCode_t mi = leafItems[i].code;
+	MortonCode_t mj = leafItems[i + 1].code;
 	return (mi == mj) ? i ^ (i + 1) : mi ^ mj;
 }
 
@@ -594,7 +595,7 @@ int ChooseParent(int curNode, bool isLeaf, int numLeaves, const std::vector<Leaf
 	{
 		left = curNode;
 		right = curNode;
-		curAABB = std::get<1>(leafItems[curNode]);
+		curAABB = leafItems[curNode].aabb;
 	}
 	else
 	{
@@ -709,7 +710,7 @@ int ChooseParent4(int curNode, bool isLeaf, int numLeaves, const std::vector<T>&
 	{
 		left = curNode;
 		right = curNode;
-		curAABB = std::get<1>(leafItems[curNode]);
+		curAABB = leafItems[curNode].aabb;
 		totalNodes = 1;
 	}
 	else
@@ -1121,7 +1122,7 @@ int FindChildWithMaxArea(int curNode, InnerNode4* innerNodes, const std::vector<
 			continue;
 
 		if (childIsLeaf)
-			box = std::get<1>(leafItems[child]);
+			box = leafItems[child].aabb;
 		else
 			box = innerNodes[child].aabb;
 
@@ -1166,7 +1167,7 @@ AABB CalcInnerNodeAABB(int curNode, InnerNode4* innerNodes, const std::vector<Le
 		AABB box;
 
 		if (childIsLeaf)
-			box = std::get<1>(leafItems[child]);
+			box = leafItems[child].aabb;
 		else
 			box = innerNodes[child].aabb;
 		innerNodes[curNode].aabb.Expand(box);
@@ -1380,7 +1381,7 @@ int EncodeLeafNode(BVHNode* buffer, const std::vector<LeafItem>& leafItems, int 
 {
 	uint32_t* ubuffer = (uint32_t*)buffer;
 	float* fbuffer = (float*)buffer;
-	int TriID = std::get<2>(leafItems[leafIdx]);
+	int TriID = leafItems[leafIdx].PrimID;
 	int idx = TriID * 3;
 	XwaVector3 v0, v1, v2;
 	int EncodeOfs = EncodeNodeIdx * sizeof(BVHNode) / 4;
@@ -1484,7 +1485,7 @@ void EncodeChildren(BVHNode *buffer, int numQBVHInnerNodes, InnerNode4* innerNod
 		// Leaves are already encoded
 		if (innerNodes[curNode].isLeaf[i]) {
 			// TODO: Write the parent of the leaf
-			int TriID = std::get<2>(leafItems[childNode]);
+			int TriID = leafItems[childNode].PrimID;
 			//innerNodes[curNode].QBVHOfs[i] = TriID + numQBVHInnerNodes;
 			innerNodes[curNode].QBVHOfs[i] = childNode + numQBVHInnerNodes; // ?
 			//log_debug("[DBG] [BVH] Linking Leaf. curNode: %d, i: %d, childNode: %d, QBVHOfs: %d",
@@ -1611,12 +1612,12 @@ template<class T>
 void DumpTLASLeafItem(FILE *file, T& X)
 {
 	//using TLASLeafItem = std::tuple<MortonCode_t, AABB, int, XwaVector3, int, AABB>;
-	AABB aabb = std::get<1>(X);
+	AABB aabb = X.aabb;
 	fprintf(file, "%lld, (%0.3f, %0.3f, %0.3f)-(%0.3f, %0.3f, %0.3f), %d\n",
-		std::get<0>(X),
+		X.code,
 		aabb.min.x, aabb.min.y, aabb.min.z,
 		aabb.max.x, aabb.max.y, aabb.max.z,
-		std::get<2>(X));
+		X.PrimID);
 }
 
 void ReadTLASLeafItem(FILE* file, TLASLeafItem& X)
@@ -1640,9 +1641,9 @@ void ReadTLASLeafItem(FILE* file, TLASLeafItem& X)
 	aabb.max.y = (float)maxy;
 	aabb.max.z = (float)maxz;
 
-	std::get<0>(X) = code;
-	std::get<1>(X) = aabb;
-	std::get<2>(X) = ID;
+	X.code = code;
+	X.aabb = aabb;
+	X.PrimID = ID;
 }
 
 template<class T>
@@ -1918,7 +1919,7 @@ void PrintTreeBuffer(std::string level, BVHNode *buffer, int curNode)
 	if (arity > 2) log_debug("[DBG] [BVH] %s", (level + "   \\----/").c_str());
 }
 
-void Normalize(XwaVector3 &A, const AABB &sceneBox, const XwaVector3 &range)
+void Normalize(Vector3 &A, const AABB &sceneBox, const XwaVector3 &range)
 {
 	A.x -= sceneBox.min.x;
 	A.y -= sceneBox.min.y;
@@ -2001,7 +2002,7 @@ void DumpInnerNodesToOBJ(char *sFileName, int rootIdx,
 
 	for (int curNode = 0; curNode < numLeaves; curNode++)
 	{
-		int TriID = std::get<2>(leafItems[curNode]);
+		int TriID = leafItems[curNode].PrimID;
 		int i = TriID * 3;
 
 		XwaVector3 v0 = vertices[indices[i + 0]];
@@ -2112,8 +2113,8 @@ static int EncodeTreeNode4(void* buffer, int startOfs,
 	int32_t parent, const std::vector<int>& children,
 	const XwaVector3* Vertices, const int* Indices)
 {
-	AABB box = isLeaf ? std::get<1>(leafItems[curNode]) : innerNodes[curNode].aabb;
-	int TriID = isLeaf ? std::get<2>(leafItems[curNode]) : -1;
+	AABB  box   = isLeaf ? leafItems[curNode].aabb   : innerNodes[curNode].aabb;
+	int   TriID = isLeaf ? leafItems[curNode].PrimID : -1;
 	int padding = 0;
 	int ofs = startOfs;
 	uint32_t* ubuffer = (uint32_t*)buffer;
@@ -2870,10 +2871,10 @@ LBVH* LBVH::Build(const XwaVector3* vertices, const int numVertices, const int *
 		aabb.Expand(vertices[indices[i + 1]]);
 		aabb.Expand(vertices[indices[i + 2]]);
 
-		XwaVector3 centroid = aabb.GetCentroid();
+		Vector3 centroid = aabb.GetCentroidVector3();
 		Normalize(centroid, sceneBox, range);
 		MortonCode_t m = GetMortonCode(centroid);
-		leafItems.push_back(std::make_tuple(m, aabb, TriID));
+		leafItems.push_back({ m, Vector3(), aabb, TriID });
 	}
 
 	// Sort the morton codes
@@ -2946,10 +2947,10 @@ LBVH* LBVH::BuildQBVH(const XwaVector3* vertices, const int numVertices, const i
 		aabb.Expand(vertices[indices[i + 1]]);
 		aabb.Expand(vertices[indices[i + 2]]);
 
-		XwaVector3 centroid = aabb.GetCentroid();
+		Vector3 centroid = aabb.GetCentroidVector3();
 		Normalize(centroid, sceneBox, range);
 		MortonCode_t m = GetMortonCode(centroid);
-		leafItems.push_back(std::make_tuple(m, aabb, TriID));
+		leafItems.push_back({ m, Vector3(), aabb, TriID });
 	}
 
 	// Sort the morton codes
@@ -3026,10 +3027,10 @@ LBVH* LBVH::BuildFastQBVH(const XwaVector3* vertices, const int numVertices, con
 		aabb.Expand(v1);
 		aabb.Expand(v2);
 
-		XwaVector3 centroid = aabb.GetCentroid();
+		Vector3 centroid = aabb.GetCentroidVector3();
 		Normalize(centroid, sceneBox, range);
 		MortonCode_t m = GetMortonCode(centroid);
-		leafItems.push_back(std::make_tuple(m, aabb, TriID));
+		leafItems.push_back({ m, Vector3(), aabb, TriID });
 	}
 
 	// Sort the morton codes
@@ -3143,7 +3144,7 @@ LBVH* LBVH::BuildDirectBVH2(const XwaVector3* vertices, const int numVertices, c
 	*/
 
 	// Get the centroid and AABB for each triangle.
-	std::vector<LeafItemCentroid> leafItems;
+	std::vector<LeafItem> leafItems;
 	for (int i = 0, TriID = 0; i < numIndices; i += 3, TriID++) {
 		AABB aabb;
 		aabb.Expand(vertices[indices[i + 0]]);
@@ -3151,14 +3152,12 @@ LBVH* LBVH::BuildDirectBVH2(const XwaVector3* vertices, const int numVertices, c
 		aabb.Expand(vertices[indices[i + 2]]);
 
 		Vector3 centroid = aabb.GetCentroidVector3();
-		leafItems.push_back({ centroid, aabb, TriID });
+		leafItems.push_back({ 0, centroid, aabb, TriID });
 	}
 
 	// Build the tree
-#ifdef DISABLED
 	int root = -1;
-	InnerNode* innerNodes = FastLBVH(leafItems, &root);
-	//log_debug("[DBG] [BVH] FastLBVH finished. Tree built. root: %d", root);
+	InnerNode* innerNodes = DirectBVH2Builder(sceneBox, leafItems, root);
 
 	//char sFileName[80];
 	//sprintf_s(sFileName, 80, ".\\BLAS-%d.obj", meshIndex);
@@ -3195,9 +3194,6 @@ LBVH* LBVH::BuildDirectBVH2(const XwaVector3* vertices, const int numVertices, c
 	// Tidy up
 	//DeleteTree(Q);
 	return lbvh;
-#else
-	return nullptr;
-#endif
 }
 
 // https://github.com/embree/embree/blob/master/tutorials/bvh_builder/bvh_builder_device.cpp
@@ -3726,58 +3722,7 @@ void DeleteTree(QTreeNode* Q)
 	delete Q;
 }
 
-QTreeNode *BinTreeToQTree(int curNode, bool curNodeIsLeaf, const InnerNode* innerNodes, const std::vector<LeafItem> &leafItems)
-{
-	QTreeNode *children[] = {nullptr, nullptr, nullptr, nullptr};
-	if (curNode == -1) {
-		return nullptr;
-	}
-
-	if (curNodeIsLeaf) {
-		return new QTreeNode(std::get<2>(leafItems[curNode]) /* TriID */, std::get<1>(leafItems[curNode]) /* box */);
-	}
-
-	int left = innerNodes[curNode].left;
-	int right = innerNodes[curNode].right;
-	int nextchild = 0;
-	int nodeCounter = 0;
-
-	// if (left != -1) // All inner nodes in the Fast LBVH have 2 children
-	{
-		if (innerNodes[curNode].leftIsLeaf)
-		{
-			children[nextchild++] = BinTreeToQTree(left, true, innerNodes, leafItems);
-		}
-		else
-		{
-			children[nextchild++] = BinTreeToQTree(innerNodes[left].left, innerNodes[left].leftIsLeaf, innerNodes, leafItems);
-			children[nextchild++] = BinTreeToQTree(innerNodes[left].right, innerNodes[left].rightIsLeaf, innerNodes, leafItems);
-		}
-	}
-
-	// if (right != -1) // All inner nodes in the Fast LBVH have 2 children
-	{
-		if (innerNodes[curNode].rightIsLeaf)
-		{
-			children[nextchild++] = BinTreeToQTree(right, true, innerNodes, leafItems);
-		}
-		else
-		{
-			children[nextchild++] = BinTreeToQTree(innerNodes[right].left, innerNodes[right].leftIsLeaf, innerNodes, leafItems);
-			children[nextchild++] = BinTreeToQTree(innerNodes[right].right, innerNodes[right].rightIsLeaf, innerNodes, leafItems);
-		}
-	}
-
-	// Compute the AABB for this node
-	AABB box;
-	for (int i = 0; i < nextchild; i++)
-		box.Expand(children[i]->box);
-
-	return new QTreeNode(-1, box, children, nullptr);
-}
-
-// Same as the previous version, but uses LeafItemCentroid
-QTreeNode *BinTreeToQTree(int curNode, bool curNodeIsLeaf, const InnerNode* innerNodes, const std::vector<LeafItemCentroid>& leafItems)
+QTreeNode *BinTreeToQTree(int curNode, bool curNodeIsLeaf, const InnerNode* innerNodes, const std::vector<LeafItem>& leafItems)
 {
 	QTreeNode* children[] = { nullptr, nullptr, nullptr, nullptr };
 	if (curNode == -1) {
@@ -4031,7 +3976,7 @@ int g_directBuilderNextNode = 0;
 //#define DEBUG_BU 1
 #undef DEBUG_BU
 
-InnerNode* DirectBVH2Builder(AABB sceneAABB, std::vector<LeafItemCentroid> &leafItems, int &root_out)
+InnerNode* DirectBVH2Builder(AABB sceneAABB, std::vector<LeafItem> &leafItems, int &root_out)
 {
 	const int numPrimitives = (int)leafItems.size();
 	const int numInnerNodes = numPrimitives - 1;
@@ -4077,7 +4022,7 @@ InnerNode* DirectBVH2Builder(AABB sceneAABB, std::vector<LeafItemCentroid> &leaf
 		for (int i = 0; i < numPrimitives; i++)
 		{
 			int parentNodeIndex = leafParents[i].parentIndex;
-			LeafItemCentroid leaf = leafItems[i];
+			LeafItem leaf = leafItems[i];
 
 			// Skip inactive primitives
 			if (parentNodeIndex == -1)
@@ -4374,14 +4319,14 @@ void TestFastLBVH()
 	AABB aabb;
 	// This is the example from Apetrei 2014.
 	// Here the TriID is the same as the morton code for debugging purposes.
-	leafItems.push_back(std::make_tuple(4, aabb, 4));
-	leafItems.push_back(std::make_tuple(12, aabb, 12));
-	leafItems.push_back(std::make_tuple(3, aabb, 3));
-	leafItems.push_back(std::make_tuple(13, aabb, 13));
-	leafItems.push_back(std::make_tuple(5, aabb, 5));
-	leafItems.push_back(std::make_tuple(2, aabb, 2));
-	leafItems.push_back(std::make_tuple(15, aabb, 15));
-	leafItems.push_back(std::make_tuple(8, aabb, 8));
+	leafItems.push_back({ 4, Vector3(), aabb, 4 });
+	leafItems.push_back({ 12, Vector3(), aabb, 12 });
+	leafItems.push_back({ 3, Vector3(), aabb, 3 });
+	leafItems.push_back({ 13, Vector3(), aabb, 13 });
+	leafItems.push_back({5, Vector3(), aabb, 5 });
+	leafItems.push_back({2, Vector3(), aabb, 2 });
+	leafItems.push_back({15, Vector3(), aabb, 15 });
+	leafItems.push_back({8, Vector3(), aabb, 8 });
 
 	// Sort by the morton codes
 	std::sort(leafItems.begin(), leafItems.end(), leafSorter);
@@ -4426,14 +4371,14 @@ void TestFastLQBVH()
 	AABB aabb;
 	// This is the example from Apetrei 2014.
 	// Here the TriID is the same as the morton code for debugging purposes.
-	leafItems.push_back(std::make_tuple( 4, aabb, 0));
-	leafItems.push_back(std::make_tuple(12, aabb, 1));
-	leafItems.push_back(std::make_tuple( 3, aabb, 2));
-	leafItems.push_back(std::make_tuple(13, aabb, 3));
-	leafItems.push_back(std::make_tuple( 5, aabb, 4));
-	leafItems.push_back(std::make_tuple( 2, aabb, 5));
-	leafItems.push_back(std::make_tuple(15, aabb, 6));
-	leafItems.push_back(std::make_tuple( 8, aabb, 7));
+	leafItems.push_back({ 4, Vector3(), aabb, 0 });
+	leafItems.push_back({ 12, Vector3(), aabb, 1 });
+	leafItems.push_back({ 3, Vector3(), aabb, 2 });
+	leafItems.push_back({ 13, Vector3(), aabb, 3 });
+	leafItems.push_back({ 5, Vector3(), aabb, 4 });
+	leafItems.push_back({ 2, Vector3(), aabb, 5 });
+	leafItems.push_back({ 15, Vector3(), aabb, 6 });
+	leafItems.push_back({ 8, Vector3(), aabb, 7 });
 
 	// Sort by the morton codes
 	std::sort(leafItems.begin(), leafItems.end(), leafSorter);
@@ -4482,14 +4427,14 @@ void TestFastLQBVHEncode()
 	AABB aabb;
 	// This is the example from Apetrei 2014.
 	// Here the TriID is the same as the morton code for debugging purposes.
-	leafItems.push_back(std::make_tuple( 4, aabb, 0));
-	leafItems.push_back(std::make_tuple(12, aabb, 1));
-	leafItems.push_back(std::make_tuple( 3, aabb, 2));
-	leafItems.push_back(std::make_tuple(13, aabb, 3));
-	leafItems.push_back(std::make_tuple( 5, aabb, 4));
-	leafItems.push_back(std::make_tuple( 2, aabb, 5));
-	leafItems.push_back(std::make_tuple(15, aabb, 6));
-	leafItems.push_back(std::make_tuple( 8, aabb, 7));
+	leafItems.push_back({ 4, Vector3(), aabb, 0 });
+	leafItems.push_back({ 12, Vector3(), aabb, 1 });
+	leafItems.push_back({ 3, Vector3(), aabb, 2 });
+	leafItems.push_back({ 13, Vector3(), aabb, 3 });
+	leafItems.push_back({ 5, Vector3(), aabb, 4 });
+	leafItems.push_back({ 2, Vector3(), aabb, 5 });
+	leafItems.push_back({ 15, Vector3(), aabb, 6 });
+	leafItems.push_back({ 8, Vector3(), aabb, 7 });
 
 	// Sort by the morton codes
 	std::sort(leafItems.begin(), leafItems.end(), leafSorter);
@@ -4601,49 +4546,49 @@ void TestDirectBVH()
 	// Here the TriID is the same as the morton code for debugging purposes.
 	aabb.min = Vector3(-2.0f, -2.0f, 0.0f);
 	aabb.max = Vector3(-1.8f, -1.75f, 0.0f);
-	leafItems.push_back(std::make_tuple(4, aabb, 0));
+	leafItems.push_back({ 4, Vector3(), aabb, 0 });
 	leafIndices.push_back(0);
 	sceneAABB.Expand(aabb);
 
 	aabb.min = Vector3(-1.9f, -1.9f, 0.0f);
 	aabb.max = Vector3(-1.7f, -1.8f, 0.0f);
-	leafItems.push_back(std::make_tuple(12, aabb, 1));
+	leafItems.push_back({ 12, Vector3(), aabb, 1 });
 	leafIndices.push_back(1);
 	sceneAABB.Expand(aabb);
 
 	aabb.min = Vector3(1.8f, -1.6f, 0.0f);
 	aabb.max = Vector3(2.1f, -1.45f, 0.0f);
-	leafItems.push_back(std::make_tuple(3, aabb, 2));
+	leafItems.push_back({ 3, Vector3(), aabb, 2 });
 	leafIndices.push_back(2);
 	sceneAABB.Expand(aabb);
 
 	aabb.min = Vector3(1.7f, -1.3f, 0.0f);
 	aabb.max = Vector3(1.8f, -1.2f, 0.0f);
-	leafItems.push_back(std::make_tuple(13, aabb, 3));
+	leafItems.push_back({ 13, Vector3(), aabb, 3 });
 	leafIndices.push_back(3);
 	sceneAABB.Expand(aabb);
 
 	aabb.min = Vector3(-1.5f, 0.7f, 0.0f);
 	aabb.max = Vector3(-1.25f, 0.95f, 0.0f);
-	leafItems.push_back(std::make_tuple(5, aabb, 4));
+	leafItems.push_back({ 5, Vector3(), aabb, 4 });
 	leafIndices.push_back(4);
 	sceneAABB.Expand(aabb);
 
 	aabb.min = Vector3(-1.3f, 1.7f, 0.0f);
 	aabb.max = Vector3(-1.4f, 1.8f, 0.0f);
-	leafItems.push_back(std::make_tuple(2, aabb, 5));
+	leafItems.push_back({ 2, Vector3(), aabb, 5 });
 	leafIndices.push_back(5);
 	sceneAABB.Expand(aabb);
 
 	aabb.min = Vector3(-0.3f, 0.7f, 0.0f);
 	aabb.max = Vector3(0.4f, 1.2f, 0.0f);
-	leafItems.push_back(std::make_tuple(15, aabb, 6));
+	leafItems.push_back({ 15, Vector3(), aabb, 6 });
 	leafIndices.push_back(6);
 	sceneAABB.Expand(aabb);
 
 	aabb.min = Vector3(-0.2f, -0.3f, 0.0f);
 	aabb.max = Vector3(0.1f, 0.2f, 0.0f);
-	leafItems.push_back(std::make_tuple(8, aabb, 7));
+	leafItems.push_back({ 8, Vector3(), aabb, 7 });
 	leafIndices.push_back(7);
 	sceneAABB.Expand(aabb);
 
@@ -4697,7 +4642,7 @@ void TestImplicitMortonCodes()
 	log_debug("[DBG] [BVH] ****************************************************************");
 	log_debug("[DBG] [BVH] TestImplicitMortonCodes() START");
 	// using LeafItem = std::tuple<MortonCode_t, AABB, int>;
-	std::vector<LeafItemCentroid> leafItems;
+	std::vector<LeafItem> leafItems;
 
 	AABB aabb, sceneAABB;
 	// Init the leaves
@@ -4706,37 +4651,37 @@ void TestImplicitMortonCodes()
 		// Here the TriID is the same as the morton code for debugging purposes.
 		aabb.min = Vector3(3.0f, 0.0f, 0.0f);
 		aabb.max = Vector3(3.0f, 0.0f, 0.0f);
-		leafItems.push_back({ aabb.GetCentroidVector3(), aabb, 0});
+		leafItems.push_back({ 0, aabb.GetCentroidVector3(), aabb, 0});
 		sceneAABB.Expand(aabb);
 
 		aabb.min = Vector3(1.0f, 0.0f, 0.0f);
 		aabb.max = Vector3(1.0f, 0.0f, 0.0f);
-		leafItems.push_back({ aabb.GetCentroidVector3(), aabb, 1 });
+		leafItems.push_back({ 0, aabb.GetCentroidVector3(), aabb, 1 });
 		sceneAABB.Expand(aabb);
 
 		aabb.min = Vector3(2.8f, 0.0f, 0.0f);
 		aabb.max = Vector3(2.8f, 0.0f, 0.0f);
-		leafItems.push_back({ aabb.GetCentroidVector3(), aabb, 2 });
+		leafItems.push_back({ 0, aabb.GetCentroidVector3(), aabb, 2 });
 		sceneAABB.Expand(aabb);
 
 		aabb.min = Vector3(5.0f, 0.0f, 0.0f);
 		aabb.max = Vector3(5.0f, 0.0f, 0.0f);
-		leafItems.push_back({ aabb.GetCentroidVector3(), aabb, 3 });
+		leafItems.push_back({ 0, aabb.GetCentroidVector3(), aabb, 3 });
 		sceneAABB.Expand(aabb);
 
 		aabb.min = Vector3(7.0f, 0.0f, 0.0f);
 		aabb.max = Vector3(7.0f, 0.0f, 0.0f);
-		leafItems.push_back({ aabb.GetCentroidVector3(), aabb, 4 });
+		leafItems.push_back({ 0, aabb.GetCentroidVector3(), aabb, 4 });
 		sceneAABB.Expand(aabb);
 
 		aabb.min = Vector3(4.0f, 0.0f, 0.0f);
 		aabb.max = Vector3(4.0f, 0.0f, 0.0f);
-		leafItems.push_back({ aabb.GetCentroidVector3(), aabb, 5 });
+		leafItems.push_back({ 0, aabb.GetCentroidVector3(), aabb, 5 });
 		sceneAABB.Expand(aabb);
 
 		aabb.min = Vector3(2.0f, 0.0f, 0.0f);
 		aabb.max = Vector3(2.0f, 0.0f, 0.0f);
-		leafItems.push_back({ aabb.GetCentroidVector3(), aabb, 6 });
+		leafItems.push_back({ 0, aabb.GetCentroidVector3(), aabb, 6 });
 		sceneAABB.Expand(aabb);
 	}
 
@@ -4776,8 +4721,6 @@ void TestImplicitMortonCodes()
 	log_debug("[DBG] [BVH] Printing QTree");
 	PrintTree("", Q);
 	DeleteTree(Q);
-
-	return;
 
 #ifdef DISABLED
 	root = -1;

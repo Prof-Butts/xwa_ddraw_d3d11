@@ -233,6 +233,7 @@ enum BVHBuilderType
 	BVHBuilderType_QBVH,
 	BVHBuilderType_FastQBVH,
 	BVHBuilderType_Embree,
+	BVHBuilderType_DirectBVH2,
 	BVHBuilderType_MAX,
 };
 extern BVHBuilderType g_BVHBuilderType;

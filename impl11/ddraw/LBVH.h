@@ -5,30 +5,12 @@
 #include "EffectsCommon.h"
 #include "xwa_structures.h"
 
-constexpr int ENCODED_TREE_NODE2_SIZE = 48; // BVH2 node size
 constexpr int ENCODED_TREE_NODE4_SIZE = 64; // BVH4 node size
 
 struct Vector3;
 struct Vector4;
 
 #pragma pack(push, 1)
-
-// BVH2 node format, deprecated since the BVH4 is more better
-#ifdef DISABLED
-struct BVHNode {
-	int ref; // -1 for internal nodes, Triangle index for leaves
-	int left; // Offset for the left child
-	int right; // Offset for the right child
-	int padding;
-	// 16 bytes
-	float min[4];
-	// 32 bytes
-	float max[4];
-	// 48 bytes
-};
-
-static_assert(sizeof(BVHNode) == ENCODED_TREE_NODE2_SIZE, "BVHNodes (2) must be ENCODED_TREE_SIZE bytes");
-#endif
 
 // QBVH inner node
 struct BVHNode {
@@ -266,6 +248,19 @@ using MortonCode_t = uint64_t;
 using LeafItem = std::tuple<MortonCode_t, AABB, int>;
 // 0: Morton Code, 1: aabbFromOBB, 2: BlasID, 3: Centroid, 4: MatrixSlot, 5: Oriented Bounding Box
 using TLASLeafItem = std::tuple<MortonCode_t, AABB, int, XwaVector3, int, AABB>;
+// Used in the DirectBVH algorithms
+struct LeafItemCentroid
+{
+	Vector3 centroid;
+	AABB aabb;
+	int PrimID;
+};
+// Used in the DirectBVH algorithms
+struct TLASLeafItemCentroid : LeafItemCentroid
+{
+	int matrixSlot;
+	AABB obb;
+};
 
 inline MortonCode_t &GetMortonCode(LeafItem& X) { return std::get<0>(X); }
 inline MortonCode_t &GetMortonCode(TLASLeafItem& X) { return std::get<0>(X); }
@@ -748,6 +743,8 @@ public:
 	static LBVH *BuildFastQBVH(const XwaVector3* vertices, const int numVertices, const int* indices, const int numIndices);
 	// Build & Encode using Embree
 	static LBVH* BuildEmbree(const XwaVector3* vertices, const int numVertices, const int* indices, const int numIndices);
+	// Build & Encode using the DirectBVH2 approach (no Morton codes).
+	static LBVH* BuildDirectBVH2(const XwaVector3* vertices, const int numVertices, const int* indices, const int numIndices);
 
 	void PrintTree(std::string level, int curnode);
 	void DumpToOBJ(char *sFileName, bool isTLAS=false, bool useMetricScale=true);

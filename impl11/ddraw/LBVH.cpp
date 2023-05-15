@@ -3969,16 +3969,76 @@ struct InnerNodeBuildData
 	float split;
 	AABB box;
 	int numChildren;
+	int fitCounter;
 };
 
 int g_directBuilderNextNode = 0;
 
-#define DEBUG_BU 1
-//#undef DEBUG_BU
+//#define DEBUG_BU 1
+#undef DEBUG_BU
+
+static void Refit(int innerNodeIndex, InnerNode* innerNodes, InnerNodeBuildData* innerNodeBuildData, std::vector<LeafItem> &leafItems)
+{
+#ifdef DEBUG_BU
+	int tabLevel = 1;
+#endif
+	const int rootIndex = 0;
+	int curInnerNodeIndex = innerNodeIndex;
+
+	while (curInnerNodeIndex >= rootIndex)
+	{
+		InnerNode&  innerNode = innerNodes[curInnerNodeIndex];
+		const int parentIndex = innerNodes[curInnerNodeIndex].parent;
+		// There's nothing to do if this node doesn't have enough data to
+		// compute the fit
+		if (innerNodeBuildData[curInnerNodeIndex].fitCounter < 2)
+			return;
+
+		const int  left = innerNode.left;
+		const int right = innerNode.right;
+		const bool  leftIsLeaf = innerNode.leftIsLeaf;
+		const bool rightIsLeaf = innerNode.rightIsLeaf;
+
+		AABB leftBox, rightBox;
+		if (leftIsLeaf)
+			leftBox = leafItems[left].aabb;
+		else
+			leftBox = innerNodes[left].aabb;
+
+		if (rightIsLeaf)
+			rightBox = leafItems[right].aabb;
+		else
+			rightBox = innerNodes[right].aabb;
+
+		innerNode.aabb.Expand(leftBox);
+		innerNode.aabb.Expand(rightBox);
+
+		// The root probably doesn't need to be refit, but we need to write its AABB
+		// during initialization, so either way is fine.
+		if (parentIndex >= rootIndex)
+			innerNodeBuildData[parentIndex].fitCounter++;
+
+#ifdef DEBUG_BU
+		int dim = innerNodeBuildData[curInnerNodeIndex].dim;
+		log_debug("[DBG] [BVH] %sInner node %d has been refit, dim: %d: [%0.1f, %0.1f], parent: %d, parent fitCounter: %d",
+			tab(tabLevel * 3).c_str(),
+			curInnerNodeIndex, dim,
+			innerNodes[curInnerNodeIndex].aabb.min[dim],
+			innerNodes[curInnerNodeIndex].aabb.max[dim],
+			parentIndex, parentIndex >= rootIndex ? innerNodeBuildData[parentIndex].fitCounter : -1);
+		tabLevel++;
+#endif
+
+		// Continue refitting the parents if possible
+		curInnerNodeIndex = parentIndex;
+	}
+}
 
 static void DirectBVH2Init(AABB sceneAABB,
 	std::vector<LeafItem>& leafItems,
-	std::vector<BuilderItem> &leafParents, InnerNodeBuildData* innerNodeBuildData, int& root_out)
+	std::vector<BuilderItem> &leafParents, InnerNodeBuildData* innerNodeBuildData,
+	InnerNode *innerNodes,
+	int& root_out)
 {
 	const int numPrimitives = (int)leafItems.size();
 	const int numInnerNodes = numPrimitives - 1;
@@ -3994,9 +4054,11 @@ static void DirectBVH2Init(AABB sceneAABB,
 	const float split = 0.5f * (sceneAABB.max[dim] + sceneAABB.min[dim]);
 
 	for (int i = 0; i < numInnerNodes; i++)
-		innerNodeBuildData[i] = { 0, 0, 0, 0.0f, AABB(), 0 };
+		innerNodeBuildData[i] = { 0, 0, 0, 0.0f, AABB(), 0, 0 };
 	// Initialize the node counters for the root, along with the box and split data
-	innerNodeBuildData[root_out] = { 0, 0, dim, split, sceneAABB, 0 };
+	innerNodeBuildData[root_out] = { 0, 0, dim, split, sceneAABB, 0, 0 };
+	// Initialize the root's parent (this stops the Refit() operation)
+	innerNodes[root_out].parent = -1;
 }
 
 static bool DirectBVH2Classify(int iteration,
@@ -4128,34 +4190,25 @@ static void DirectBVH2EmitInnerNodes(int iteration,
 		{
 			if (innerNodeBD.countL > 1)
 			{
-				// Emit an inner node and split the left subrange again
+				// Emit an inner node on the left and split the subrange again
 				int newNodeIndex = g_directBuilderNextNode;
 				g_directBuilderNextNode++; // ATOMIC
 				// Connect the current inner node to the new one
 				innerNodes[i].left = newNodeIndex;
 				innerNodes[i].leftIsLeaf = false;
+				innerNodes[newNodeIndex].parent = i;
 
 				// Split the left subrange again
 				int dim = boxL.GetLargestDimension();
 				float split = 0.5f * (boxL.max[dim] + boxL.min[dim]);
 
 				innerNodeBuildData[i].numChildren++;
-
 				// Enable the new inner node
-				innerNodeBuildData[newNodeIndex].box = boxL;
-				innerNodeBuildData[newNodeIndex].dim = dim;
-				innerNodeBuildData[newNodeIndex].split = split;
-				innerNodeBuildData[newNodeIndex].numChildren = 0;
+				innerNodeBuildData[newNodeIndex] = { 0, 0, dim, split, boxL, 0, 0 };
 
 #ifdef DEBUG_BU
-				log_debug("[DBG] [BVH] %d->%d", innerNodes[i].left, i);
+				log_debug("[DBG] [BVH] %d -> %d", innerNodes[i].left, i);
 #endif
-				if (innerNodeBuildData[i].numChildren == BU_MAX_CHILDREN)
-				{
-#ifdef DEBUG_BU
-					log_debug("[DBG] [BVH] Inner node %d is full, refit", i);
-#endif
-				}
 			}
 
 			if (innerNodeBD.countR > 1)
@@ -4166,35 +4219,26 @@ static void DirectBVH2EmitInnerNodes(int iteration,
 				// Connect the current inner node to the new one
 				innerNodes[i].right = newNodeIndex;
 				innerNodes[i].rightIsLeaf = false;
+				innerNodes[newNodeIndex].parent = i;
 
 				// Split the left subrange again
 				int dim = boxR.GetLargestDimension();
 				float split = 0.5f * (boxR.max[dim] + boxR.min[dim]);
 
-				// Disable the previous inner node
 				innerNodeBuildData[i].numChildren++;
-
-				innerNodeBuildData[newNodeIndex].box = boxR;
-				innerNodeBuildData[newNodeIndex].dim = dim;
-				innerNodeBuildData[newNodeIndex].split = split;
-				innerNodeBuildData[newNodeIndex].numChildren = 0;
+				// Enable the new inner node
+				innerNodeBuildData[newNodeIndex] = { 0, 0, dim, split, boxR, 0, 0 };
 
 #ifdef DEBUG_BU
-				log_debug("[DBG] [BVH] %d<-%d", i, innerNodes[i].right);
+				log_debug("[DBG] [BVH] %d <- %d", i, innerNodes[i].right);
 #endif
-				if (innerNodeBuildData[i].numChildren == BU_MAX_CHILDREN)
-				{
-#ifdef DEBUG_BU
-					log_debug("[DBG] [BVH] Inner node %d is full, refit", i);
-#endif
-				}
 			}
 		}
 	}
 }
 
 static void DirectBVH2InitNextIteration(int iteration, const int numPrimitives,
-	std::vector<BuilderItem>& leafParents,
+	std::vector<BuilderItem>& leafParents, std::vector<LeafItem> &leafItems,
 	InnerNodeBuildData* innerNodeBuildData, InnerNode* innerNodes)
 {
 	const int numInnerNodes = numPrimitives - 1;
@@ -4229,29 +4273,31 @@ static void DirectBVH2InitNextIteration(int iteration, const int numPrimitives,
 		{
 			if (innerNodeBD.countL == 1)
 			{
-				// This node is a left leaf of parentIndex
+				// This node is the left leaf of parentIndex
 				innerNodes[parentIndex].left = i;
 				innerNodes[parentIndex].leftIsLeaf = true;
 				innerNodeBuildData[parentIndex].numChildren++;
+				innerNodeBuildData[parentIndex].fitCounter++;
 
 				// Deactivate this primitive for the next iteration
 				leafParents[i].parentIndex = -1;
 
 #ifdef DEBUG_BU
-				log_debug("[DBG] [BVH] prim %d still points to L:%d and it's a leaf, deactivated", i, parentIndex);
+				log_debug("[DBG] [BVH] prim %d still points to L:%d and it's a leaf, deactivated. Parent fitCounter: %d",
+					i, parentIndex, innerNodeBuildData[parentIndex].fitCounter);
 #endif
-				if (innerNodeBuildData[parentIndex].numChildren == BU_MAX_CHILDREN)
+				if (innerNodeBuildData[parentIndex].fitCounter == BU_MAX_CHILDREN)
 				{
+					// The inner node can be refit
 #ifdef DEBUG_BU
-					log_debug("[DBG] [BVH] Inner node %d is full, refit", parentIndex);
+					log_debug("[DBG] [BVH] Refitting inner node: %d", parentIndex);
 #endif
+					Refit(parentIndex, innerNodes, innerNodeBuildData, leafItems);
 				}
 			}
 			else if (innerNodeBD.countL > 1)
 			{
-				// This leaf points to a node on the left, but this node doesn't
-				// have a leaf on that side, we need to update the parent of this leaf
-				// and loop again
+				// This leaf a left child but its parent has too many children. Loop again.
 				leafParents[i].parentIndex = innerNodes[parentIndex].left;
 				leafParents[i].leftOrRight = BU_NONE;
 #ifdef DEBUG_BU
@@ -4263,29 +4309,31 @@ static void DirectBVH2InitNextIteration(int iteration, const int numPrimitives,
 		{
 			if (innerNodeBD.countR == 1)
 			{
-				// This node is a left leaf of parentIndex
+				// This node is a right leaf of parentIndex
 				innerNodes[parentIndex].right = i;
 				innerNodes[parentIndex].rightIsLeaf = true;
 				innerNodeBuildData[parentIndex].numChildren++;
+				innerNodeBuildData[parentIndex].fitCounter++;
 
 				// Deactivate this primitive for the next iteration
 				leafParents[i].parentIndex = -1;
 
 #ifdef DEBUG_BU
-				log_debug("[DBG] [BVH] prim %d still points to R:%d and it's a leaf, deactivated", i, parentIndex);
+				log_debug("[DBG] [BVH] prim %d still points to R:%d and it's a leaf, deactivated. Parent fitCounter: %d",
+					i, parentIndex, innerNodeBuildData[parentIndex].fitCounter);
 #endif
-				if (innerNodeBuildData[parentIndex].numChildren == BU_MAX_CHILDREN)
+				if (innerNodeBuildData[parentIndex].fitCounter == BU_MAX_CHILDREN)
 				{
 #ifdef DEBUG_BU
-					log_debug("[DBG] [BVH] Inner node %d is full, refit", parentIndex);
+					log_debug("[DBG] [BVH] Refitting inner node: %d", parentIndex);
 #endif
+					// The inner node can be refit
+					Refit(parentIndex, innerNodes, innerNodeBuildData, leafItems);
 				}
 			}
 			else if (innerNodeBD.countR > 1)
 			{
-				// This leaf points to a node on the right, but this node doesn't
-				// have a leaf on that side, we need to update the parent of this leaf
-				// and loop again
+				// This leaf a right child but its parent has too many children. Loop again.
 				leafParents[i].parentIndex = innerNodes[parentIndex].right;
 				leafParents[i].leftOrRight = BU_NONE;
 #ifdef DEBUG_BU
@@ -4308,7 +4356,7 @@ InnerNode* DirectBVH2Builder(AABB sceneAABB, std::vector<LeafItem> &leafItems, i
 	// ********************************************************
 	// PHASE 1: Initialize the algorithm
 	// ********************************************************
-	DirectBVH2Init(sceneAABB, leafItems, leafParents, innerNodeBuildData, root_out);
+	DirectBVH2Init(sceneAABB, leafItems, leafParents, innerNodeBuildData, innerNodes, root_out);
 
 	int maxNumIters = (int)ceil(log2((float)numPrimitives)) + 4;
 
@@ -4337,7 +4385,7 @@ InnerNode* DirectBVH2Builder(AABB sceneAABB, std::vector<LeafItem> &leafItems, i
 		// ********************************************************
 		// PHASE 4: Init the next iteration and disable primitives
 		// ********************************************************
-		DirectBVH2InitNextIteration(iteration, numPrimitives, leafParents, innerNodeBuildData, innerNodes);
+		DirectBVH2InitNextIteration(iteration, numPrimitives, leafParents, leafItems, innerNodeBuildData, innerNodes);
 
 #ifdef DEBUG_BU
 		log_debug("[DBG] [BVH] **************************************************");
@@ -4685,38 +4733,38 @@ void TestImplicitMortonCodes()
 	{
 		// This is the example from Apetrei 2014.
 		// Here the TriID is the same as the morton code for debugging purposes.
-		aabb.min = Vector3(3.0f, 0.0f, 0.0f);
-		aabb.max = Vector3(3.0f, 0.0f, 0.0f);
+		aabb.min = Vector3(2.0f, 0.0f, 0.0f);
+		aabb.max = Vector3(4.0f, 0.0f, 0.0f);
 		leafItems.push_back({ 0, aabb.GetCentroidVector3(), aabb, 0});
 		sceneAABB.Expand(aabb);
 
-		aabb.min = Vector3(1.0f, 0.0f, 0.0f);
-		aabb.max = Vector3(1.0f, 0.0f, 0.0f);
+		aabb.min = Vector3(0.0f, 0.0f, 0.0f);
+		aabb.max = Vector3(2.0f, 0.0f, 0.0f);
 		leafItems.push_back({ 0, aabb.GetCentroidVector3(), aabb, 1 });
 		sceneAABB.Expand(aabb);
 
-		aabb.min = Vector3(2.8f, 0.0f, 0.0f);
-		aabb.max = Vector3(2.8f, 0.0f, 0.0f);
+		aabb.min = Vector3(1.8f, 0.0f, 0.0f);
+		aabb.max = Vector3(3.8f, 0.0f, 0.0f);
 		leafItems.push_back({ 0, aabb.GetCentroidVector3(), aabb, 2 });
 		sceneAABB.Expand(aabb);
 
-		aabb.min = Vector3(5.0f, 0.0f, 0.0f);
-		aabb.max = Vector3(5.0f, 0.0f, 0.0f);
+		aabb.min = Vector3(4.0f, 0.0f, 0.0f);
+		aabb.max = Vector3(6.0f, 0.0f, 0.0f);
 		leafItems.push_back({ 0, aabb.GetCentroidVector3(), aabb, 3 });
 		sceneAABB.Expand(aabb);
 
-		aabb.min = Vector3(7.0f, 0.0f, 0.0f);
-		aabb.max = Vector3(7.0f, 0.0f, 0.0f);
+		aabb.min = Vector3(6.0f, 0.0f, 0.0f);
+		aabb.max = Vector3(8.0f, 0.0f, 0.0f);
 		leafItems.push_back({ 0, aabb.GetCentroidVector3(), aabb, 4 });
 		sceneAABB.Expand(aabb);
 
-		aabb.min = Vector3(4.0f, 0.0f, 0.0f);
-		aabb.max = Vector3(4.0f, 0.0f, 0.0f);
+		aabb.min = Vector3(3.0f, 0.0f, 0.0f);
+		aabb.max = Vector3(5.0f, 0.0f, 0.0f);
 		leafItems.push_back({ 0, aabb.GetCentroidVector3(), aabb, 5 });
 		sceneAABB.Expand(aabb);
 
-		aabb.min = Vector3(2.0f, 0.0f, 0.0f);
-		aabb.max = Vector3(2.0f, 0.0f, 0.0f);
+		aabb.min = Vector3(1.0f, 0.0f, 0.0f);
+		aabb.max = Vector3(3.0f, 0.0f, 0.0f);
 		leafItems.push_back({ 0, aabb.GetCentroidVector3(), aabb, 6 });
 		sceneAABB.Expand(aabb);
 	}

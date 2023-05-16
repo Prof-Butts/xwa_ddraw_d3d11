@@ -4679,8 +4679,6 @@ void EffectsRenderer::RenderScene()
 	if (g_rendererType == RendererType_Shadow && !g_config.HangarShadowsEnabled)
 		return;
 
-	_deviceResources->_d3dAnnotation->BeginEvent(L"RenderScene");
-
 	auto &context = _deviceResources->_d3dDeviceContext;
 
 	unsigned short scissorLeft = *(unsigned short*)0x07D5244;
@@ -4729,7 +4727,6 @@ void EffectsRenderer::RenderScene()
 	g_iD3DExecuteCounter++;
 	g_iDrawCounter++; // We need this counter to enable proper Tech Room detection
 
-	_deviceResources->_d3dAnnotation->EndEvent();
 }
 
 void EffectsRenderer::RenderLasers()

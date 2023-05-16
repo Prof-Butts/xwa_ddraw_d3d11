@@ -65,8 +65,6 @@ void SteamVRRenderer::RenderScene()
 		// resources->InitVertexShader(_shadowVertexShaderVR);
 		return;
 
-	_deviceResources->_d3dAnnotation->BeginEvent(L"RenderScene");
-
 	auto &resources = _deviceResources;
 	auto &context = resources->_d3dDeviceContext;
 
@@ -176,6 +174,4 @@ void SteamVRRenderer::RenderScene()
 //out:
 	g_iD3DExecuteCounter++;
 	g_iDrawCounter++; // We need this counter to enable proper Tech Room detection
-
-	_deviceResources->_d3dAnnotation->EndEvent();
 }

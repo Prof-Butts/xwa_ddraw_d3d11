@@ -1544,6 +1544,9 @@ LBVH* EffectsRenderer::BuildBVH(const std::vector<XwaVector3>& vertices, const s
 
 	case BVHBuilderType_Embree:
 		return LBVH::BuildEmbree(vertices.data(), vertices.size(), indices.data(), indices.size());
+
+	case BVHBuilderType_DirectBVH2:
+		return LBVH::BuildDirectBVH2(vertices.data(), vertices.size(), indices.data(), indices.size());
 	}
 	return nullptr;
 }

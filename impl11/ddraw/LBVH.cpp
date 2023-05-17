@@ -3972,17 +3972,14 @@ struct InnerNodeBuildData
 	AABB box;
 	int numChildren;
 	int fitCounter;
-	int nextDim;
-	float nextMinL;
-	float nextMaxL;
-	float nextMinR;
-	float nextMaxR;
+	AABB boxL;
+	AABB boxR;
 };
 
 int g_directBuilderNextNode = 0;
 
-#define DEBUG_BU 1
-//#undef DEBUG_BU
+//#define DEBUG_BU 1
+#undef DEBUG_BU
 
 static void Refit(int innerNodeIndex, InnerNode* innerNodes, InnerNodeBuildData* innerNodeBuildData, std::vector<LeafItem> &leafItems)
 {
@@ -4045,35 +4042,20 @@ static void DirectBVH2Init(AABB sceneAABB,
 	root_out = 0;
 	g_directBuilderNextNode = 1;
 
-	// All leafs are connected to the root, but they are not classified yet
+	// All leafs are initially connected to the root, but they are not classified yet
 	for (int i = 0; i < numPrimitives; i++)
 		leafParents.push_back({ root_out, BU_NONE });
 
-	const int dim = sceneAABB.GetLargestDimension();
+	const int   dim   = sceneAABB.GetLargestDimension();
 	const float split = 0.5f * (sceneAABB.max[dim] + sceneAABB.min[dim]);
 
 	for (int i = 0; i < numInnerNodes; i++)
 		innerNodeBuildData[i] = { 0, 0, 0, 0.0f, AABB(), 0, 0,
-			0, 0.0f, 0.0f, 0.0f, 0.0f, };
-
-	// The root will split along dim, so the left and right boxes
-	// are already known:
-	AABB boxL = sceneAABB;
-	AABB boxR = sceneAABB;
-	boxL.max[dim] = split;
-	boxR.min[dim] = split;
-	// The next split will be along this dimension:
-	const int nextDim = boxL.GetLargestDimension();
-	const float nextSplitL = 0.5f * (boxL.min[nextDim] + boxL.max[nextDim]);
-	const float nextSplitR = 0.5f * (boxR.min[nextDim] + boxR.max[nextDim]);
+			AABB(), AABB() };
 
 	// Initialize the node counters for the root, along with the box and split data
-	innerNodeBuildData[root_out] = { 0, 0, dim,
-		split, sceneAABB, 0, 0,
-		nextDim,
-		nextSplitL, nextSplitL,
-		nextSplitR, nextSplitR };
-	sceneAABB.min[dim],
+	innerNodeBuildData[root_out] = { 0, 0, dim, split, sceneAABB, 0, 0,
+		AABB(), AABB() };
 	// Initialize the root's parent (this stops the Refit() operation)
 	innerNodes[root_out].parent = -1;
 }
@@ -4107,7 +4089,6 @@ static bool DirectBVH2Classify(int iteration,
 
 		InnerNodeBuildData& innerNodeBD = innerNodeBuildData[parentNodeIndex];
 		const int   dim     = innerNodeBD.dim;
-		const int   nextDim = innerNodeBD.nextDim;
 		const float split   = innerNodeBD.split;
 #ifdef DEBUG_BU
 		const AABB  box     = innerNodeBD.box;
@@ -4117,26 +4098,20 @@ static bool DirectBVH2Classify(int iteration,
 		{
 			leafParents[i] = { parentNodeIndex, BU_LEFT };
 			innerNodeBD.countL++; // ATOMIC
-			innerNodeBD.nextMinL = min(innerNodeBD.nextMinL, leaf.centroid[nextDim]); // ATOMIC
-			innerNodeBD.nextMaxL = max(innerNodeBD.nextMaxL, leaf.centroid[nextDim]); // ATOMIC
+			innerNodeBD.boxL.Expand(leaf.aabb); // ATOMIC
 #ifdef DEBUG_BU
-			log_debug("[DBG] [BVH] (%d, %0.3f) -> L:%d, [%0.1f, %0.1f, %0.1f], nextMinMaxL: [%0.1f, %0.1f]",
-				i, leaf.centroid[dim],
-				parentNodeIndex, box.min[dim], split, box.max[dim],
-				innerNodeBD.nextMinL, innerNodeBD.nextMaxL);
+			log_debug("[DBG] [BVH] (%d, %0.1f) -> L:%d, [%0.1f, %0.1f, %0.1f]",
+				i, leaf.centroid[dim], parentNodeIndex, box.min[dim], split, box.max[dim]);
 #endif
 		}
 		else
 		{
 			leafParents[i] = { parentNodeIndex, BU_RIGHT };
 			innerNodeBD.countR++; // ATOMIC
-			innerNodeBD.nextMinR = min(innerNodeBD.nextMinR, leaf.centroid[nextDim]); // ATOMIC
-			innerNodeBD.nextMaxR = max(innerNodeBD.nextMaxR, leaf.centroid[nextDim]); // ATOMIC
+			innerNodeBD.boxR.Expand(leaf.aabb); // ATOMIC
 #ifdef DEBUG_BU
-			log_debug("[DBG] [BVH] (%d, %0.3f) -> R:%d, [%0.1f, %0.1f, %0.1f], nextMinMaxR: [%0.1f, %0.1f]",
-				i, leaf.centroid[dim],
-				parentNodeIndex, box.min[dim], split, box.max[dim],
-				innerNodeBD.nextMinR, innerNodeBD.nextMaxR);
+			log_debug("[DBG] [BVH] (%d, %0.3f) -> R:%d, [%0.1f, %0.1f, %0.1f]",
+				i, leaf.centroid[dim], parentNodeIndex, box.min[dim], split, box.max[dim]);
 #endif
 		}
 	}
@@ -4175,31 +4150,13 @@ static void DirectBVH2EmitInnerNodes(int iteration,
 		AABB  innerNodeBox = innerNodeBD.box;
 		int   dim          = innerNodeBD.dim;
 		float split        = innerNodeBD.split;
-		int   nextDim      = innerNodeBD.nextDim;
-
-		float nextMinL     = innerNodeBD.nextMinL;
-		float nextMaxL     = innerNodeBD.nextMaxL;
-
-		float nextMinR     = innerNodeBD.nextMinR;
-		float nextMaxR     = innerNodeBD.nextMaxR;
-
-		// Prepare the boxes for the next split
-		AABB boxL = innerNodeBox;
-		AABB boxR = innerNodeBox;
-
-		boxL.max[dim]     = split;
-		boxL.min[nextDim] = nextMinL;
-		boxL.max[nextDim] = nextMaxL;
-
-		boxR.min[dim]     = split;
-		boxR.min[nextDim] = nextMinR;
-		boxR.max[nextDim] = nextMaxR;
+		AABB  boxL         = innerNodeBD.boxL;
+		AABB  boxR         = innerNodeBD.boxR;
 
 		if (innerNodeBD.countL == 0)
 		{
 			// Bad split, repeat the iteration
-			//int dim = boxR.GetLargestDimension();
-			int dim     = nextDim;
+			int dim     = boxR.GetLargestDimension();
 			float split = 0.5f * (boxR.max[dim] + boxR.min[dim]);
 
 			innerNodeBuildData[i].box    = boxR;
@@ -4213,8 +4170,7 @@ static void DirectBVH2EmitInnerNodes(int iteration,
 		else if (innerNodeBD.countR == 0)
 		{
 			// Bad split, repeat the iteration
-			//int dim = boxL.GetLargestDimension();
-			int dim     = nextDim;
+			int dim     = boxL.GetLargestDimension();
 			float split = 0.5f * (boxL.max[dim] + boxL.min[dim]);
 
 			innerNodeBuildData[i].box    = boxL;
@@ -4239,30 +4195,16 @@ static void DirectBVH2EmitInnerNodes(int iteration,
 				innerNodes[newNodeIndex].parent = i;
 
 				// Split the left subrange again
-				//int dim = boxL.GetLargestDimension();
-				AABB box    = boxL;
-				int dim     = nextDim;
-				float split = 0.5f * (box.max[dim] + box.min[dim]);
-				// The next split will be along this dimension:
-				int nextDim = box.GetLargestDimension();
-				AABB boxL = box;
-				AABB boxR = box;
-				boxL.max[dim] = split;
-				boxR.min[dim] = split;
-				const float nextSplitL = 0.5f * (boxL.min[nextDim] + boxL.max[nextDim]);
-				const float nextSplitR = 0.5f * (boxR.min[nextDim] + boxR.max[nextDim]);
+				int   dim   = boxL.GetLargestDimension();
+				float split = 0.5f * (boxL.max[dim] + boxL.min[dim]);
 
 				innerNodeBuildData[i].numChildren++;
 				// Enable the new inner node
-				innerNodeBuildData[newNodeIndex] = { 0, 0, dim, split, box, 0, 0,
-					nextDim,
-					nextSplitL, nextSplitL,
-					nextSplitR, nextSplitR };
+				innerNodeBuildData[newNodeIndex] = { 0, 0, dim, split, boxL, 0, 0,
+					AABB(), AABB() };
 
 #ifdef DEBUG_BU
 				log_debug("[DBG] [BVH] %d -> %d", innerNodes[i].left, i);
-				log_debug("[DBG] [BVH] nextDim: %d, L:%0.1f, R:%0.1f",
-					nextDim, nextSplitL, nextSplitR);
 #endif
 			}
 
@@ -4278,30 +4220,16 @@ static void DirectBVH2EmitInnerNodes(int iteration,
 				innerNodes[newNodeIndex].parent = i;
 
 				// Split the left subrange again
-				//int dim = boxR.GetLargestDimension();
-				AABB box    = boxR;
-				int dim     = nextDim;
-				float split = 0.5f * (box.max[dim] + box.min[dim]);
-				// The next split will be along this dimension:
-				int nextDim = box.GetLargestDimension();
-				AABB boxL   = box;
-				AABB boxR   = box;
-				boxL.max[dim] = split;
-				boxR.min[dim] = split;
-				const float nextSplitL = 0.5f * (boxL.min[nextDim] + boxL.max[nextDim]);
-				const float nextSplitR = 0.5f * (boxR.min[nextDim] + boxR.max[nextDim]);
+				int   dim   = boxR.GetLargestDimension();
+				float split = 0.5f * (boxR.max[dim] + boxR.min[dim]);
 
 				innerNodeBuildData[i].numChildren++;
 				// Enable the new inner node
-				innerNodeBuildData[newNodeIndex] = { 0, 0, dim, split, box, 0, 0,
-					nextDim,
-					nextSplitL, nextSplitL,
-					nextSplitR, nextSplitR };
+				innerNodeBuildData[newNodeIndex] = { 0, 0, dim, split, boxR, 0, 0,
+					AABB(), AABB() };
 
 #ifdef DEBUG_BU
 				log_debug("[DBG] [BVH] %d <- %d", i, innerNodes[i].right);
-				log_debug("[DBG] [BVH] nextDim: %d, L:%0.1f, R:%0.1f",
-					nextDim, nextSplitL, nextSplitR);
 #endif
 			}
 		}

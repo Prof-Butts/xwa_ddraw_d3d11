@@ -19,6 +19,9 @@ static int g_QBVHEncodeNodeIdx = 0;
 
 bool g_bEnableQBVHwSAH = false; // The FastLQBVH builder still has some problems when SAH is enabled
 
+// Used by the DirectBVH builder
+int g_directBuilderNextNode = 0;
+
 static HMODULE hEmbree = NULL;
 static bool g_bEmbreeLoaded = false;
 rtcNewDeviceFun g_rtcNewDevice = nullptr;
@@ -33,6 +36,7 @@ rtcReleaseBVHFun g_rtcReleaseBVH = nullptr;
 
 void PrintTreeBuffer(std::string level, BVHNode* buffer, int curNode);
 InnerNode* DirectBVH2Builder(AABB sceneAABB, std::vector<LeafItem>& leafItems, int& root_out);
+InnerNode* DirectBVH2BuilderCPU(AABB sceneAABB, AABB centroidBox, std::vector<LeafItem>& leafItems, int& root_out);
 
 // Load a BVH2, deprecated since the BVH4 are more better
 #ifdef DISABLED
@@ -2605,7 +2609,7 @@ BVHNode* EncodeNodesAsQBVHwSAH(int root, InnerNode* innerNodes, const std::vecto
 		else
 		{
 			// Initialize the node
-			node.ref = -1;
+			node.ref    = -1;
 			node.parent = -1;
 
 			node.min[0] = innerNodes[curNode].aabb.min.x;
@@ -3145,6 +3149,7 @@ LBVH* LBVH::BuildDirectBVH2(const XwaVector3* vertices, const int numVertices, c
 
 	// Get the centroid and AABB for each triangle.
 	std::vector<LeafItem> leafItems;
+	AABB centroidBox;
 	for (int i = 0, TriID = 0; i < numIndices; i += 3, TriID++) {
 		AABB aabb;
 		aabb.Expand(vertices[indices[i + 0]]);
@@ -3152,14 +3157,19 @@ LBVH* LBVH::BuildDirectBVH2(const XwaVector3* vertices, const int numVertices, c
 		aabb.Expand(vertices[indices[i + 2]]);
 
 		Vector3 centroid = aabb.GetCentroidVector3();
+		centroidBox.Expand(centroid);
 		leafItems.push_back({ 0, centroid, aabb, TriID });
 	}
 
 	// Build the tree
 	int root = -1;
-	InnerNode* innerNodes = DirectBVH2Builder(sceneBox, leafItems, root);
-
-	log_debug("[DBG] [BVH] DirectBVH2Builder() finished");
+	//InnerNode* innerNodes = DirectBVH2Builder(sceneBox, leafItems, root);
+	InnerNode* innerNodes = DirectBVH2BuilderCPU(sceneBox, centroidBox, leafItems, root);
+	if (innerNodes == nullptr)
+	{
+		log_debug("[DBG] [BVH] DirectBVH2BuilderCPU failed");
+		return nullptr;
+	}
 
 	//char sFileName[80];
 	//sprintf_s(sFileName, 80, ".\\BLAS-%d.obj", meshIndex);
@@ -3976,8 +3986,6 @@ struct InnerNodeBuildData
 	AABB boxR;
 };
 
-int g_directBuilderNextNode = 0;
-
 //#define DEBUG_BU 1
 #undef DEBUG_BU
 
@@ -4190,7 +4198,7 @@ static void DirectBVH2EmitInnerNodes(int iteration,
 				g_directBuilderNextNode++; // ATOMIC
 
 				// Connect the current inner node to the new one
-				innerNodes[i].left = newNodeIndex;
+				innerNodes[i].left       = newNodeIndex;
 				innerNodes[i].leftIsLeaf = false;
 				innerNodes[newNodeIndex].parent = i;
 
@@ -4215,7 +4223,7 @@ static void DirectBVH2EmitInnerNodes(int iteration,
 				g_directBuilderNextNode++; // ATOMIC
 
 				// Connect the current inner node to the new one
-				innerNodes[i].right = newNodeIndex;
+				innerNodes[i].right       = newNodeIndex;
 				innerNodes[i].rightIsLeaf = false;
 				innerNodes[newNodeIndex].parent = i;
 
@@ -4341,6 +4349,200 @@ static void DirectBVH2InitNextIteration(int iteration, const int numPrimitives,
 			}
 		}
 	}
+}
+
+// CPU version of the DirectBVH2 builder. This algorithm is simpler but it's less efficient
+// when it comes to memory usage and it's recursive, so it's not GPU-friendly.
+bool _DirectBVH2BuilderCPU(
+	AABB sceneAABB,
+	AABB centroidAABB,
+	InnerNode* innerNodes,
+	std::vector<LeafItem>& leafItems,
+	std::vector<int>& leafIndices,
+	int dim,
+	int curParentNodeIndex)
+{
+	float split = 0.5f * (centroidAABB.max[dim] + centroidAABB.min[dim]);
+	AABB boxL, boxR;
+	AABB centroidBoxL, centroidBoxR;
+	int countL = 0, countR = 0;
+	std::vector<int> indicesL, indicesR;
+	Vector3 centroidRange = centroidAABB.GetRange();
+	const bool nullRange = (fabs(centroidRange[dim]) < 0.0001f);
+
+#ifdef DEBUG_BU
+	const int numInnerNodes = (int)leafItems.size() - 1;
+	if (numInnerNodes < 0)
+		log_debug("[DBG] [BVH] ERROR: numInnerNodes: %d", numInnerNodes);
+#endif
+
+	if (leafIndices.size() == 1)
+	{
+		// Single-primitive case. The leaf is the root, but there's
+		// nothing to do here since there are no inner nodes.
+		log_debug("[DBG] [BVH] WARNING, leafIndices.size() = 1");
+		return true;
+	}
+
+	// The current root will contain the whole AABB that is spawned by these primitives
+	innerNodes[curParentNodeIndex].aabb = sceneAABB;
+
+	if (leafIndices.size() == 2)
+	{
+		int left  = leafIndices[0];
+		int right = leafIndices[1];
+		innerNodes[curParentNodeIndex].left       = left;
+		innerNodes[curParentNodeIndex].leftIsLeaf = true;
+
+		innerNodes[curParentNodeIndex].right       = right;
+		innerNodes[curParentNodeIndex].rightIsLeaf = true;
+		return true;
+	}
+
+#ifdef DEBUG_BU
+	log_debug("[DBG] [BVH] --------------------------------------------");
+	log_debug("[DBG] [BVH] curParentNodeIndex: %d, split: %0.3f, dim: %d, [%0.3f, %0.3f]",
+		curParentNodeIndex, split, dim, sceneAABB.min[dim], sceneAABB.max[dim]);
+	std::string msg = "[DBG] [BVH] ";
+#endif
+
+	// Use the primitive index for areas with a null range:
+	const float keySplit = nullRange ? (float)leafIndices.size() / 2.0f : split;
+	for (uint32_t k = 0; k < leafIndices.size(); k++)
+	{
+		const uint32_t i        = leafIndices[k];
+		const AABB     aabb     = leafItems[i].aabb;
+		const Vector3  centroid = leafItems[i].centroid;
+		const float    key      = nullRange ? (float)k : centroid[dim];
+
+		//if (centroid[dim] < split)
+		if (key < keySplit)
+		{
+			boxL.Expand(aabb);
+			centroidBoxL.Expand(centroid);
+			countL++;
+			indicesL.push_back(i);
+#ifdef DEBUG_BU
+			msg += "(" + std::to_string(i) + "," + std::to_string(centroid[dim]) + ")->" + std::to_string(curParentNodeIndex) + ", ";
+#endif
+		}
+		else
+		{
+			boxR.Expand(aabb);
+			centroidBoxR.Expand(centroid);
+			countR++;
+			indicesR.push_back(i);
+#ifdef DEBUG_BU
+			msg += std::to_string(curParentNodeIndex) + "<-(" + std::to_string(i) + "," + std::to_string(centroid[dim]) + "), ";
+#endif
+		}
+	}
+
+#ifdef DEBUG_BU
+	log_debug(msg.c_str());
+	log_debug("[DBG] [BVH] countL,R: (%d, %d), boxL: [%0.3f, %0.3f], boxR: [%0.3f, %0.3f]",
+		countL, countR, boxL.min[dim], boxL.max[dim], boxR.min[dim], boxR.max[dim]);
+#endif
+
+	if (countL == 0)
+	{
+		log_debug("[DBG] [BVH] ERROR: Bad split, countL == 0, countR: %d, dim: %d", countR, dim);
+		log_debug("[DBG] [BVH] ERROR: centroidAABB: %s", centroidAABB.ToString().c_str());
+		log_debug("[DBG] [BVH] ERROR: centroidBoxL: %s", centroidBoxL.ToString().c_str());
+		log_debug("[DBG] [BVH] ERROR: centroidBoxR: %s", centroidBoxR.ToString().c_str());
+		return false;
+		// All our nodes landed on the right side, re-compute the split and try again
+		//return _DirectBVH2BuilderCPU(boxR, innerNodes, leafItems, indicesR, leafParents, boxR.GetLargestDimension(), curParentNodeIndex);
+	}
+
+	if (countR == 0)
+	{
+		log_debug("[DBG] [BVH] ERROR: Bad split, countR == 0, countL: %d, dim: %d", countL, dim);
+		log_debug("[DBG] [BVH] ERROR: centroidAABB: %s", centroidAABB.ToString().c_str());
+		log_debug("[DBG] [BVH] ERROR: centroidBoxL: %s", centroidBoxL.ToString().c_str());
+		log_debug("[DBG] [BVH] ERROR: centroidBoxR: %s", centroidBoxR.ToString().c_str());
+		return false;
+		// All our nodes landed on the left side, re-compute the split and try again
+		//return _DirectBVH2BuilderCPU(boxL, innerNodes, leafItems, indicesL, leafParents, boxL.GetLargestDimension(), curParentNodeIndex);
+	}
+
+	bool result = true;
+	if (countL > 1)
+	{
+		g_directBuilderNextNode++; // ATOMIC
+#ifdef DEBUG_BU
+		if (g_directBuilderNextNode >= numInnerNodes)
+		{
+			log_debug("[DBG] [BVH] ERROR, g_directBuilderNextNode: %d, numInnerNodes: %d",
+				g_directBuilderNextNode, numInnerNodes);
+		}
+		log_debug("[DBG] [BVH] %d -> L:%d", g_directBuilderNextNode, curParentNodeIndex);
+#endif
+		// Connect g_directBuilderNextNode as the left child of curNodeIndex
+		innerNodes[curParentNodeIndex].left       = g_directBuilderNextNode;
+		innerNodes[curParentNodeIndex].leftIsLeaf = false;
+		result = result && _DirectBVH2BuilderCPU(boxL, centroidBoxL,
+			innerNodes, leafItems, indicesL, centroidBoxL.GetLargestDimension(), g_directBuilderNextNode);
+	}
+	else // countL is 1
+	{
+		// The node on the left is a leaf
+		innerNodes[curParentNodeIndex].left       = indicesL[0];
+		innerNodes[curParentNodeIndex].leftIsLeaf = true;
+	}
+
+	if (countR > 1)
+	{
+		g_directBuilderNextNode++; // ATOMIC
+#ifdef DEBUG_BU
+		if (g_directBuilderNextNode >= numInnerNodes)
+		{
+			log_debug("[DBG] [BVH] ERROR, g_directBuilderNextNode: %d, numInnerNodes: %d",
+				g_directBuilderNextNode, numInnerNodes);
+		}
+		log_debug("[DBG] [BVH] %d -> R:%d", g_directBuilderNextNode, curParentNodeIndex);
+#endif
+		// Connect g_directBuilderNextNode as the right child of curNodeIndex
+		innerNodes[curParentNodeIndex].right       = g_directBuilderNextNode;
+		innerNodes[curParentNodeIndex].rightIsLeaf = false;
+		result = result && _DirectBVH2BuilderCPU(boxR, centroidBoxR,
+			innerNodes, leafItems, indicesR, centroidBoxR.GetLargestDimension(), g_directBuilderNextNode);
+	}
+	else // countR is 1
+	{
+		// The node on the right is a leaf
+		innerNodes[curParentNodeIndex].right       = indicesR[0];
+		innerNodes[curParentNodeIndex].rightIsLeaf = true;
+	}
+
+	return result;
+}
+
+InnerNode* DirectBVH2BuilderCPU(AABB sceneAABB, AABB centroidBox, std::vector<LeafItem>& leafItems, int &rootIdx)
+{
+	const int numPrimitives = (int)leafItems.size();
+	const int numInnerNodes = numPrimitives - 1;
+
+	InnerNode* innerNodes = new InnerNode[numInnerNodes];
+	rootIdx = 0;
+	g_directBuilderNextNode = 0; // This is incremented before it's used, so it should be initialized to 0
+	
+	// Initialize the leaf parents and indices
+	std::vector<int> leafIndices;
+	for (int i = 0; i < numPrimitives; i++)
+	{
+		leafIndices.push_back(i);
+	}
+
+	if (!_DirectBVH2BuilderCPU(sceneAABB, centroidBox,
+		innerNodes, leafItems, leafIndices, centroidBox.GetLargestDimension(), rootIdx))
+	{
+		log_debug("[DBG] [BVH] _DirectBVH2BuilderCPU failed");
+		delete[] innerNodes;
+		innerNodes = nullptr;
+	}
+
+	return innerNodes;
 }
 
 InnerNode* DirectBVH2Builder(AABB sceneAABB, std::vector<LeafItem> &leafItems, int &root_out)
@@ -4772,6 +4974,12 @@ void TestImplicitMortonCodes()
 		sceneAABB.Expand(aabb);
 	}
 
+	AABB centroidBox;
+	for (uint32_t i = 0; i < leafItems.size(); i++)
+	{
+		centroidBox.Expand(leafItems[i].aabb.GetCentroidVector3());
+	}
+
 	const int numPrimitives = leafItems.size();
 	const int numInnerNodes = numPrimitives - 1;
 	int numQBVHInnerNodes = CalcNumInnerQBVHNodes(numPrimitives);
@@ -4793,7 +5001,9 @@ void TestImplicitMortonCodes()
 	*/
 
 	int root = -1;
-	InnerNode *innerNodes = DirectBVH2Builder(sceneAABB, leafItems, root);
+	InnerNode *innerNodes = DirectBVH2BuilderCPU(sceneAABB, centroidBox, leafItems, root);
+	if (innerNodes == nullptr)
+		return;
 
 	log_debug("[DBG] [BVH] Tree built, printing");
 	printTree(0, root, false, innerNodes);

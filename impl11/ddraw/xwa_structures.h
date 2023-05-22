@@ -259,6 +259,14 @@ struct XwaVector3
 		this->z = z;
 	}
 
+	friend XwaVector3 operator+(XwaVector3 lhs, const XwaVector3& rhs)
+	{
+		lhs.x += rhs.x;
+		lhs.y += rhs.y;
+		lhs.z += rhs.z;
+		return lhs;
+	}
+
 	friend XwaVector3 operator-(XwaVector3 lhs, const XwaVector3& rhs)
 	{
 		lhs.x -= rhs.x;

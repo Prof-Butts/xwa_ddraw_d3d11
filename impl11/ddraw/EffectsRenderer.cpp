@@ -18,6 +18,8 @@ extern bool g_bEnableQBVHwSAH;
 //BVHBuilderType g_BVHBuilderType = BVHBuilderType_Embree;
 BVHBuilderType g_BVHBuilderType = DEFAULT_BVH_BUILDER;
 
+bool g_bUseCentroids = true;
+
 RTCDevice g_rtcDevice = nullptr;
 RTCScene g_rtcScene = nullptr;
 
@@ -3721,12 +3723,21 @@ void EffectsRenderer::UpdateBVHMaps(const SceneCompData* scene, int LOD)
 		const Matrix4 W = XwaTransformToMatrix4(scene->WorldViewTransform);
 		// Fetch the AABB for this mesh
 		auto aabb_it = _AABBs.find(meshKey);
+		auto center_it = _centers.find(meshKey);
 		if (aabb_it != _AABBs.end()) {
 			AABB obb = aabb_it->second;                   // The AABB in object space
 			obb.UpdateLimits();                           // Generate all the vertices (8) so that we can transform them.
 			obb.TransformLimits(W);                       // Now it's an OBB in WorldView space...
 			AABB aabb = obb.GetAABBFromCurrentLimits();   // so we get the AABB from this OBB...
 			Vector3 centroid = aabb.GetCentroidVector3(); // and its centroid.
+			// Repeat the process for the mesh's center of mass
+			if (g_bUseCentroids)
+			{
+				XwaVector3 xwacenter = center_it->second;
+				Vector3 center(xwacenter.x, xwacenter.y, xwacenter.z);
+				center = W * center; // Now the center is in WorldView space
+				centroid = center;   // And we override the centroid with the center of mass now
+			}
 
 			IDCentroid_t IDCentroidKey = IDCentroid_t(blasID, centroid.x, centroid.y, centroid.z);
 			auto it = g_TLASMap.find(IDCentroidKey);

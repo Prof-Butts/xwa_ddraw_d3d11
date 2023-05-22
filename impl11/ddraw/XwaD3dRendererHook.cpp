@@ -322,6 +322,7 @@ void D3dRenderer::FlightStart()
 	_triangleBuffers.clear();
 	_vertexCounters.clear();
 	_AABBs.clear();
+	_centers.clear();
 	_LBVHs.clear();
 	_tangentMap.clear();
 	g_meshToFGMap.clear();
@@ -595,11 +596,17 @@ void D3dRenderer::UpdateMeshBuffers(const SceneCompData* scene)
 
 			AABB aabb;
 			aabb.SetInfinity();
+			XwaVector3 center(0, 0, 0);
 			for (int i = 0; i < verticesCount; i++)
+			{
 				aabb.Expand(vertices[i]);
+				center = center + vertices[i];
+			}
+			center = center * (1.0f / (float)verticesCount);
 
 			_meshVerticesViews.insert(std::make_pair((int)vertices, meshVerticesView));
 			_AABBs.insert(std::make_pair((int)vertices, aabb));
+			_centers.insert(std::make_pair((int)vertices, center));
 			_lastMeshVerticesView = meshVerticesView;
 
 			// Compute the RTScale for this OPT

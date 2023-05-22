@@ -147,6 +147,7 @@ protected:
 	std::map<int, XwaVector3*> _tangentMap;
 	std::map<int, ComPtr<ID3D11ShaderResourceView>> _meshTextureCoordsViews;
 	std::map<int, AABB> _AABBs;
+	std::map<int, XwaVector3> _centers; // Center-of-mass for each mesh, *not* the centroids.
 	std::map<int, LBVH*> _LBVHs;
 	XwaVector3* _lastMeshVertices;
 	ID3D11ShaderResourceView* _lastMeshVerticesView;

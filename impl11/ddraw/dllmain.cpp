@@ -46,6 +46,7 @@ extern bool g_bTriggerReticleCapture;
 extern bool g_bEnableAnimations;
 extern bool g_bFadeLights;
 extern bool g_bEnableQBVHwSAH;
+extern bool g_bUseCentroids;
 
 void Normalize(float4 *Vector) {
 	float x = Vector->x;
@@ -821,19 +822,30 @@ LRESULT CALLBACK MyWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam
 			// Ctrl+S
 			case 'S': {
 #define BENCHMARK_MODE 0
-#if BENCHMARK_MODE
-				g_BVHBuilderType = (BVHBuilderType)(((int)g_BVHBuilderType + 1) % BVHBuilderType_MAX);
-				log_debug("[DBG] [BVH] Builder type set to: %s", g_sBVHBuilderTypeNames[g_BVHBuilderType]);
-#else
+#if BENCHMARK_MODE == 0
 				g_bRTEnabledInTechRoom = !g_bRTEnabledInTechRoom;
 				log_debug("[DBG] [BVH] g_bRTEnabledInTechRoom: %d", g_bRTEnabledInTechRoom);
-#endif
+
 				/*g_bRTEnabled = !g_bRTEnabled;
 				log_debug("[DBG] [BVH] g_bRTEnabled: %s", g_bRTEnabled ? "Enabled" : "Disabled");
 				DisplayTimedMessage(3, 0, g_bRTEnabled ? "Raytracing Enabled" : "Raytracing Disabled");*/
 
 				g_bShadowMapEnable = !g_bShadowMapEnable;
 				DisplayTimedMessage(3, 0, g_bShadowMapEnable ? "Shadow Mapping Enabled" : "Shadow Mapping Disabled");
+#elif BENCHMARK_MODE == 1
+				g_BVHBuilderType = (BVHBuilderType)(((int)g_BVHBuilderType + 1) % BVHBuilderType_MAX);
+				log_debug("[DBG] [BVH] Builder type set to: %s", g_sBVHBuilderTypeNames[g_BVHBuilderType]);
+#elif BENCHMARK_MODE == 2
+				g_bUseCentroids = !g_bUseCentroids;
+				if (g_bUseCentroids)
+				{
+					DisplayTimedMessage(3, 0, "Using Centroids for TLAS");
+				}
+				else
+				{
+					DisplayTimedMessage(3, 0, "Using Center-of-Mass for TLAS");
+				}
+#endif
 				return 0;
 			}
 			//case 'E': {

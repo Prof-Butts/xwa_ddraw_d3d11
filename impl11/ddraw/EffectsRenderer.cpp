@@ -28,7 +28,7 @@ char* g_sBVHBuilderTypeNames[BVHBuilderType_MAX] = {
 	"      QBVH",
 	"  FastQBVH",
 	"    Embree",
-	"DirectBVH2",
+	"DirectBVH2CPU",
 	"DirectBVH2GPU",
 };
 
@@ -1548,12 +1548,11 @@ LBVH* EffectsRenderer::BuildBVH(const std::vector<XwaVector3>& vertices, const s
 	case BVHBuilderType_Embree:
 		return LBVH::BuildEmbree(vertices.data(), vertices.size(), indices.data(), indices.size());
 
-	case BVHBuilderType_DirectBVH2:
-		return LBVH::BuildDirectBVH2(vertices.data(), vertices.size(), indices.data(), indices.size());
+	case BVHBuilderType_DirectBVH2CPU:
+		return LBVH::BuildDirectBVH2CPU(vertices.data(), vertices.size(), indices.data(), indices.size());
 
-	// TODO
-	//case BVHBuilderType_DirectBVH2GPU:
-	//	return LBVH::BuildDirectBVH2GPU(vertices.data(), vertices.size(), indices.data(), indices.size());
+	case BVHBuilderType_DirectBVH2GPU:
+		return LBVH::BuildDirectBVH2GPU(vertices.data(), vertices.size(), indices.data(), indices.size());
 	}
 	return nullptr;
 }

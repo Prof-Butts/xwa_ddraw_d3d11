@@ -21,6 +21,7 @@ bool g_bEnableQBVHwSAH = false; // The FastLQBVH builder still has some problems
 
 // Used by the DirectBVH builder
 int g_directBuilderNextNode = 0;
+int g_maxDirectBVHIteration = -1;
 
 static HMODULE hEmbree = NULL;
 static bool g_bEmbreeLoaded = false;
@@ -35,7 +36,7 @@ rtcThreadLocalAllocFun g_rtcThreadLocalAlloc = nullptr;
 rtcReleaseBVHFun g_rtcReleaseBVH = nullptr;
 
 void PrintTreeBuffer(std::string level, BVHNode* buffer, int curNode);
-InnerNode* DirectBVH2Builder(AABB sceneAABB, std::vector<LeafItem>& leafItems, int& root_out);
+InnerNode* DirectBVH2BuilderGPU(AABB sceneAABB, std::vector<LeafItem>& leafItems, int& root_out);
 InnerNode* DirectBVH2BuilderCPU(AABB sceneAABB, AABB centroidBox, std::vector<LeafItem>& leafItems, int& root_out);
 
 // Load a BVH2, deprecated since the BVH4 are more better
@@ -3128,16 +3129,12 @@ LBVH* LBVH::BuildFastQBVH(const XwaVector3* vertices, const int numVertices, con
 /// Builds a BVH2 using the DirectBVH method. No Morton Codes, no explicit sort algorithm.
 /// The BVH2 is then converted to a QBVH.
 /// </summary>
-LBVH* LBVH::BuildDirectBVH2(const XwaVector3* vertices, const int numVertices, const int* indices, const int numIndices)
+LBVH* LBVH::BuildDirectBVH2CPU(const XwaVector3* vertices, const int numVertices, const int* indices, const int numIndices)
 {
 	// Get the scene limits
 	AABB sceneBox;
-	XwaVector3 range;
 	for (int i = 0; i < numVertices; i++)
 		sceneBox.Expand(vertices[i]);
-	range.x = sceneBox.max.x - sceneBox.min.x;
-	range.y = sceneBox.max.y - sceneBox.min.y;
-	range.z = sceneBox.max.z - sceneBox.min.z;
 
 	int numPrimitives = numIndices / 3;
 	/*
@@ -3163,11 +3160,90 @@ LBVH* LBVH::BuildDirectBVH2(const XwaVector3* vertices, const int numVertices, c
 
 	// Build the tree
 	int root = -1;
-	//InnerNode* innerNodes = DirectBVH2Builder(sceneBox, leafItems, root);
 	InnerNode* innerNodes = DirectBVH2BuilderCPU(sceneBox, centroidBox, leafItems, root);
 	if (innerNodes == nullptr)
 	{
 		log_debug("[DBG] [BVH] DirectBVH2BuilderCPU failed");
+		return nullptr;
+	}
+
+	//char sFileName[80];
+	//sprintf_s(sFileName, 80, ".\\BLAS-%d.obj", meshIndex);
+	//DumpInnerNodesToOBJ(sFileName, root, innerNodes, leafItems, vertices, indices);
+
+	// Convert to QBVH
+	//QTreeNode *Q = BinTreeToQTree(root, leafItems.size() == 1, innerNodes, leafItems);
+	//delete[] innerNodes;
+	// Encode the QBVH in a buffer
+	//void *buffer = EncodeNodes(Q, vertices, indices);
+
+	int numNodes = 0;
+	BVHNode* buffer = EncodeNodesAsQBVHwSAH(root, innerNodes, leafItems, vertices, indices, numNodes);
+	delete[] innerNodes;
+
+	//log_debug("[DBG] [BVH] ****************************************************************");
+	//log_debug("[DBG] [BVH] Printing Buffer");
+	//PrintTreeBuffer("", buffer, 0);
+
+	LBVH* lbvh = new LBVH();
+	lbvh->nodes = (BVHNode*)buffer;
+	lbvh->numVertices = numVertices;
+	lbvh->numIndices = numIndices;
+	//lbvh->numNodes = Q->numNodes;
+	lbvh->numNodes = numNodes;
+	lbvh->scale = 1.0f;
+	lbvh->scaleComputed = true;
+	// DEBUG
+	//log_debug("[DBG} [BVH] Dumping file: %s", sFileName);
+	//lbvh->DumpToOBJ(sFileName);
+	//log_debug("[DBG] [BVH] BLAS dumped");
+	// DEBUG
+
+	// Tidy up
+	//DeleteTree(Q);
+	return lbvh;
+}
+
+/// <summary>
+/// Same as BuildDirectBVH2(), but uses the GPU-Friendly version.
+/// Builds a BVH2 using the DirectBVH method. No Morton Codes, no explicit sort algorithm.
+/// The BVH2 is then converted to a QBVH.
+/// </summary>
+LBVH* LBVH::BuildDirectBVH2GPU(const XwaVector3* vertices, const int numVertices, const int* indices, const int numIndices)
+{
+	// Get the scene limits
+	AABB sceneBox;
+	for (int i = 0; i < numVertices; i++)
+		sceneBox.Expand(vertices[i]);
+
+	int numPrimitives = numIndices / 3;
+	/*
+	log_debug("[DBG] [BVH] numVertices: %d, numIndices: %d, numTris: %d, scene: (%0.3f, %0.3f, %0.3f)-(%0.3f, %0.3f, %0.3f)",
+		numVertices, numIndices, numTris,
+		sceneBox.min.x, sceneBox.min.y, sceneBox.min.z,
+		sceneBox.max.x, sceneBox.max.y, sceneBox.max.z);
+	*/
+
+	// Get the centroid and AABB for each triangle.
+	std::vector<LeafItem> leafItems;
+	AABB centroidBox;
+	for (int i = 0, TriID = 0; i < numIndices; i += 3, TriID++) {
+		AABB aabb;
+		aabb.Expand(vertices[indices[i + 0]]);
+		aabb.Expand(vertices[indices[i + 1]]);
+		aabb.Expand(vertices[indices[i + 2]]);
+
+		Vector3 centroid = aabb.GetCentroidVector3();
+		centroidBox.Expand(centroid);
+		leafItems.push_back({ 0, centroid, aabb, TriID });
+	}
+
+	// Build the tree
+	int root = -1;
+	InnerNode* innerNodes = DirectBVH2BuilderGPU(centroidBox, leafItems, root);
+	if (innerNodes == nullptr)
+	{
+		log_debug("[DBG] [BVH] DirectBVH2BuilderGPU failed");
 		return nullptr;
 	}
 
@@ -4489,6 +4565,7 @@ static void DirectBVH2InitNextIteration(int iteration, const int numPrimitives,
 // CPU version of the DirectBVH2 builder. This algorithm is simpler but it's less efficient
 // when it comes to memory usage and it's recursive, so it's not GPU-friendly.
 bool _DirectBVH2BuilderCPU(
+	int iteration,
 	AABB sceneAABB,
 	AABB centroidAABB,
 	InnerNode* innerNodes,
@@ -4504,6 +4581,9 @@ bool _DirectBVH2BuilderCPU(
 	std::vector<int> indicesL, indicesR;
 	Vector3 centroidRange = centroidAABB.GetRange();
 	const bool nullRange = (fabs(centroidRange[dim]) < 0.0001f);
+
+	if (iteration > g_maxDirectBVHIteration)
+		g_maxDirectBVHIteration = iteration;
 
 #ifdef DEBUG_BU
 	const int numInnerNodes = (int)leafItems.size() - 1;
@@ -4616,7 +4696,7 @@ bool _DirectBVH2BuilderCPU(
 		// Connect g_directBuilderNextNode as the left child of curNodeIndex
 		innerNodes[curParentNodeIndex].left       = g_directBuilderNextNode;
 		innerNodes[curParentNodeIndex].leftIsLeaf = false;
-		result = result && _DirectBVH2BuilderCPU(boxL, centroidBoxL,
+		result = result && _DirectBVH2BuilderCPU(iteration + 1, boxL, centroidBoxL,
 			innerNodes, leafItems, indicesL, centroidBoxL.GetLargestDimension(), g_directBuilderNextNode);
 	}
 	else // countL is 1
@@ -4640,7 +4720,7 @@ bool _DirectBVH2BuilderCPU(
 		// Connect g_directBuilderNextNode as the right child of curNodeIndex
 		innerNodes[curParentNodeIndex].right       = g_directBuilderNextNode;
 		innerNodes[curParentNodeIndex].rightIsLeaf = false;
-		result = result && _DirectBVH2BuilderCPU(boxR, centroidBoxR,
+		result = result && _DirectBVH2BuilderCPU(iteration + 1, boxR, centroidBoxR,
 			innerNodes, leafItems, indicesR, centroidBoxR.GetLargestDimension(), g_directBuilderNextNode);
 	}
 	else // countR is 1
@@ -4661,7 +4741,8 @@ InnerNode* DirectBVH2BuilderCPU(AABB sceneAABB, AABB centroidBox, std::vector<Le
 	InnerNode* innerNodes = new InnerNode[numInnerNodes];
 	rootIdx = 0;
 	g_directBuilderNextNode = 0; // This is incremented before it's used, so it should be initialized to 0
-	
+	g_maxDirectBVHIteration = -1;
+
 	// Initialize the leaf parents and indices
 	std::vector<int> leafIndices;
 	for (int i = 0; i < numPrimitives; i++)
@@ -4669,19 +4750,23 @@ InnerNode* DirectBVH2BuilderCPU(AABB sceneAABB, AABB centroidBox, std::vector<Le
 		leafIndices.push_back(i);
 	}
 
-	if (!_DirectBVH2BuilderCPU(sceneAABB, centroidBox,
+	if (!_DirectBVH2BuilderCPU(0, sceneAABB, centroidBox,
 		innerNodes, leafItems, leafIndices, centroidBox.GetLargestDimension(), rootIdx))
 	{
 		log_debug("[DBG] [BVH] _DirectBVH2BuilderCPU failed");
 		delete[] innerNodes;
 		innerNodes = nullptr;
 	}
+	else
+	{
+		log_debug("[DBG] [BVH] _DirectBVH2BuilderCPU() succeeded. Max iteration: %d", g_maxDirectBVHIteration);
+	}
 
 	return innerNodes;
 }
 
 // GPU-Friendly version of DirectBVH2BuilderCPU (no recursion, static arrays, reduced use of global atomics)
-InnerNode* DirectBVH2Builder(AABB centroidBox, std::vector<LeafItem> &leafItems, int &root_out)
+InnerNode* DirectBVH2BuilderGPU(AABB centroidBox, std::vector<LeafItem> &leafItems, int &root_out)
 {
 	const int numPrimitives = (int)leafItems.size();
 	const int numInnerNodes = numPrimitives - 1;
@@ -4699,7 +4784,7 @@ InnerNode* DirectBVH2Builder(AABB centroidBox, std::vector<LeafItem> &leafItems,
 	// ********************************************************
 	DirectBVH2Init(centroidBox, leafItems, leafParents, innerNodeBuildData, innerNodes, root_out);
 
-	int maxNumIters = (int)ceil(log2((float)numPrimitives)) + 4;
+	const int maxNumIters = numPrimitives - 1; // Worst-case scenario!
 
 	for (int iteration = 0; iteration < maxNumIters; iteration++)
 	{
@@ -4712,8 +4797,7 @@ InnerNode* DirectBVH2Builder(AABB centroidBox, std::vector<LeafItem> &leafItems,
 		if (done)
 		{
 //#ifdef DEBUG_BU
-			log_debug("[DBG] [BVH] Finished at iteration: %d, maxNumIters: %d",
-				iteration, maxNumIters);
+			log_debug("[DBG] [BVH] Finished at iteration: %d, maxNumIters: %d", iteration, maxNumIters);
 //#endif
 			break;
 		}
@@ -5138,7 +5222,7 @@ void TestImplicitMortonCodes()
 
 	int root = -1;
 	//InnerNode *innerNodes = DirectBVH2BuilderCPU(sceneAABB, centroidBox, leafItems, root);
-	InnerNode* innerNodes = DirectBVH2Builder(centroidBox, leafItems, root);
+	InnerNode* innerNodes = DirectBVH2BuilderGPU(centroidBox, leafItems, root);
 	if (innerNodes == nullptr)
 		return;
 

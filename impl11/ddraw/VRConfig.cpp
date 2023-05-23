@@ -2863,7 +2863,76 @@ bool LoadDefaultGlobalMaterial() {
 	return true;
 }
 
+bool LoadMultiplayerConfigFromHooks_ini() {
+	/*
+	 In the LoadMultiplayerConfig function in VRConfig.cpp you read the content of the
+	 hook_tourmultiplayer.cfg config file. In the future these settings will eventualy
+	 be moved to Hooks.ini in a [hook_tourmultiplayer] section. Can you update the code
+	 to also read the ini file?
+	 */
+	log_debug("[DBG] Loading hooks.ini...");
+	FILE* file;
+	int error = 0, line = 0;
+
+	try {
+		error = fopen_s(&file, "./hooks.ini", "rt");
+	}
+	catch (...) {
+		log_debug("[DBG] Could not load hooks.ini");
+	}
+
+	if (error != 0) {
+		log_debug("[DBG] Error %d when loading hooks.ini", error);
+		return false;
+	}
+
+	bool mpSection = false;
+	char buf[256], param[128], svalue[128];
+	int param_read_count = 0;
+	float fValue = 0.0f;
+
+	while (fgets(buf, 256, file) != NULL) {
+		line++;
+		// Skip comments and blank lines
+		if (buf[0] == ';' || buf[0] == '#')
+			continue;
+		if (strlen(buf) == 0)
+			continue;
+
+		if (buf[0] == '[') {
+			bool prevMPSection = mpSection;
+			mpSection = (stristr(buf, "[hook_tourmultiplayer]") != NULL);
+			if (!mpSection && prevMPSection)
+			{
+				// We've seen the MP section before and this is a new section:
+				// we're done here
+				break;
+			}
+		}
+		else if (mpSection)
+		{
+			if (sscanf_s(buf, "%s = %s", param, 128, svalue, 128) > 0) {
+				fValue = (float)atof(svalue);
+
+				if (_stricmp(param, "GreenAndRedForIFFColorsOnly") == 0) {
+					g_bGreenAndRedForIFFColorsOnly = (bool)fValue;
+					break;
+				}
+			}
+		}
+	}
+	fclose(file);
+
+	return true;
+}
+
 bool LoadMultiplayerConfig() {
+	// Try loading the MP configuration from hooks.ini first
+	if (LoadMultiplayerConfigFromHooks_ini())
+	{
+		return true;
+	}
+
 	log_debug("[DBG] Loading hook_tourmultiplayer.cfg...");
 	FILE* file;
 	int error = 0, line = 0;
@@ -2897,6 +2966,7 @@ bool LoadMultiplayerConfig() {
 
 			if (_stricmp(param, "GreenAndRedForIFFColorsOnly") == 0) {
 				g_bGreenAndRedForIFFColorsOnly = (bool)fValue;
+				break;
 			}
 		}
 	}
@@ -3186,9 +3256,9 @@ uint8_t LoadInterdictionMap(const char *fileName)
 			continue;
 
 		if (buf[0] == '[') {
-			bool prevInterdictioSection = interdictionSection;
+			bool prevInterdictionSection = interdictionSection;
 			interdictionSection = (stristr(buf, "[Interdiction]") != NULL);
-			if (!interdictionSection && prevInterdictioSection)
+			if (!interdictionSection && prevInterdictionSection)
 				break;
 		}
 		else if (interdictionSection) {

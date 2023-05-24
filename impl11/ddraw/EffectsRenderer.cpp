@@ -27,7 +27,7 @@ char* g_sBVHBuilderTypeNames[BVHBuilderType_MAX] = {
 	"      BVH2",
 	"      QBVH",
 	"  FastQBVH",
-	"    Embree",
+	//"    Embree",
 	"DirectBVH2CPU",
 	"DirectBVH2GPU",
 };
@@ -1545,8 +1545,8 @@ LBVH* EffectsRenderer::BuildBVH(const std::vector<XwaVector3>& vertices, const s
 		// 1-step LBVH build: QBVH is built and encoded in one step.
 		return LBVH::BuildFastQBVH(vertices.data(), vertices.size(), indices.data(), indices.size());
 
-	case BVHBuilderType_Embree:
-		return LBVH::BuildEmbree(vertices.data(), vertices.size(), indices.data(), indices.size());
+	//case BVHBuilderType_Embree:
+	//	return LBVH::BuildEmbree(vertices.data(), vertices.size(), indices.data(), indices.size());
 
 	case BVHBuilderType_DirectBVH2CPU:
 		return LBVH::BuildDirectBVH2CPU(vertices.data(), vertices.size(), indices.data(), indices.size());
@@ -1677,9 +1677,17 @@ void EffectsRenderer::BuildSingleBLASFromCurrentBVHMap()
 
 	// g_HiResTimer is called here to measure the time it takes to build the BVH. This should
 	// not be used during regular flight as it will mess up the animations
-	//g_HiResTimer.GetElapsedTime();
+//#define BVH_BENCHMARK_MODE
+#undef BVH_BENCHMARK_MODE
+#ifdef BVH_BENCHMARK_MODE
+	g_HiResTimer.GetElapsedTime();
+#endif
 	_lbvh = BuildBVH(vertices, indices);
-	//g_HiResTimer.GetElapsedTime();
+#ifdef BVH_BENCHMARK_MODE
+	g_HiResTimer.GetElapsedTime();
+	float elapsed_s = g_HiResTimer.elapsed_s;
+	log_debug("[DBG] [BVH] Elapsed Build Time: %0.6fms", elapsed_s * 1000.0f);
+#endif
 
 	int root = _lbvh->nodes[0].rootIdx;
 	log_debug("[DBG] [BVH] Builder: %s:%s, %s, total nodes: %d, actual nodes: %d",

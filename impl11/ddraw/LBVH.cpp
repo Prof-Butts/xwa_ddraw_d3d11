@@ -2849,6 +2849,58 @@ int DumpRBToOBJ(FILE* file, TreeNode* T, const std::string &name, int VerticesCo
 	return VerticesCountOffset;
 }
 
+// Function to swap two elements
+void swap(LeafItem* a, LeafItem* b)
+{
+	LeafItem t = *a;
+	*a = *b;
+	*b = t;
+}
+
+// Partition the array using the last element as the pivot
+int partition(LeafItem arr[], int low, int high)
+{
+	// Choosing the pivot
+	LeafItem pivot = arr[high];
+
+	// Index of smaller element and indicates
+	// the right position of pivot found so far
+	int i = (low - 1);
+
+	for (int j = low; j <= high - 1; j++) {
+
+		// If current element is smaller than the pivot
+		if (arr[j].code < pivot.code) {
+
+			// Increment index of smaller element
+			i++;
+			swap(&arr[i], &arr[j]);
+		}
+	}
+	swap(&arr[i + 1], &arr[high]);
+	return (i + 1);
+}
+
+// The main function that implements QuickSort
+// From https://www.geeksforgeeks.org/quick-sort/#
+// arr[] --> Array to be sorted,
+// low --> Starting index,
+// high --> Ending index
+void QuickSort(LeafItem arr[], int low, int high)
+{
+	if (low < high)
+	{
+		// pi is partitioning index, arr[p]
+		// is now at right place
+		int pi = partition(arr, low, high);
+
+		// Separately sort elements before
+		// partition and after partition
+		QuickSort(arr, low, pi - 1);
+		QuickSort(arr, pi + 1, high);
+	}
+}
+
 LBVH* LBVH::Build(const XwaVector3* vertices, const int numVertices, const int *indices, const int numIndices)
 {
 	// Get the scene limits
@@ -2883,7 +2935,8 @@ LBVH* LBVH::Build(const XwaVector3* vertices, const int numVertices, const int *
 	}
 
 	// Sort the morton codes
-	std::sort(leafItems.begin(), leafItems.end(), leafSorter);
+	//std::sort(leafItems.begin(), leafItems.end(), leafSorter);
+	QuickSort(leafItems.data(), 0, leafItems.size() - 1);
 
 	// Build the tree
 	int root = -1;
@@ -4595,7 +4648,7 @@ bool _DirectBVH2BuilderCPU(
 	{
 		// Single-primitive case. The leaf is the root, but there's
 		// nothing to do here since there are no inner nodes.
-		log_debug("[DBG] [BVH] WARNING, leafIndices.size() = 1");
+		//log_debug("[DBG] [BVH] WARNING, leafIndices.size() = 1");
 		return true;
 	}
 
@@ -4757,10 +4810,10 @@ InnerNode* DirectBVH2BuilderCPU(AABB sceneAABB, AABB centroidBox, std::vector<Le
 		delete[] innerNodes;
 		innerNodes = nullptr;
 	}
-	else
+	/*else
 	{
 		log_debug("[DBG] [BVH] _DirectBVH2BuilderCPU() succeeded. Max iteration: %d", g_maxDirectBVHIteration);
-	}
+	}*/
 
 	return innerNodes;
 }
@@ -4797,7 +4850,7 @@ InnerNode* DirectBVH2BuilderGPU(AABB centroidBox, std::vector<LeafItem> &leafIte
 		if (done)
 		{
 //#ifdef DEBUG_BU
-			log_debug("[DBG] [BVH] Finished at iteration: %d, maxNumIters: %d", iteration, maxNumIters);
+			//log_debug("[DBG] [BVH] Finished at iteration: %d, maxNumIters: %d", iteration, maxNumIters);
 //#endif
 			break;
 		}

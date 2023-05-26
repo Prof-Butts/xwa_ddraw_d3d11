@@ -4115,6 +4115,9 @@ struct InnerNodeBuildData
 	AABB boxR;
 };
 
+//#define BU_USE_UINT_MINMAX
+#undef BU_USE_UINT_MINMAX
+
 // For the GPU-Friendly version, we don't want to compute a boxL and boxR
 // during each iteration (to reduce global atomics). Instead we want to
 // keep track of the next split range along only one dimension.
@@ -4128,15 +4131,38 @@ struct InnerNodeBuildDataGPU
 	int numChildren;
 	int fitCounter;
 	int nextDimL;
+#ifdef BU_USE_UINT_MINMAX
+	uint32_t nextMinL;
+	uint32_t nextMaxL;
+#else
 	float nextMinL;
 	float nextMaxL;
+#endif
 	int nextDimR;
+#ifdef BU_USE_UINT_MINMAX
+	uint32_t nextMinR;
+	uint32_t nextMaxR;
+#else
 	float nextMinR;
 	float nextMaxR;
+#endif
 };
 
 //#define DEBUG_BU 1
 #undef DEBUG_BU
+
+constexpr float BVH_NORM_FACTOR = 1048576.0f; // 2^20, same precision we use for 64-bit Morton Codes
+
+static inline uint32_t Normalize(const Vector3 &pos, int dim, const AABB &box, const Vector3 &range)
+{
+	return (uint32_t)max(0.0f, min(BVH_NORM_FACTOR,
+		BVH_NORM_FACTOR * (pos[dim] - box.min[dim]) / range[dim]));
+}
+
+static inline float DeNormalize(uint32_t pos, int dim, const AABB &box, const Vector3 &range)
+{
+	return ((float)pos / BVH_NORM_FACTOR) * range[dim] + box.min[dim];
+}
 
 static void Refit(int innerNodeIndex, InnerNode* innerNodes, InnerNodeBuildDataGPU* innerNodeBuildData, std::vector<LeafItem> &leafItems)
 {
@@ -4213,9 +4239,14 @@ static void DirectBVH2Init(AABB centroidBox,
 	for (int i = 0; i < numInnerNodes; i++)
 		innerNodeBuildData[i] = { 0, 0, 0, 0.0f, AABB(), 0, 0,
 			// nextDimL, nextMinL, nextMaxL
-			0, FLT_MAX, -FLT_MAX,
 			// nextDimR, nextMinR, nextMaxR
+#ifdef BU_USE_UINT_MINMAX
+			0, UINT32_MAX, 0,
+			0, UINT32_MAX, 0
+#else
+			0, FLT_MAX, -FLT_MAX,
 			0, FLT_MAX, -FLT_MAX
+#endif
 		};
 
 	// The root will split along dim, so the left and right boxes
@@ -4232,16 +4263,23 @@ static void DirectBVH2Init(AABB centroidBox,
 
 	// Initialize the node counters for the root, along with the box and split data
 	innerNodeBuildData[root_out] = { 0, 0, dim, split, centroidBox, 0, 0,
+#ifdef BU_USE_UINT_MINMAX
+		nextDimL, UINT32_MAX, 0,
+		nextDimR, UINT32_MAX, 0
+#else
 		nextDimL, FLT_MAX, -FLT_MAX,
 		nextDimR, FLT_MAX, -FLT_MAX
+#endif
 	};
 	// Initialize the root's parent (this stops the Refit() operation)
 	innerNodes[root_out].parent = -1;
 }
 
-static bool DirectBVH2Classify(int iteration,
+static bool DirectBVH2Classify(
+	int iteration,
 	std::vector<LeafItem>& leafItems,
-	std::vector<BuilderItem>& leafParents, InnerNodeBuildDataGPU* innerNodeBuildData)
+	std::vector<BuilderItem>& leafParents,
+	InnerNodeBuildDataGPU* innerNodeBuildData)
 {
 	const int numPrimitives = (int)leafItems.size();
 	const int numInnerNodes = numPrimitives - 1;
@@ -4267,15 +4305,19 @@ static bool DirectBVH2Classify(int iteration,
 		done = false;
 
 		InnerNodeBuildDataGPU& innerNodeBD = innerNodeBuildData[parentNodeIndex];
-		const int   dim      = innerNodeBD.dim;
-		const int   nextDimL = innerNodeBD.nextDimL;
-		const int   nextDimR = innerNodeBD.nextDimR;
-		const float split    = innerNodeBD.split;
-		AABB  box            = innerNodeBD.box;
-		Vector3     boxRange = box.GetRange();
-		const bool nullRange = (fabs(boxRange[dim]) < 0.0001f);
-		float key      = leaf.centroid[dim];
-		float keySplit = split;
+		const int   dim       = innerNodeBD.dim;
+		const int   nextDimL  = innerNodeBD.nextDimL;
+		const int   nextDimR  = innerNodeBD.nextDimR;
+		const float split     = innerNodeBD.split;
+		AABB        box       = innerNodeBD.box;
+		Vector3     boxRange  = box.GetRange();
+		const bool  nullRange = (fabs(boxRange[dim]) < 0.0001f);
+		float       key       = leaf.centroid[dim];
+		float       keySplit  = split;
+		AABB boxL = box;
+		AABB boxR = box;
+		boxL.max[dim] = split;
+		boxR.max[dim] = split;
 
 		if (nullRange)
 		{
@@ -4301,12 +4343,21 @@ static bool DirectBVH2Classify(int iteration,
 			leafParents[i] = { parentNodeIndex, BU_LEFT };
 			innerNodeBD.countL++; // ATOMIC
 			//innerNodeBD.boxL.Expand(leaf.aabb); // ATOMIC
+#ifdef BU_USE_UINT_MINMAX
+			uint32_t code = Normalize(leaf.centroid, nextDimL, box, boxRange);
+			innerNodeBD.nextMinL = min(innerNodeBD.nextMinL, code); // ATOMIC
+			innerNodeBD.nextMaxL = max(innerNodeBD.nextMaxL, code); // ATOMIC
+#else
 			innerNodeBD.nextMinL = min(innerNodeBD.nextMinL, leaf.centroid[nextDimL]); // ATOMIC
 			innerNodeBD.nextMaxL = max(innerNodeBD.nextMaxL, leaf.centroid[nextDimL]); // ATOMIC
+#endif
 #ifdef DEBUG_BU
 			log_debug("[DBG] [BVH] (%d, %0.1f) -> L:%d, [%0.3f, %0.3f, %0.3f], nextMinMaxL: [%0.3f, %0.3f]",
 				i, leaf.centroid[dim], parentNodeIndex, box.min[dim], split, box.max[dim],
-				innerNodeBD.nextMinL, innerNodeBD.nextMaxL);
+				DeNormalize(innerNodeBD.nextMinL, nextDimL, box, boxRange),
+				DeNormalize(innerNodeBD.nextMaxL, nextDimL, box, boxRange));
+				//innerNodeBD.nextMinL,
+				//innerNodeBD.nextMaxL);
 #endif
 		}
 		else
@@ -4314,12 +4365,21 @@ static bool DirectBVH2Classify(int iteration,
 			leafParents[i] = { parentNodeIndex, BU_RIGHT };
 			innerNodeBD.countR++; // ATOMIC
 			//innerNodeBD.boxR.Expand(leaf.aabb); // ATOMIC
+#ifdef BU_USE_UINT_MINMAX
+			uint32_t code = Normalize(leaf.centroid, nextDimR, box, boxRange);
+			innerNodeBD.nextMinR = min(innerNodeBD.nextMinR, code); // ATOMIC
+			innerNodeBD.nextMaxR = max(innerNodeBD.nextMaxR, code); // ATOMIC
+#else
 			innerNodeBD.nextMinR = min(innerNodeBD.nextMinR, leaf.centroid[nextDimR]); // ATOMIC
 			innerNodeBD.nextMaxR = max(innerNodeBD.nextMaxR, leaf.centroid[nextDimR]); // ATOMIC
+#endif
 #ifdef DEBUG_BU
 			log_debug("[DBG] [BVH] (%d, %0.1f) -> R:%d, [%0.3f, %0.3f, %0.3f], nextMinMaxR: [%0.3f, %0.3f]",
 				i, leaf.centroid[dim], parentNodeIndex, box.min[dim], split, box.max[dim],
-				innerNodeBD.nextMinR, innerNodeBD.nextMaxR);
+				DeNormalize(innerNodeBD.nextMinR, nextDimR, box, boxRange),
+				DeNormalize(innerNodeBD.nextMaxR, nextDimR, box, boxRange));
+				//innerNodeBD.nextMinR,
+				//innerNodeBD.nextMaxR);
 #endif
 		}
 	}
@@ -4328,7 +4388,8 @@ static bool DirectBVH2Classify(int iteration,
 }
 
 static void DirectBVH2EmitInnerNodes(int iteration,
-	InnerNodeBuildDataGPU* innerNodeBuildData, InnerNode* innerNodes)
+	InnerNodeBuildDataGPU* innerNodeBuildData,
+	InnerNode* innerNodes)
 {
 #ifdef DEBUG_BU
 	log_debug("[DBG] [BVH] --------------------------------------------");
@@ -4356,6 +4417,9 @@ static void DirectBVH2EmitInnerNodes(int iteration,
 		}
 
 		AABB  innerNodeBox = innerNodeBD.box; // this is the centroidBox used in the previous cut
+#ifdef BU_USE_UINT_MINMAX
+		Vector3 range      = innerNodeBox.GetRange();
+#endif
 		int   dim          = innerNodeBD.dim;
 		float split        = innerNodeBD.split;
 
@@ -4363,11 +4427,17 @@ static void DirectBVH2EmitInnerNodes(int iteration,
 		int   nextDimR     = innerNodeBD.nextDimR;
 		//AABB  boxL         = innerNodeBD.boxL;
 		//AABB  boxR         = innerNodeBD.boxR;
+#ifdef BU_USE_UINT_MINMAX
+		uint32_t nextMinL  = innerNodeBD.nextMinL;
+		uint32_t nextMaxL  = innerNodeBD.nextMaxL;
+		uint32_t nextMinR  = innerNodeBD.nextMinR;
+		uint32_t nextMaxR  = innerNodeBD.nextMaxR;
+#else
 		float nextMinL     = innerNodeBD.nextMinL;
 		float nextMaxL     = innerNodeBD.nextMaxL;
-
 		float nextMinR     = innerNodeBD.nextMinR;
 		float nextMaxR     = innerNodeBD.nextMaxR;
+#endif
 
 #ifdef DEBUG_BU
 		log_debug("[DBG] [BVH] inner node %d, nextMinMaxL: [%0.3f, %0.3f], nextMinMaxR: [%0.3f, %0.3f]",
@@ -4379,12 +4449,22 @@ static void DirectBVH2EmitInnerNodes(int iteration,
 		AABB boxR          = innerNodeBox;
 
 		boxL.max[dim]      = split;
+#ifdef BU_USE_UINT_MINMAX
+		boxL.min[nextDimL] = DeNormalize(nextMinL, dim, innerNodeBox, range);
+		boxL.max[nextDimL] = DeNormalize(nextMaxL, dim, innerNodeBox, range);
+#else
 		boxL.min[nextDimL] = nextMinL;
 		boxL.max[nextDimL] = nextMaxL;
+#endif
 
 		boxR.min[dim]      = split;
+#ifdef BU_USE_UINT_MINMAX
+		boxR.min[nextDimR] = DeNormalize(nextMinR, dim, innerNodeBox, range);
+		boxR.max[nextDimR] = DeNormalize(nextMaxR, dim, innerNodeBox, range);
+#else
 		boxR.min[nextDimR] = nextMinR;
 		boxR.max[nextDimR] = nextMaxR;
+#endif
 
 #ifdef DEBUG_BU
 		log_debug("[DBG] [BVH] inner node %d, counts: (%d,%d), boxL,R: %s, %s",
@@ -4448,14 +4528,17 @@ static void DirectBVH2EmitInnerNodes(int iteration,
 				// The next split will be along this dimension:
 				int nextDimL  = boxL.GetLargestDimension();
 				int nextDimR  = boxR.GetLargestDimension();
-				//const float nextSplitL = 0.5f * (boxL.min[nextDimL] + boxL.max[nextDimL]);
-				//const float nextSplitR = 0.5f * (boxR.min[nextDimR] + boxR.max[nextDimR]);
 
 				innerNodeBuildData[i].numChildren++;
 				// Enable the new inner node
 				innerNodeBuildData[newNodeIndex] = { 0, 0, dim, split, box, 0, 0,
+#ifdef BU_USE_UINT_MINMAX
+					nextDimL, UINT32_MAX, 0,
+					nextDimR, UINT32_MAX, 0
+#else
 					nextDimL, FLT_MAX, -FLT_MAX,
 					nextDimR, FLT_MAX, -FLT_MAX
+#endif
 				};
 
 #ifdef DEBUG_BU
@@ -4489,14 +4572,17 @@ static void DirectBVH2EmitInnerNodes(int iteration,
 				// The next split will be along this dimension:
 				int nextDimL  = boxL.GetLargestDimension();
 				int nextDimR  = boxR.GetLargestDimension();
-				//const float nextSplitL = 0.5f * (boxL.min[nextDimL] + boxL.max[nextDimL]);
-				//const float nextSplitR = 0.5f * (boxR.min[nextDimR] + boxR.max[nextDimR]);
 
 				innerNodeBuildData[i].numChildren++;
 				// Enable the new inner node
 				innerNodeBuildData[newNodeIndex] = { 0, 0, dim, split, box, 0, 0,
+#ifdef BU_USE_UINT_MINMAX
+					nextDimL, UINT32_MAX, 0,
+					nextDimR, UINT32_MAX, 0
+#else
 					nextDimL, FLT_MAX, -FLT_MAX,
 					nextDimR, FLT_MAX, -FLT_MAX
+#endif
 				};
 
 #ifdef DEBUG_BU

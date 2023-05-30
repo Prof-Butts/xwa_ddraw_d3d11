@@ -4161,6 +4161,7 @@ struct InnerNode4BuildDataGPU
 	float splits[BU_PARTITIONS - 1];
 	AABB  box;
 	bool  processed;
+	bool  skipClassify;
 	int   numChildren;
 	int   fitCounter;
 	int   fitCounterTarget;
@@ -5229,6 +5230,10 @@ static bool DirectBVH4Classify(
 		InnerNode4BuildDataGPU& innerNodeBD = innerNodeBuildData[parentNodeIndex];
 		AABB    box      = innerNodeBD.box;
 		Vector3 boxRange = box.GetRange();
+		bool    skip     = innerNodeBD.skipClassify;
+
+		if (skip)
+			continue;
 
 		AABB subBox = box;
 		bool comps[BU_PARTITIONS - 1] = { false };
@@ -5339,9 +5344,40 @@ static void DirectBVH4EmitInnerNodes(
 		for (int k = 0; k < BU_PARTITIONS; k++)
 		{
 			// Preconditions: All active inner nodes have already been encoded.
-			if (innerNodeBD.counts[k] > 1)
+			if (1 < innerNodeBD.counts[k] && innerNodeBD.counts[k] <= BU_PARTITIONS)
 			{
-				int   dimk   = k < 2 ? innerNodeBD.dims[1] : innerNodeBD.dims[2];
+				// Emit a new inner node for this slot but don't split the subrange anymore since
+				// we can fit all the children in this slot under the new inner node.
+				int newNodeIndex = g_directBuilderNextNode;
+				g_directBuilderNextNode++; // ATOMIC
+
+				BVHNode newNode;
+				newNode.parent = i;
+				newNode.ref = -1;
+				newNode.numChildren = 0;
+				for (int j = 0; j < 4; j++)
+					newNode.children[j] = -1;
+				buffer[newNodeIndex] = newNode;
+
+				// Connect the current inner node to the new one
+				buffer[i].children[k] = newNodeIndex;
+				buffer[i].numChildren++;
+				innerNodeBuildData[i].numChildren++;
+
+				// Enable the new inner node
+				InnerNode4BuildDataGPU newInnerNode = { 0 };
+				newInnerNode.skipClassify = true;
+				newInnerNode.fitCounterTarget = innerNodeBD.counts[k];
+				innerNodeBuildData[newNodeIndex] = newInnerNode;
+
+#ifdef DEBUG_BU
+				log_debug("[DBG] [BVH] QBVHIdx: (I) %d --> slot[%d]:%d, SKIP, fitCounterTarget: %d",
+					newNodeIndex, k, i, newInnerNode.fitCounterTarget);
+#endif
+			}
+			else if (innerNodeBD.counts[k] > BU_PARTITIONS)
+			{
+				int   dimk   = k < 2 ? innerNodeBD.dims[1]   : innerNodeBD.dims[2];
 				float splitk = k < 2 ? innerNodeBD.splits[1] : innerNodeBD.splits[2];
 
 				int   nextDim = innerNodeBD.nextDim[k];
@@ -5482,12 +5518,49 @@ static void DirectBVH4InitNextIteration(
 		}
 		else if (innerNodeBD.counts[slot] > 1)
 		{
-			// This leaf a child but its parent has too many children. Loop again.
-			leafParents[i].parentIndex = buffer[parentIndex].children[slot];
-			leafParents[i].leftOrRight = BU_NONE;
+			// The parent of this leaf emitted a new node.
+			const int newParentIndex = buffer[parentIndex].children[slot];
+			leafParents[i].parentIndex = newParentIndex;
+			// The new node needs no more classification, we're done
+			if (innerNodeBuildData[newParentIndex].skipClassify)
+			{
+				// Encode a new BVH leaf
+				int newNodeIndex = g_directBuilderNextLeafNode;
+				g_directBuilderNextLeafNode++; // ATOMIC -- or we can pre-encode the leaves during initialization
+				EncodeLeafNode(buffer, leafItems, i, newNodeIndex, vertices, indices);
+
+				const int nextChild = buffer[newParentIndex].numChildren;
+				buffer[newParentIndex].children[nextChild] = newNodeIndex;
+				buffer[newParentIndex].numChildren++;
+
+				innerNodeBuildData[newParentIndex].numChildren++;
+				innerNodeBuildData[newParentIndex].fitCounter++;
+				// Deactivate this primitive for the next iteration
+				leafParents[i].parentIndex = -1;
+
 #ifdef DEBUG_BU
-			log_debug("[DBG] [BVH] prim %d now points to %d, prev parent: slot[%d]:%d", i, leafParents[i].parentIndex, slot, parentIndex);
+				log_debug("[DBG] [BVH] QBVHIdx: (L) %d --> %d", newNodeIndex, newParentIndex);
+				log_debug("[DBG] [BVH] prim %d now points to %d and it's a skip node, deactivated. Parent fitCounter: %d",
+					i, newParentIndex, innerNodeBuildData[newParentIndex].fitCounter);
 #endif
+				const int numChildren = innerNodeBuildData[newParentIndex].numChildren;
+				if (innerNodeBuildData[newParentIndex].fitCounter == innerNodeBuildData[newParentIndex].fitCounterTarget)
+				{
+					// The parent node can be refit now
+#ifdef DEBUG_BU
+					log_debug("[DBG] [BVH] REFITTING inner node: %d", newParentIndex);
+#endif
+					Refit4(newParentIndex, buffer, innerNodeBuildData, leafItems);
+				}
+			}
+			else
+			{
+				// The parent of this leaf has too many children, loop again.
+				leafParents[i].leftOrRight = BU_NONE;
+#ifdef DEBUG_BU
+				log_debug("[DBG] [BVH] prim %d now points to %d, prev parent: slot[%d]:%d", i, leafParents[i].parentIndex, slot, parentIndex);
+#endif
+			}
 		}
 	}
 }

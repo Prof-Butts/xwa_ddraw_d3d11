@@ -5327,7 +5327,6 @@ static void DirectBVH4EmitInnerNodes(
 		InnerNode4BuildDataGPU& innerNodeBD = innerNodeBuildData[i];
 
 		// Skip full nodes
-		//if (innerNodeBD.numChildren >= BU_MAX_CHILDREN_4)
 		if (innerNodeBD.processed)
 		{
 #ifdef DEBUG_BU
@@ -5344,6 +5343,9 @@ static void DirectBVH4EmitInnerNodes(
 		for (int k = 0; k < BU_PARTITIONS; k++)
 		{
 			// Preconditions: All active inner nodes have already been encoded.
+			// If we have between 2 and 4 children, we can emit one new inner node and put
+			// all those children there right away. The single-children case is handled separately
+			// but maybe later that case can be factored too.
 			if (1 < innerNodeBD.counts[k] && innerNodeBD.counts[k] <= BU_PARTITIONS)
 			{
 				// Emit a new inner node for this slot but don't split the subrange anymore since
@@ -5351,93 +5353,92 @@ static void DirectBVH4EmitInnerNodes(
 				int newNodeIndex = g_directBuilderNextNode;
 				g_directBuilderNextNode++; // ATOMIC
 
-BVHNode newNode;
-newNode.parent = i;
-newNode.ref = -1;
-newNode.numChildren = 0;
-for (int j = 0; j < 4; j++)
-	newNode.children[j] = -1;
-buffer[newNodeIndex] = newNode;
+				BVHNode newNode;
+				newNode.parent = i;
+				newNode.ref = -1;
+				newNode.numChildren = 0;
+				for (int j = 0; j < 4; j++)
+					newNode.children[j] = -1;
+				buffer[newNodeIndex] = newNode;
 
-// Connect the current inner node to the new one
-buffer[i].children[k] = newNodeIndex;
-buffer[i].numChildren++;
-innerNodeBuildData[i].numChildren++;
+				// Connect the current inner node to the new one
+				buffer[i].children[k] = newNodeIndex;
+				buffer[i].numChildren++;
+				innerNodeBuildData[i].numChildren++;
 
-// Enable the new inner node
-InnerNode4BuildDataGPU newInnerNode = { 0 };
-newInnerNode.skipClassify = true;
-newInnerNode.fitCounterTarget = innerNodeBD.counts[k];
-innerNodeBuildData[newNodeIndex] = newInnerNode;
+				// Enable the new inner node
+				InnerNode4BuildDataGPU newInnerNode = { 0 };
+				newInnerNode.skipClassify = true;
+				newInnerNode.fitCounterTarget = innerNodeBD.counts[k];
+				innerNodeBuildData[newNodeIndex] = newInnerNode;
 
 #ifdef DEBUG_BU
-log_debug("[DBG] [BVH] QBVHIdx: (I) %d --> slot[%d]:%d, SKIP, fitCounterTarget: %d",
-	newNodeIndex, k, i, newInnerNode.fitCounterTarget);
+				log_debug("[DBG] [BVH] QBVHIdx: (I) %d --> slot[%d]:%d, SKIP, fitCounterTarget: %d",
+					newNodeIndex, k, i, newInnerNode.fitCounterTarget);
 #endif
 			}
 			else if (innerNodeBD.counts[k] > BU_PARTITIONS)
 			{
-			int   dimk   = k < 2 ? innerNodeBD.dims[1]   : innerNodeBD.dims[2];
-			float splitk = k < 2 ? innerNodeBD.splits[1] : innerNodeBD.splits[2];
+				int   dimk   = k < 2 ? innerNodeBD.dims[1]   : innerNodeBD.dims[2];
+				float splitk = k < 2 ? innerNodeBD.splits[1] : innerNodeBD.splits[2];
 
-			int   nextDim = innerNodeBD.nextDim[k];
-			float nextMin = innerNodeBD.nextMin[k];
-			float nextMax = innerNodeBD.nextMax[k];
-
-#ifdef DEBUG_BU
-			log_debug("[DBG] [BVH] inner node %d, slot:%d, nextMinMax: [%0.3f, %0.3f]",
-				i, k, nextMin, nextMax);
-#endif
-
-			// Prepare the boxes for the next split
-			AABB box = innerNodeBox;
-			if (k < 2) // Left side of the main split
-				box.max[dim0] = split0;
-			else // Right side of the main split
-				box.min[dim0] = split0;
-
-			if (k == 0 || k == 2)
-				box.max[dimk] = splitk;
-			else
-				box.min[dimk] = splitk;
-			box.min[nextDim] = nextMin;
-			box.max[nextDim] = nextMax;
+				int   nextDim = innerNodeBD.nextDim[k];
+				float nextMin = innerNodeBD.nextMin[k];
+				float nextMax = innerNodeBD.nextMax[k];
 
 #ifdef DEBUG_BU
-			log_debug("[DBG] [BVH] inner node %d, slot:%d, counts: %d, box: %s",
-				i, k, innerNodeBD.counts[k], box.ToString().c_str());
+				log_debug("[DBG] [BVH] inner node %d, slot:%d, nextMinMax: [%0.3f, %0.3f]",
+					i, k, nextMin, nextMax);
 #endif
 
-			// Emit a new inner node for this slot and split the subrange again
-			int newNodeIndex = g_directBuilderNextNode;
-			g_directBuilderNextNode++; // ATOMIC
+				// Prepare the boxes for the next split
+				AABB box = innerNodeBox;
+				if (k < 2) // Left side of the main split
+					box.max[dim0] = split0;
+				else // Right side of the main split
+					box.min[dim0] = split0;
 
-			BVHNode newNode;
-			newNode.parent = i;
-			newNode.ref    = -1;
-			newNode.numChildren = 0;
-			for (int j = 0; j < 4; j++)
-				newNode.children[j] = -1;
-			buffer[newNodeIndex] = newNode;
-
-			// Connect the current inner node to the new one
-			//int nextChild = buffer[i].numChildren;
-			buffer[i].children[k] = newNodeIndex;
-			buffer[i].numChildren++;
-			innerNodeBuildData[i].numChildren++;
-
-			// Split this subrange again and enable the new inner node
-			InnerNode4BuildDataGPU newInnerNode = { 0 };
-			newInnerNode.box = box;
-			newInnerNode.fitCounterTarget = innerNodeBD.counts[k];
-			ComputeSplits4(newInnerNode, nextDim);
-			innerNodeBuildData[newNodeIndex] = newInnerNode;
+				if (k == 0 || k == 2)
+					box.max[dimk] = splitk;
+				else
+					box.min[dimk] = splitk;
+				box.min[nextDim] = nextMin;
+				box.max[nextDim] = nextMax;
 
 #ifdef DEBUG_BU
-			log_debug("[DBG] [BVH] QBVHIdx: (I) %d --> %d, fitCounterTarget: %d",
-				newNodeIndex, i, newInnerNode.fitCounterTarget);
+				log_debug("[DBG] [BVH] inner node %d, slot:%d, counts: %d, box: %s",
+					i, k, innerNodeBD.counts[k], box.ToString().c_str());
 #endif
 
+				// Emit a new inner node for this slot and split the subrange again
+				int newNodeIndex = g_directBuilderNextNode;
+				g_directBuilderNextNode++; // ATOMIC
+
+				BVHNode newNode;
+				newNode.parent = i;
+				newNode.ref = -1;
+				newNode.numChildren = 0;
+				for (int j = 0; j < 4; j++)
+					newNode.children[j] = -1;
+				buffer[newNodeIndex] = newNode;
+
+				// Connect the current inner node to the new one
+				//int nextChild = buffer[i].numChildren;
+				buffer[i].children[k] = newNodeIndex;
+				buffer[i].numChildren++;
+				innerNodeBuildData[i].numChildren++;
+
+				// Split this subrange again and enable the new inner node
+				InnerNode4BuildDataGPU newInnerNode = { 0 };
+				newInnerNode.box = box;
+				newInnerNode.fitCounterTarget = innerNodeBD.counts[k];
+				ComputeSplits4(newInnerNode, nextDim);
+				innerNodeBuildData[newNodeIndex] = newInnerNode;
+
+#ifdef DEBUG_BU
+				log_debug("[DBG] [BVH] QBVHIdx: (I) %d --> %d, fitCounterTarget: %d",
+					newNodeIndex, i, newInnerNode.fitCounterTarget);
+#endif
 			}
 		}
 	}

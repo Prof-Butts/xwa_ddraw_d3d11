@@ -5137,7 +5137,7 @@ static void DirectBVH4Init(
 	AABB sceneAABB,
 	AABB centroidBox,
 	std::vector<LeafItem>& leafItems,
-	std::vector<BuilderItem>& leafParents,
+	BuilderItem* leafParents,
 	InnerNode4BuildDataGPU* innerNodeBuildData,
 	int& root_out,
 	BVHNode **buffer_out)
@@ -5155,7 +5155,10 @@ static void DirectBVH4Init(
 
 	// All leafs are initially connected to the root, but they are not classified yet
 	for (int i = 0; i < numPrimitives; i++)
-		leafParents.push_back({ root_out, BU_NONE });
+	{
+		leafParents[i].parentIndex = root_out;
+		leafParents[i].leftOrRight = BU_NONE;
+	}
 
 	for (int i = 0; i < numInnerNodes; i++)
 	{
@@ -5202,7 +5205,7 @@ static void DirectBVH4Init(
 static bool DirectBVH4Classify(
 	int iteration,
 	std::vector<LeafItem>& leafItems,
-	std::vector<BuilderItem>& leafParents,
+	BuilderItem* leafParents,
 	InnerNode4BuildDataGPU* innerNodeBuildData)
 {
 	const int numPrimitives = (int)leafItems.size();
@@ -5448,7 +5451,7 @@ static void DirectBVH4EmitLeaf(
 	const int slot, // Set this to -1 to get the next available slot
 	const int primIndex,
 	const int parentIndex,
-	std::vector<BuilderItem>& leafParents,
+	BuilderItem* leafParents,
 	std::vector<LeafItem>& leafItems,
 	InnerNode4BuildDataGPU* innerNodeBuildData,
 	BVHNode* buffer,
@@ -5492,7 +5495,7 @@ static void DirectBVH4EmitLeaf(
 static void DirectBVH4InitNextIteration(
 	int iteration,
 	const int numPrimitives,
-	std::vector<BuilderItem>& leafParents,
+	BuilderItem* leafParents,
 	std::vector<LeafItem>& leafItems,
 	InnerNode4BuildDataGPU* innerNodeBuildData,
 	BVHNode *buffer,
@@ -6077,7 +6080,7 @@ void TestImplicitMortonCodes4()
 	//InnerNode *innerNodes = DirectBVH2BuilderCPU(sceneAABB, centroidBox, leafItems, root);
 	//InnerNode* innerNodes = DirectBVH2BuilderGPU(centroidBox, leafItems, root);
 	BVHNode* QBVHBuffer = nullptr;
-	std::vector<BuilderItem> leafParents;
+	BuilderItem* leafParents = new BuilderItem[numPrimitives];
 	InnerNode4BuildDataGPU* innerNodeBuildData = new InnerNode4BuildDataGPU[numInnerNodes];
 	DirectBVH4Init(sceneAABB, centroidBox, leafItems, leafParents, innerNodeBuildData, root, &QBVHBuffer);
 	for (int i = 0; i < 3; i++)
@@ -6093,6 +6096,7 @@ void TestImplicitMortonCodes4()
 		DirectBVH4EmitInnerNodes(i, innerNodeBuildData, QBVHBuffer);
 		DirectBVH4InitNextIteration(i, numPrimitives, leafParents, leafItems, innerNodeBuildData, QBVHBuffer, nullptr, nullptr);
 	}
+	delete[] leafParents;
 	delete[] innerNodeBuildData;
 	for (int i = 0; i < numInnerNodes; i++)
 	{

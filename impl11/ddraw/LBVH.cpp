@@ -5351,95 +5351,140 @@ static void DirectBVH4EmitInnerNodes(
 				int newNodeIndex = g_directBuilderNextNode;
 				g_directBuilderNextNode++; // ATOMIC
 
-				BVHNode newNode;
-				newNode.parent = i;
-				newNode.ref = -1;
-				newNode.numChildren = 0;
-				for (int j = 0; j < 4; j++)
-					newNode.children[j] = -1;
-				buffer[newNodeIndex] = newNode;
+BVHNode newNode;
+newNode.parent = i;
+newNode.ref = -1;
+newNode.numChildren = 0;
+for (int j = 0; j < 4; j++)
+	newNode.children[j] = -1;
+buffer[newNodeIndex] = newNode;
 
-				// Connect the current inner node to the new one
-				buffer[i].children[k] = newNodeIndex;
-				buffer[i].numChildren++;
-				innerNodeBuildData[i].numChildren++;
+// Connect the current inner node to the new one
+buffer[i].children[k] = newNodeIndex;
+buffer[i].numChildren++;
+innerNodeBuildData[i].numChildren++;
 
-				// Enable the new inner node
-				InnerNode4BuildDataGPU newInnerNode = { 0 };
-				newInnerNode.skipClassify = true;
-				newInnerNode.fitCounterTarget = innerNodeBD.counts[k];
-				innerNodeBuildData[newNodeIndex] = newInnerNode;
+// Enable the new inner node
+InnerNode4BuildDataGPU newInnerNode = { 0 };
+newInnerNode.skipClassify = true;
+newInnerNode.fitCounterTarget = innerNodeBD.counts[k];
+innerNodeBuildData[newNodeIndex] = newInnerNode;
 
 #ifdef DEBUG_BU
-				log_debug("[DBG] [BVH] QBVHIdx: (I) %d --> slot[%d]:%d, SKIP, fitCounterTarget: %d",
-					newNodeIndex, k, i, newInnerNode.fitCounterTarget);
+log_debug("[DBG] [BVH] QBVHIdx: (I) %d --> slot[%d]:%d, SKIP, fitCounterTarget: %d",
+	newNodeIndex, k, i, newInnerNode.fitCounterTarget);
 #endif
 			}
 			else if (innerNodeBD.counts[k] > BU_PARTITIONS)
 			{
-				int   dimk   = k < 2 ? innerNodeBD.dims[1]   : innerNodeBD.dims[2];
-				float splitk = k < 2 ? innerNodeBD.splits[1] : innerNodeBD.splits[2];
+			int   dimk   = k < 2 ? innerNodeBD.dims[1]   : innerNodeBD.dims[2];
+			float splitk = k < 2 ? innerNodeBD.splits[1] : innerNodeBD.splits[2];
 
-				int   nextDim = innerNodeBD.nextDim[k];
-				float nextMin = innerNodeBD.nextMin[k];
-				float nextMax = innerNodeBD.nextMax[k];
+			int   nextDim = innerNodeBD.nextDim[k];
+			float nextMin = innerNodeBD.nextMin[k];
+			float nextMax = innerNodeBD.nextMax[k];
 
 #ifdef DEBUG_BU
-				log_debug("[DBG] [BVH] inner node %d, slot:%d, nextMinMax: [%0.3f, %0.3f]",
-					i, k, nextMin, nextMax);
+			log_debug("[DBG] [BVH] inner node %d, slot:%d, nextMinMax: [%0.3f, %0.3f]",
+				i, k, nextMin, nextMax);
 #endif
 
-				// Prepare the boxes for the next split
-				AABB box = innerNodeBox;
-				if (k < 2) // Left side of the main split
-					box.max[dim0] = split0;
-				else // Right side of the main split
-					box.min[dim0] = split0;
+			// Prepare the boxes for the next split
+			AABB box = innerNodeBox;
+			if (k < 2) // Left side of the main split
+				box.max[dim0] = split0;
+			else // Right side of the main split
+				box.min[dim0] = split0;
 
-				if (k == 0 || k == 2)
-					box.max[dimk] = splitk;
-				else
-					box.min[dimk] = splitk;
-				box.min[nextDim] = nextMin;
-				box.max[nextDim] = nextMax;
+			if (k == 0 || k == 2)
+				box.max[dimk] = splitk;
+			else
+				box.min[dimk] = splitk;
+			box.min[nextDim] = nextMin;
+			box.max[nextDim] = nextMax;
 
 #ifdef DEBUG_BU
-				log_debug("[DBG] [BVH] inner node %d, slot:%d, counts: %d, box: %s",
-					i, k, innerNodeBD.counts[k], box.ToString().c_str());
+			log_debug("[DBG] [BVH] inner node %d, slot:%d, counts: %d, box: %s",
+				i, k, innerNodeBD.counts[k], box.ToString().c_str());
 #endif
 
-				// Emit a new inner node for this slot and split the subrange again
-				int newNodeIndex = g_directBuilderNextNode;
-				g_directBuilderNextNode++; // ATOMIC
+			// Emit a new inner node for this slot and split the subrange again
+			int newNodeIndex = g_directBuilderNextNode;
+			g_directBuilderNextNode++; // ATOMIC
 
-				BVHNode newNode;
-				newNode.parent = i;
-				newNode.ref    = -1;
-				newNode.numChildren = 0;
-				for (int j = 0; j < 4; j++)
-					newNode.children[j] = -1;
-				buffer[newNodeIndex] = newNode;
+			BVHNode newNode;
+			newNode.parent = i;
+			newNode.ref    = -1;
+			newNode.numChildren = 0;
+			for (int j = 0; j < 4; j++)
+				newNode.children[j] = -1;
+			buffer[newNodeIndex] = newNode;
 
-				// Connect the current inner node to the new one
-				//int nextChild = buffer[i].numChildren;
-				buffer[i].children[k] = newNodeIndex;
-				buffer[i].numChildren++;
-				innerNodeBuildData[i].numChildren++;
+			// Connect the current inner node to the new one
+			//int nextChild = buffer[i].numChildren;
+			buffer[i].children[k] = newNodeIndex;
+			buffer[i].numChildren++;
+			innerNodeBuildData[i].numChildren++;
 
-				// Split this subrange again and enable the new inner node
-				InnerNode4BuildDataGPU newInnerNode = { 0 };
-				newInnerNode.box = box;
-				newInnerNode.fitCounterTarget = innerNodeBD.counts[k];
-				ComputeSplits4(newInnerNode, nextDim);
-				innerNodeBuildData[newNodeIndex] = newInnerNode;
+			// Split this subrange again and enable the new inner node
+			InnerNode4BuildDataGPU newInnerNode = { 0 };
+			newInnerNode.box = box;
+			newInnerNode.fitCounterTarget = innerNodeBD.counts[k];
+			ComputeSplits4(newInnerNode, nextDim);
+			innerNodeBuildData[newNodeIndex] = newInnerNode;
 
 #ifdef DEBUG_BU
-				log_debug("[DBG] [BVH] QBVHIdx: (I) %d --> %d, fitCounterTarget: %d",
-					newNodeIndex, i, newInnerNode.fitCounterTarget);
+			log_debug("[DBG] [BVH] QBVHIdx: (I) %d --> %d, fitCounterTarget: %d",
+				newNodeIndex, i, newInnerNode.fitCounterTarget);
 #endif
 
 			}
 		}
+	}
+}
+
+static void DirectBVH4EmitLeaf(
+	const int slot, // Set this to -1 to get the next available slot
+	const int primIndex,
+	const int parentIndex,
+	std::vector<BuilderItem>& leafParents,
+	std::vector<LeafItem>& leafItems,
+	InnerNode4BuildDataGPU* innerNodeBuildData,
+	BVHNode* buffer,
+	const XwaVector3* vertices, const int* indices)
+{
+	// Encode a new BVH leaf
+	int newNodeIndex = g_directBuilderNextLeafNode;
+	g_directBuilderNextLeafNode++; // ATOMIC -- or we can pre-encode the leaves during initialization
+	EncodeLeafNode(buffer, leafItems, primIndex, newNodeIndex, vertices, indices);
+
+	const int nextChild = (slot < 0) ? buffer[parentIndex].numChildren : slot;
+	buffer[parentIndex].children[nextChild] = newNodeIndex;
+	buffer[parentIndex].numChildren++;
+
+	innerNodeBuildData[parentIndex].numChildren++;
+	innerNodeBuildData[parentIndex].fitCounter++;
+	// Deactivate this primitive for the next iteration
+	leafParents[primIndex].parentIndex = -1;
+
+#ifdef DEBUG_BU
+	log_debug("[DBG] [BVH] QBVHIdx: (L) %d --> %d", newNodeIndex, parentIndex);
+	if (slot >= 0)
+		log_debug("[DBG] [BVH] prim %d still points to slot[%d]:%d and it's a leaf, deactivated. Parent fitCounter: %d",
+			primIndex, slot, parentIndex, innerNodeBuildData[parentIndex].fitCounter);
+	else
+		log_debug("[DBG] [BVH] prim %d now points to %d and it's a leaf, deactivated. Parent fitCounter: %d",
+			primIndex, parentIndex, innerNodeBuildData[parentIndex].fitCounter);
+#endif
+
+	const int numChildren = innerNodeBuildData[parentIndex].numChildren;
+	if (innerNodeBuildData[parentIndex].fitCounter == innerNodeBuildData[parentIndex].fitCounterTarget)
+	{
+		// The parent node can be refit now
+#ifdef DEBUG_BU
+		log_debug("[DBG] [BVH] REFITTING inner node: %d", parentIndex);
+#endif
+		Refit4(parentIndex, buffer, innerNodeBuildData, leafItems);
 	}
 }
 
@@ -5471,6 +5516,7 @@ static void DirectBVH4InitNextIteration(
 		// Emit leaves if applicable or update parent pointers
 		InnerNode4BuildDataGPU& innerNodeBD = innerNodeBuildData[parentIndex];
 
+		// Handle bad splits
 #ifdef DISABLED
 		if (innerNodeBD.countL == 0 || innerNodeBD.countR == 0)
 		{
@@ -5485,36 +5531,7 @@ static void DirectBVH4InitNextIteration(
 		if (innerNodeBD.counts[slot] == 1)
 		{
 			// This node is a leaf of parentIndex at the current slot
-			// Encode a new BVH leaf
-			int newNodeIndex = g_directBuilderNextLeafNode;
-			g_directBuilderNextLeafNode++; // ATOMIC -- or we can pre-encode the leaves during initialization
-			EncodeLeafNode(buffer, leafItems, i, newNodeIndex, vertices, indices);
-
-			//const int nextChild = buffer[parentIndex].numChildren;
-			buffer[parentIndex].children[slot] = newNodeIndex;
-			buffer[parentIndex].numChildren++;
-
-			innerNodeBuildData[parentIndex].numChildren++;
-			innerNodeBuildData[parentIndex].fitCounter++;
-			// Deactivate this primitive for the next iteration
-			leafParents[i].parentIndex = -1;
-
-#ifdef DEBUG_BU
-			log_debug("[DBG] [BVH] QBVHIdx: (L) %d --> %d", newNodeIndex, parentIndex);
-			log_debug("[DBG] [BVH] prim %d still points to slot[%d]:%d and it's a leaf, deactivated. Parent fitCounter: %d",
-				i, slot, parentIndex, innerNodeBuildData[parentIndex].fitCounter);
-#endif
-			const int numChildren = innerNodeBuildData[parentIndex].numChildren;
-			//if (numChildren > 1 && innerNodeBuildData[parentIndex].fitCounter == numChildren)
-			if (innerNodeBuildData[parentIndex].fitCounter == innerNodeBuildData[parentIndex].fitCounterTarget)
-			//if (innerNodeBuildData[parentIndex].fitCounter == numChildren)
-			{
-				// The parent node can be refit now
-#ifdef DEBUG_BU
-				log_debug("[DBG] [BVH] REFITTING inner node: %d", parentIndex);
-#endif
-				Refit4(parentIndex, buffer, innerNodeBuildData, leafItems);
-			}
+			DirectBVH4EmitLeaf(slot, i, parentIndex, leafParents, leafItems, innerNodeBuildData, buffer, vertices, indices);
 		}
 		else if (innerNodeBD.counts[slot] > 1)
 		{
@@ -5525,33 +5542,7 @@ static void DirectBVH4InitNextIteration(
 			if (innerNodeBuildData[newParentIndex].skipClassify)
 			{
 				// Encode a new BVH leaf
-				int newNodeIndex = g_directBuilderNextLeafNode;
-				g_directBuilderNextLeafNode++; // ATOMIC -- or we can pre-encode the leaves during initialization
-				EncodeLeafNode(buffer, leafItems, i, newNodeIndex, vertices, indices);
-
-				const int nextChild = buffer[newParentIndex].numChildren;
-				buffer[newParentIndex].children[nextChild] = newNodeIndex;
-				buffer[newParentIndex].numChildren++;
-
-				innerNodeBuildData[newParentIndex].numChildren++;
-				innerNodeBuildData[newParentIndex].fitCounter++;
-				// Deactivate this primitive for the next iteration
-				leafParents[i].parentIndex = -1;
-
-#ifdef DEBUG_BU
-				log_debug("[DBG] [BVH] QBVHIdx: (L) %d --> %d", newNodeIndex, newParentIndex);
-				log_debug("[DBG] [BVH] prim %d now points to %d and it's a skip node, deactivated. Parent fitCounter: %d",
-					i, newParentIndex, innerNodeBuildData[newParentIndex].fitCounter);
-#endif
-				const int numChildren = innerNodeBuildData[newParentIndex].numChildren;
-				if (innerNodeBuildData[newParentIndex].fitCounter == innerNodeBuildData[newParentIndex].fitCounterTarget)
-				{
-					// The parent node can be refit now
-#ifdef DEBUG_BU
-					log_debug("[DBG] [BVH] REFITTING inner node: %d", newParentIndex);
-#endif
-					Refit4(newParentIndex, buffer, innerNodeBuildData, leafItems);
-				}
+				DirectBVH4EmitLeaf(-1, i, newParentIndex, leafParents, leafItems, innerNodeBuildData, buffer, vertices, indices);
 			}
 			else
 			{

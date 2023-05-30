@@ -4171,8 +4171,8 @@ struct InnerNode4BuildDataGPU
 	float nextMax[BU_PARTITIONS];
 };
 
-#define DEBUG_BU 1
-//#undef DEBUG_BU
+//#define DEBUG_BU 1
+#undef DEBUG_BU
 
 constexpr float BVH_NORM_FACTOR = 1048576.0f; // 2^20, same precision we use for 64-bit Morton Codes
 
@@ -5249,26 +5249,25 @@ static bool DirectBVH4Classify(
 			float key       = leaf.centroid[dim];
 
 			// Take care of null ranges
-#ifdef DISABLED
 			if (nullRange)
 			{
-				key = (float)i;
+				key = (float)primIdx;
 				// Use InterlockedExchange() to flip between 1 and -1 in a GPU:
 				if (keySplit >= 0.0f)
 				{
 					keySplit = key + 1.0f;
-					innerNodeBuildData[parentNodeIndex].split = -1.0f;
+					innerNodeBD.splits[k] = -1.0f;
 				}
 				else
 				{
 					keySplit = key - 1.0f;
-					innerNodeBuildData[parentNodeIndex].split = 1.0f;
+					innerNodeBD.splits[k] = 1.0f;
 				}
 #ifdef DEBUG_BU
-				log_debug("[DBG] [BVH] WARNING! NULL RANGE! box: %s", box.ToString().c_str());
+				log_debug("[DBG] [BVH] WARNING! NULL RANGE! primIndex: %d, slot: %d, box: %s",
+					primIdx, k, box.ToString().c_str());
 #endif
 			}
-#endif
 
 			comps[k] = key < keySplit;
 //#ifdef DEBUG_BU
@@ -6027,8 +6026,28 @@ void TestImplicitMortonCodes4()
 		leafItems.push_back({ 0, aabb.GetCentroidVector3(), aabb, 2 });
 		sceneAABB.Expand(aabb);
 
-		aabb.min = Vector3(2.2f, 3.0f, 2.0f); // Repeated element!
-		aabb.max = Vector3(4.2f, 0.2f, 2.0f);
+		aabb.min = Vector3(2.0f, 2.0f, 1.0f); // Repeated element!
+		aabb.max = Vector3(4.0f, 2.0f, 1.0f);
+		leafItems.push_back({ 0, aabb.GetCentroidVector3(), aabb, 3 });
+		sceneAABB.Expand(aabb);
+
+		aabb.min = Vector3(2.0f, 2.0f, 1.0f); // Repeated element!
+		aabb.max = Vector3(4.0f, 2.0f, 1.0f);
+		leafItems.push_back({ 0, aabb.GetCentroidVector3(), aabb, 3 });
+		sceneAABB.Expand(aabb);
+
+		aabb.min = Vector3(2.0f, 2.0f, 1.0f); // Repeated element!
+		aabb.max = Vector3(4.0f, 2.0f, 1.0f);
+		leafItems.push_back({ 0, aabb.GetCentroidVector3(), aabb, 3 });
+		sceneAABB.Expand(aabb);
+
+		aabb.min = Vector3(2.0f, 2.0f, 1.0f); // Repeated element!
+		aabb.max = Vector3(4.0f, 2.0f, 1.0f);
+		leafItems.push_back({ 0, aabb.GetCentroidVector3(), aabb, 3 });
+		sceneAABB.Expand(aabb);
+
+		aabb.min = Vector3(2.0f, 2.0f, 1.0f); // Repeated element!
+		aabb.max = Vector3(4.0f, 2.0f, 1.0f);
 		leafItems.push_back({ 0, aabb.GetCentroidVector3(), aabb, 3 });
 		sceneAABB.Expand(aabb);
 

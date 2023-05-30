@@ -1552,7 +1552,7 @@ LBVH* EffectsRenderer::BuildBVH(const std::vector<XwaVector3>& vertices, const s
 		return LBVH::BuildDirectBVH2CPU(vertices.data(), vertices.size(), indices.data(), indices.size());
 
 	case BVHBuilderType_DirectBVH2GPU:
-		return LBVH::BuildDirectBVH2GPU(vertices.data(), vertices.size(), indices.data(), indices.size());
+		return LBVH::BuildDirectBVH4GPU(vertices.data(), vertices.size(), indices.data(), indices.size());
 	}
 	return nullptr;
 }

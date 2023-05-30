@@ -39,6 +39,7 @@ rtcReleaseBVHFun g_rtcReleaseBVH = nullptr;
 void PrintTreeBuffer(std::string level, BVHNode* buffer, int curNode);
 InnerNode* DirectBVH2BuilderGPU(AABB sceneAABB, std::vector<LeafItem>& leafItems, int& root_out);
 InnerNode* DirectBVH2BuilderCPU(AABB sceneAABB, AABB centroidBox, std::vector<LeafItem>& leafItems, int& root_out);
+BVHNode* DirectBVH4BuilderGPU(AABB centroidBox, std::vector<LeafItem>& leafItems, int& numNodes, const XwaVector3* vertices, const int* indices);
 
 // Load a BVH2, deprecated since the BVH4 are more better
 #ifdef DISABLED
@@ -3339,6 +3340,83 @@ LBVH* LBVH::BuildDirectBVH2GPU(const XwaVector3* vertices, const int numVertices
 	return lbvh;
 }
 
+/// <summary>
+/// Same as BuildDirectBVH2(), but uses the GPU-Friendly version and builds a QBVH directly.
+/// Builds a BVH4 using the DirectBVH method. No Morton Codes, no explicit sort algorithm.
+/// </summary>
+LBVH* LBVH::BuildDirectBVH4GPU(const XwaVector3* vertices, const int numVertices, const int* indices, const int numIndices)
+{
+	// Get the scene limits
+	AABB sceneBox;
+	//for (int i = 0; i < numVertices; i++)
+	//	sceneBox.Expand(vertices[i]);
+
+	const int numPrimitives = numIndices / 3;
+	const int numInnerNodes = CalcNumInnerQBVHNodes(numPrimitives);
+
+	/*
+	log_debug("[DBG] [BVH] numVertices: %d, numIndices: %d, numTris: %d, scene: (%0.3f, %0.3f, %0.3f)-(%0.3f, %0.3f, %0.3f)",
+		numVertices, numIndices, numTris,
+		sceneBox.min.x, sceneBox.min.y, sceneBox.min.z,
+		sceneBox.max.x, sceneBox.max.y, sceneBox.max.z);
+	*/
+
+	// Get the centroid and AABB for each triangle.
+	std::vector<LeafItem> leafItems;
+	AABB centroidBox;
+	for (int i = 0, TriID = 0; i < numIndices; i += 3, TriID++) {
+		AABB aabb;
+		aabb.Expand(vertices[indices[i + 0]]);
+		aabb.Expand(vertices[indices[i + 1]]);
+		aabb.Expand(vertices[indices[i + 2]]);
+
+		Vector3 centroid = aabb.GetCentroidVector3();
+		centroidBox.Expand(centroid);
+		leafItems.push_back({ 0, centroid, aabb, TriID });
+		sceneBox.Expand(aabb);
+	}
+
+	// Build the tree
+	int root = -1;
+	int numNodes = 0;
+	BVHNode* buffer = DirectBVH4BuilderGPU(centroidBox, leafItems, numNodes, vertices, indices);
+	if (buffer == nullptr)
+	{
+		log_debug("[DBG] [BVH] DirectBVH4BuilderGPU failed");
+		return nullptr;
+	}
+
+	// DEBUG
+	log_debug("[DBG] [BVH] sceneBox: %s", sceneBox.ToString().c_str());
+	log_debug("[DBG] [BVH]  rootbox: (%0.6f, %0.6f, %0.6f)-(%0.6f, %0.6f, %0.6f)",
+		buffer[0].min[0], buffer[0].min[1], buffer[0].min[2],
+		buffer[0].max[0], buffer[0].max[1], buffer[0].max[2]);
+
+	//log_debug("[DBG] [BVH] ****************************************************************");
+	//log_debug("[DBG] [BVH] Printing Buffer");
+	//PrintTreeBuffer("", buffer, 0);
+
+	LBVH* lbvh = new LBVH();
+	lbvh->nodes = (BVHNode*)buffer;
+	lbvh->numVertices = numVertices;
+	lbvh->numIndices = numIndices;
+	lbvh->numNodes = numNodes;
+	lbvh->scale = 1.0f;
+	lbvh->scaleComputed = true;
+	// DEBUG
+	/*
+	char* sFileName = ".\\Test.obj";
+	log_debug("[DBG} [BVH] Dumping file: %s", sFileName);
+	lbvh->DumpToOBJ(sFileName);
+	log_debug("[DBG] [BVH] BLAS dumped");
+	*/
+	// DEBUG
+
+	// Tidy up
+	//DeleteTree(Q);
+	return lbvh;
+}
+
 // https://github.com/embree/embree/blob/master/tutorials/bvh_builder/bvh_builder_device.cpp
 struct BuildData
 {
@@ -4162,6 +4240,7 @@ struct InnerNode4BuildDataGPU
 	AABB  box;
 	bool  processed;
 	bool  skipClassify;
+	int   refit;
 	int   numChildren;
 	int   fitCounter;
 	int   fitCounterTarget;
@@ -4236,7 +4315,11 @@ static void Refit(int innerNodeIndex, InnerNode* innerNodes, InnerNodeBuildDataG
 	}
 }
 
-static void Refit4(int innerNodeIndex, BVHNode* buffer, InnerNode4BuildDataGPU* innerNodeBuildData, std::vector<LeafItem>& leafItems)
+static void Refit4(
+	int innerNodeIndex,
+	BVHNode* buffer,
+	InnerNode4BuildDataGPU* innerNodeBuildData,
+	std::vector<LeafItem>& leafItems)
 {
 #ifdef DEBUG_BU
 	int tabLevel = 1;
@@ -4311,6 +4394,7 @@ static void Refit4(int innerNodeIndex, BVHNode* buffer, InnerNode4BuildDataGPU* 
 		}
 		buffer[curInnerNodeIndex].min[3] = 1.0f;
 		buffer[curInnerNodeIndex].max[3] = 1.0f;
+		innerNodeBuildData[curInnerNodeIndex].refit++;
 
 		// The root probably doesn't need to be refit, but we need to write its AABB
 		// during initialization, so either way is fine.
@@ -5134,13 +5218,12 @@ static void ComputeSplits4(InnerNode4BuildDataGPU& splitData, int splitDim=-1)
 }
 
 static void DirectBVH4Init(
-	AABB sceneAABB,
 	AABB centroidBox,
 	std::vector<LeafItem>& leafItems,
 	BuilderItem* leafParents,
 	InnerNode4BuildDataGPU* innerNodeBuildData,
 	int& root_out,
-	BVHNode **buffer_out)
+	BVHNode** buffer_out)
 {
 	const int numPrimitives = (int)leafItems.size();
 	const int numInnerNodes = CalcNumInnerQBVHNodes(numPrimitives);
@@ -5192,11 +5275,6 @@ static void DirectBVH4Init(
 	root.ref         = -1;
 	root.parent      = -1; // Needed to stop the Refit() operation
 	root.numChildren = 0;
-	for (int i = 0; i < 3; i++)
-	{
-		root.min[i] = sceneAABB.min[i];
-		root.max[i] = sceneAABB.max[i];
-	}
 	for (int i = 0; i < 4; i++)
 		root.children[i] = -1;
 	(*buffer_out)[0] = root;
@@ -5308,6 +5386,7 @@ static bool DirectBVH4Classify(
 
 static void DirectBVH4EmitInnerNodes(
 	int iteration,
+	const int numPrimitives,
 	InnerNode4BuildDataGPU* innerNodeBuildData,
 	BVHNode* buffer)
 {
@@ -5319,6 +5398,7 @@ static void DirectBVH4EmitInnerNodes(
 	// We don't need to iterate over all the inner nodes, since only a fraction of them
 	// will actually be active during the algorithm
 	const int lastActiveInnerNode = g_directBuilderNextNode;
+	const int numInnerNodes = CalcNumInnerQBVHNodes(numPrimitives);
 
 #ifdef DEBUG_BU
 	log_debug("[DBG] [BVH] lastActiveInnerNode: %d", lastActiveInnerNode);
@@ -5457,9 +5537,11 @@ static void DirectBVH4EmitLeaf(
 	const XwaVector3* vertices, const int* indices)
 {
 	// Encode a new BVH leaf
-	int newNodeIndex = g_directBuilderNextLeafNode;
-	g_directBuilderNextLeafNode++; // ATOMIC -- or we can pre-encode the leaves during initialization
-	EncodeLeafNode(buffer, leafItems, primIndex, newNodeIndex, vertices, indices);
+	//int newNodeIndex = g_directBuilderNextLeafNode;
+	//g_directBuilderNextLeafNode++; // ATOMIC -- or we can pre-encode the leaves during initialization
+	//EncodeLeafNode(buffer, leafItems, primIndex, newNodeIndex, vertices, indices);
+	const int numInnerNodes = CalcNumInnerQBVHNodes((int)leafItems.size());
+	const int newNodeIndex = primIndex + numInnerNodes;
 
 	const int nextChild = (slot < 0) ? buffer[parentIndex].numChildren : slot;
 	buffer[parentIndex].children[nextChild] = newNodeIndex;
@@ -5480,6 +5562,8 @@ static void DirectBVH4EmitLeaf(
 			primIndex, parentIndex, innerNodeBuildData[parentIndex].fitCounter);
 #endif
 
+	// Refit isn't working properly at the moment
+	/*
 	const int numChildren = innerNodeBuildData[parentIndex].numChildren;
 	if (innerNodeBuildData[parentIndex].fitCounter == innerNodeBuildData[parentIndex].fitCounterTarget)
 	{
@@ -5489,6 +5573,7 @@ static void DirectBVH4EmitLeaf(
 #endif
 		Refit4(parentIndex, buffer, innerNodeBuildData, leafItems);
 	}
+	*/
 }
 
 static void DirectBVH4InitNextIteration(
@@ -5557,6 +5642,158 @@ static void DirectBVH4InitNextIteration(
 			}
 		}
 	}
+}
+
+static void TestBVH4Buffer(InnerNode4BuildDataGPU* innerNodeBuildData, BVHNode* buffer, int curNodeIdx)
+{
+	int counter = 0;
+
+	for (int i = 0; i < g_directBuilderNextNode; i++)
+	{
+		if (innerNodeBuildData[i].refit == 0)
+			log_debug("[DBG] [BVH] ERROR: Node %d was not refit", i);
+		else if (innerNodeBuildData[i].refit > 1)
+			log_debug("[DBG] [BVH] ERROR: Node %d was refit %d times", i, innerNodeBuildData[i].refit);
+		else
+		{
+			counter++;
+
+			BVHNode& node = buffer[curNodeIdx];
+			for (int i = 0; i < 3; i++)
+			{
+				if (node.min[i] < -10000 * METERS_TO_OPT)
+					log_debug("[DBG] [BVH] min[%d] is too large", i);
+				if (node.max[i] > 10000 * METERS_TO_OPT)
+					log_debug("[DBG] [BVH] max[%d] is too large", i);
+			}
+			if (fabs(node.min[3] - 1.0f) > 0.001f)
+				log_debug("[DBG] [BVH] Wrong w: %0.3f", node.min[3]);
+			if (fabs(node.max[3] - 1.0f) > 0.001f)
+				log_debug("[DBG] [BVH] Wrong w: %0.3f", node.max[3]);
+		}
+
+		// Check that each inner node has compressed children indices
+		for (int k = 0; k < buffer[i].numChildren; k++)
+		{
+			if (buffer[i].children[k] < 0)
+				log_debug("[DBG] [BVH] Found -1 inside numChildren for node %d", i);
+		}
+
+		for (int k = buffer[i].numChildren; i < 4; i++)
+		{
+			if (buffer[i].children[k] >= 0)
+				log_debug("[DBG] [BVH] Found child outside numChildren range for node %d", i);
+		}
+	}
+
+	log_debug("[DBG] [BVH] %d nodes out of %d were refit once", counter, g_directBuilderNextNode);
+}
+
+static AABB RefitBVH4Buffer(BVHNode* buffer, const int numPrimitives, const int numInnerNodes, int curNodeIdx,
+	std::vector<LeafItem> &leafItems, InnerNode4BuildDataGPU* innerNodeBuildData)
+{
+	AABB box;
+
+	// Don't process leaves
+	if (buffer[curNodeIdx].ref != -1)
+	{
+		BVHPrimNode *leafPtr = (BVHPrimNode *)buffer;
+		Vector3 v0 = { leafPtr[curNodeIdx].v0[0], leafPtr[curNodeIdx].v0[1], leafPtr[curNodeIdx].v0[2] };
+		Vector3 v1 = { leafPtr[curNodeIdx].v1[0], leafPtr[curNodeIdx].v1[1], leafPtr[curNodeIdx].v1[2] };
+		Vector3 v2 = { leafPtr[curNodeIdx].v2[0], leafPtr[curNodeIdx].v2[1], leafPtr[curNodeIdx].v2[2] };
+		box.Expand(v0);
+		box.Expand(v1);
+		box.Expand(v2);
+		return box;
+
+		/*int primIdx = curNodeIdx - numInnerNodes;
+		if (primIdx < 0 || primIdx > numPrimitives)
+			log_debug("[DBG] [BVH] Invalid primIdx: %d", primIdx);
+		return leafItems[primIdx].aabb;*/
+	}
+
+	// Compress the children indices
+	BVHNode& node = buffer[curNodeIdx];
+	int tmpIndices[BU_PARTITIONS] = { -1, -1, -1, -1 };
+	int destIdx = 0;
+	for (int k = 0; k < BU_PARTITIONS; k++)
+	{
+		if (node.children[k] != -1)
+			tmpIndices[destIdx++] = node.children[k];
+	}
+	for (int k = 0; k < BU_PARTITIONS; k++)
+		node.children[k] = tmpIndices[k];
+
+	for (int i = 0; i < BU_PARTITIONS; i++)
+	{
+		const int childIdx = buffer[curNodeIdx].children[i];
+		if (childIdx != -1)
+			box.Expand(RefitBVH4Buffer(buffer, numPrimitives, numInnerNodes, childIdx, leafItems, innerNodeBuildData));
+	}
+
+	innerNodeBuildData[curNodeIdx].refit++;
+	for (int i = 0; i < 3; i++)
+	{
+		buffer[curNodeIdx].min[i] = box.min[i];
+		buffer[curNodeIdx].max[i] = box.max[i];
+	}
+	buffer[curNodeIdx].min[3] = 1.0f;
+	buffer[curNodeIdx].max[3] = 1.0f;
+
+	return box;
+}
+
+BVHNode* DirectBVH4BuilderGPU(AABB centroidBox, std::vector<LeafItem>& leafItems, int& numNodes,
+	const XwaVector3* vertices, const int* indices)
+{
+	const int numPrimitives = leafItems.size();
+	const int numInnerNodes = CalcNumInnerQBVHNodes(numPrimitives);
+	numNodes = numPrimitives + numInnerNodes;
+	int root = -1;
+	BVHNode* QBVHBuffer = nullptr;
+
+	log_debug("[DBG] [BVH] numTris: %d, numInnerNodes: %d, numNodes: %d",
+		numPrimitives, numInnerNodes, numNodes);
+
+	BuilderItem* leafParents = new BuilderItem[numPrimitives];
+	InnerNode4BuildDataGPU* innerNodeBuildData = new InnerNode4BuildDataGPU[numInnerNodes];
+	DirectBVH4Init(centroidBox, leafItems, leafParents, innerNodeBuildData, root, &QBVHBuffer);
+
+	// Encode the leaves
+	int LeafEncodeIdx = numInnerNodes;
+	for (unsigned int i = 0; i < leafItems.size(); i++)
+	{
+		EncodeLeafNode(QBVHBuffer, leafItems, i, LeafEncodeIdx++, vertices, indices);
+	}
+
+	// The worst-case scenario is that we have to iterate once for every inner node:
+	const int maxIterations = numInnerNodes;
+	for (int i = 0; i < maxIterations; i++)
+	{
+		const bool done = DirectBVH4Classify(i, leafItems, leafParents, innerNodeBuildData);
+		if (done)
+		{
+#ifdef DEBUG_BU
+			log_debug("[DBG] [BVH] All leaves have been processed.");
+#endif
+			break;
+		}
+		DirectBVH4EmitInnerNodes(i, numPrimitives, innerNodeBuildData, QBVHBuffer);
+		DirectBVH4InitNextIteration(i, numPrimitives, leafParents, leafItems, innerNodeBuildData, QBVHBuffer, vertices, indices);
+	}
+
+	log_debug("[DBG] [BVH] Inner nodes used: %d, leaves used: %d, actual nodes: %d",
+		g_directBuilderNextNode, g_directBuilderNextLeafNode - numInnerNodes,
+		g_directBuilderNextNode + (g_directBuilderNextLeafNode - numInnerNodes));
+
+	//TestBVH4Buffer(innerNodeBuildData, QBVHBuffer, root);
+	RefitBVH4Buffer(QBVHBuffer, numPrimitives, numInnerNodes, root, leafItems, innerNodeBuildData);
+	TestBVH4Buffer(innerNodeBuildData, QBVHBuffer, root);
+
+	delete[] leafParents;
+	delete[] innerNodeBuildData;
+
+	return QBVHBuffer;
 }
 
 void TestFastLBVH()
@@ -6078,46 +6315,16 @@ void TestImplicitMortonCodes4()
 		centroidBox.Expand(leafItems[i].aabb.GetCentroidVector3());
 	}
 
-	const int numPrimitives = leafItems.size();
-	int numInnerNodes = CalcNumInnerQBVHNodes(numPrimitives);
-	int numQBVHNodes = numPrimitives + numInnerNodes;
-
-	log_debug("[DBG] [BVH] numTris: %d, numInnerNodes: %d, numQBVHNodes: %d",
-		numPrimitives, numInnerNodes, numQBVHNodes);
 	log_debug("[DBG] [BVH] scene: %s", sceneAABB.ToString().c_str());
 
-	// Encode the leaves
-	/*
-	int LeafEncodeIdx = numQBVHInnerNodes;
-	for (unsigned int i = 0; i < leafItems.size(); i++)
-	{
-		EncodeLeafNode(QBVHBuffer, leafItems, i, LeafEncodeIdx++, nullptr, nullptr);
-	}
-	*/
-
 	int root = -1;
-	//InnerNode *innerNodes = DirectBVH2BuilderCPU(sceneAABB, centroidBox, leafItems, root);
-	//InnerNode* innerNodes = DirectBVH2BuilderGPU(centroidBox, leafItems, root);
-	BVHNode* QBVHBuffer = nullptr;
-	BuilderItem* leafParents = new BuilderItem[numPrimitives];
-	InnerNode4BuildDataGPU* innerNodeBuildData = new InnerNode4BuildDataGPU[numInnerNodes];
-	DirectBVH4Init(sceneAABB, centroidBox, leafItems, leafParents, innerNodeBuildData, root, &QBVHBuffer);
-	for (int i = 0; i < 3; i++)
-	{
-		const bool done = DirectBVH4Classify(i, leafItems, leafParents, innerNodeBuildData);
-		if (done)
-		{
-#ifdef DEBUG_BU
-			log_debug("[DBG] [BVH] All leaves have been processed.");
-#endif
-			break;
-		}
-		DirectBVH4EmitInnerNodes(i, innerNodeBuildData, QBVHBuffer);
-		DirectBVH4InitNextIteration(i, numPrimitives, leafParents, leafItems, innerNodeBuildData, QBVHBuffer, nullptr, nullptr);
-	}
-	delete[] leafParents;
-	delete[] innerNodeBuildData;
-	for (int i = 0; i < numInnerNodes; i++)
+	int numNodes = 0;
+	BVHNode* QBVHBuffer = DirectBVH4BuilderGPU(centroidBox, leafItems, numNodes, nullptr, nullptr);
+
+	// Print the inner nodes
+	const int numPrimitives = leafItems.size();
+	const int numInnerNodes = CalcNumInnerQBVHNodes(numPrimitives);
+	for (int i = 0; i < g_directBuilderNextNode; i++)
 	{
 		BVHNode node = QBVHBuffer[i];
 		log_debug("[DBG] [BVH] node %d, PrimID: %d, parent: %d, numChildren: %d, children: %d, %d, %d, %d",

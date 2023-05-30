@@ -753,6 +753,8 @@ public:
 	static LBVH* BuildDirectBVH2CPU(const XwaVector3* vertices, const int numVertices, const int* indices, const int numIndices);
 	// Build & Encode using the DirectBVH2 approach (no Morton codes). GPU-Friendly version.
 	static LBVH* BuildDirectBVH2GPU(const XwaVector3* vertices, const int numVertices, const int* indices, const int numIndices);
+	// Build & Encode using the DirectBVH4 approach (no Morton codes). GPU-Friendly version.
+	static LBVH* BuildDirectBVH4GPU(const XwaVector3* vertices, const int numVertices, const int* indices, const int numIndices);
 
 	void PrintTree(std::string level, int curnode);
 	void DumpToOBJ(char *sFileName, bool isTLAS=false, bool useMetricScale=true);

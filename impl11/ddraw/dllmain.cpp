@@ -840,10 +840,12 @@ LRESULT CALLBACK MyWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam
 				if (g_bUseCentroids)
 				{
 					DisplayTimedMessage(3, 0, "Using Centroids for TLAS");
+					log_debug("[DBG] [BVH] Using Centroids for TLAS");
 				}
 				else
 				{
 					DisplayTimedMessage(3, 0, "Using Center-of-Mass for TLAS");
+					log_debug("[DBG] [BVH] Using Center-of-Mass for TLAS");
 				}
 #endif
 				return 0;

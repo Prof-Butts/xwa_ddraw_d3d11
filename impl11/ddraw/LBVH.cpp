@@ -5697,19 +5697,10 @@ static AABB RefitBVH4Buffer(BVHNode* buffer, const int numPrimitives, const int 
 	// Don't process leaves
 	if (buffer[curNodeIdx].ref != -1)
 	{
-		BVHPrimNode *leafPtr = (BVHPrimNode *)buffer;
-		Vector3 v0 = { leafPtr[curNodeIdx].v0[0], leafPtr[curNodeIdx].v0[1], leafPtr[curNodeIdx].v0[2] };
-		Vector3 v1 = { leafPtr[curNodeIdx].v1[0], leafPtr[curNodeIdx].v1[1], leafPtr[curNodeIdx].v1[2] };
-		Vector3 v2 = { leafPtr[curNodeIdx].v2[0], leafPtr[curNodeIdx].v2[1], leafPtr[curNodeIdx].v2[2] };
-		box.Expand(v0);
-		box.Expand(v1);
-		box.Expand(v2);
-		return box;
-
-		/*int primIdx = curNodeIdx - numInnerNodes;
-		if (primIdx < 0 || primIdx > numPrimitives)
-			log_debug("[DBG] [BVH] Invalid primIdx: %d", primIdx);
-		return leafItems[primIdx].aabb;*/
+		int primIdx = curNodeIdx - numInnerNodes;
+		//if (primIdx < 0 || primIdx > numPrimitives)
+		//	log_debug("[DBG] [BVH] Invalid primIdx: %d", primIdx);
+		return leafItems[primIdx].aabb;
 	}
 
 	// Compress the children indices

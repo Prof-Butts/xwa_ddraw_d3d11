@@ -10,9 +10,9 @@
 struct VertexShaderInput
 {
 	float4 pos      : POSITION; // The D3DRendererHook version has OPT-scale metric coords here
-	float4 color    : COLOR0;
-	float4 specular : COLOR1;
-	float2 tex      : TEXCOORD;
+	//float4 color    : COLOR0;
+	//float4 specular : COLOR1;
+	//float2 tex      : TEXCOORD;
 };
 
 struct SHADOW_PS_INPUT

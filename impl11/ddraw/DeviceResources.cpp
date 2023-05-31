@@ -4094,11 +4094,20 @@ HRESULT DeviceResources::LoadResources()
 	if (FAILED(hr = this->_d3dDevice->CreateInputLayout(vertexLayoutDesc, ARRAYSIZE(vertexLayoutDesc), g_VertexShader, sizeof(g_VertexShader), &_inputLayout)))
 		return hr;
 
-	if (FAILED(hr = this->_d3dDevice->CreateInputLayout(vertexLayoutDesc, ARRAYSIZE(vertexLayoutDesc), g_SBSVertexShader, sizeof(g_SBSVertexShader), &_inputLayout)))
+	// Input layout specific for shadowmap, as the input (shadow OBJ) only contains position information
+	const D3D11_INPUT_ELEMENT_DESC shadowVertexLayoutDesc[] =
+	{
+		{ "POSITION", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0 },
+	};
+
+	if (FAILED(hr = this->_d3dDevice->CreateInputLayout(shadowVertexLayoutDesc, ARRAYSIZE(shadowVertexLayoutDesc), g_ShadowMapVS, sizeof(g_ShadowMapVS), &_shadowMapInputLayout)))
 		return hr;
 
-	if (FAILED(hr = this->_d3dDevice->CreateInputLayout(vertexLayoutDesc, ARRAYSIZE(vertexLayoutDesc), g_DATVertexShaderVR, sizeof(g_DATVertexShaderVR), &_inputLayout)))
-		return hr;
+//	if (FAILED(hr = this->_d3dDevice->CreateInputLayout(vertexLayoutDesc, ARRAYSIZE(vertexLayoutDesc), g_SBSVertexShader, sizeof(g_SBSVertexShader), &_inputLayout)))
+//		return hr;
+
+//	if (FAILED(hr = this->_d3dDevice->CreateInputLayout(vertexLayoutDesc, ARRAYSIZE(vertexLayoutDesc), g_DATVertexShaderVR, sizeof(g_DATVertexShaderVR), &_inputLayout)))
+//		return hr;
 
 	if (FAILED(hr = this->_d3dDevice->CreatePixelShader(g_PixelShaderTexture, sizeof(g_PixelShaderTexture), nullptr, &_pixelShaderTexture)))
 		return hr;

@@ -489,6 +489,7 @@ public:
 	ComPtr<ID3D11VertexShader> _hangarShadowMapVS;
 	ComPtr<ID3D11VertexShader> _csmVS;
 	ComPtr<ID3D11InputLayout> _inputLayout;
+	ComPtr<ID3D11InputLayout> _shadowMapInputLayout;
 	ComPtr<ID3D11PixelShader> _pixelShaderTexture;
 	ComPtr<ID3D11PixelShader> _pixelShaderDC;
 	ComPtr<ID3D11PixelShader> _pixelShaderDCHolo;

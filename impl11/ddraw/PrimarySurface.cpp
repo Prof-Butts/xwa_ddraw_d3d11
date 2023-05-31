@@ -3557,6 +3557,10 @@ void PrimarySurface::DeferredPass()
 		context->Draw(6, 0);
 	}
 
+	// Clear RT SRVs slots that are only used for the shadows to avoid DirectX errors
+	ID3D11ShaderResourceView* srvs[] = { NULL, NULL, NULL, NULL };
+	context->PSSetShaderResources(14, 4, srvs);
+
 	// Restore previous rendertarget, etc
 	// TODO: Is this really needed?
 	viewport.Width = screen_res_x;

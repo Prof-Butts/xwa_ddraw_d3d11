@@ -93,10 +93,6 @@ void SteamVRRenderer::RenderScene()
 	*/
 
 	//_deviceResources->InitScissorRect(&scissor);
-
-	// TODO: Implement instanced rendering so that we issue only one draw call to
-	// render both eyes.
-	// https://github.com/Prof-Butts/xwa_ddraw_d3d11/issues/48
 	
 	// Regular VR path
 	resources->InitVertexShader(_vertexShaderVR);

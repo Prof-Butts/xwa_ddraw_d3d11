@@ -237,8 +237,7 @@ enum BVHBuilderType
 	BVHBuilderType_DirectBVH2GPU,
 	BVHBuilderType_MAX,
 };
-constexpr BVHBuilderType DEFAULT_BVH_BUILDER = BVHBuilderType_FastQBVH;
-//constexpr BVHBuilderType DEFAULT_BVH_BUILDER = BVHBuilderType_DirectBVH2GPU;
+constexpr BVHBuilderType DEFAULT_BVH_BUILDER = BVHBuilderType_DirectBVH2GPU;
 extern BVHBuilderType g_BVHBuilderType;
 extern char* g_sBVHBuilderTypeNames[BVHBuilderType_MAX];
 

@@ -4179,7 +4179,7 @@ constexpr int BU_MAX_CHILDREN_4 = 4;
 struct BuilderItem
 {
 	int parentIndex;
-	int8_t leftOrRight;
+	int8_t side;
 };
 
 struct InnerNodeBuildData
@@ -4806,7 +4806,7 @@ static void DirectBVH2InitNextIteration(int iteration, const int numPrimitives,
 	for (int i = 0; i < numPrimitives; i++)
 	{
 		int parentIndex = leafParents[i].parentIndex;
-		int leftOrRight = leafParents[i].leftOrRight;
+		int side = leafParents[i].side;
 
 		// Skip inactive primitives
 		if (parentIndex == -1)
@@ -4817,14 +4817,14 @@ static void DirectBVH2InitNextIteration(int iteration, const int numPrimitives,
 
 		if (innerNodeBD.countL == 0 || innerNodeBD.countR == 0)
 		{
-			leafParents[i].leftOrRight = BU_NONE;
+			leafParents[i].side = BU_NONE;
 #ifdef DEBUG_BU
 			log_debug("[DBG] [BVH] Skipping prim %d, it points to an inner node with a bad split", i);
 #endif
 			continue;
 		}
 
-		if (leftOrRight == BU_LEFT)
+		if (side == BU_LEFT)
 		{
 			if (innerNodeBD.countL == 1)
 			{
@@ -4854,13 +4854,13 @@ static void DirectBVH2InitNextIteration(int iteration, const int numPrimitives,
 			{
 				// This leaf a left child but its parent has too many children. Loop again.
 				leafParents[i].parentIndex = innerNodes[parentIndex].left;
-				leafParents[i].leftOrRight = BU_NONE;
+				leafParents[i].side = BU_NONE;
 #ifdef DEBUG_BU
 				log_debug("[DBG] [BVH] prim %d now points to L:%d", i, innerNodes[parentIndex].left);
 #endif
 			}
 		}
-		else // leftOrRight == BU_RIGHT
+		else // side == BU_RIGHT
 		{
 			if (innerNodeBD.countR == 1)
 			{
@@ -4890,7 +4890,7 @@ static void DirectBVH2InitNextIteration(int iteration, const int numPrimitives,
 			{
 				// This leaf a right child but its parent has too many children. Loop again.
 				leafParents[i].parentIndex = innerNodes[parentIndex].right;
-				leafParents[i].leftOrRight = BU_NONE;
+				leafParents[i].side = BU_NONE;
 #ifdef DEBUG_BU
 				log_debug("[DBG] [BVH] prim %d now points to R:%d", i, innerNodes[parentIndex].right);
 #endif
@@ -5232,7 +5232,7 @@ static void DirectBVH4Init(
 	for (int i = 0; i < numPrimitives; i++)
 	{
 		leafParents[i].parentIndex = root_out;
-		leafParents[i].leftOrRight = BU_NONE;
+		leafParents[i].side = BU_NONE;
 	}
 
 	// Inner nodes need no initialization, they are filled out as needed.
@@ -5523,10 +5523,6 @@ static void DirectBVH4EmitLeaf(
 	BVHNode* buffer,
 	const XwaVector3* vertices, const int* indices)
 {
-	// Encode a new BVH leaf
-	//int newNodeIndex = g_directBuilderNextLeafNode;
-	//g_directBuilderNextLeafNode++; // ATOMIC -- or we can pre-encode the leaves during initialization
-	//EncodeLeafNode(buffer, leafItems, primIndex, newNodeIndex, vertices, indices);
 	const int newNodeIndex = primIndex + numInnerNodes;
 
 	const int nextChild = (slot < 0) ? buffer[parentIndex].numChildren : slot;
@@ -5577,7 +5573,7 @@ static void DirectBVH4InitNextIteration(
 	for (int i = 0; i < numPrimitives; i++)
 	{
 		int parentIndex = leafParents[i].parentIndex;
-		int slot = leafParents[i].leftOrRight;
+		int slot = leafParents[i].side;
 
 		// Skip inactive primitives
 		if (parentIndex == -1)
@@ -5590,7 +5586,7 @@ static void DirectBVH4InitNextIteration(
 #ifdef DISABLED
 		if (innerNodeBD.countL == 0 || innerNodeBD.countR == 0)
 		{
-			leafParents[i].leftOrRight = BU_NONE;
+			leafParents[i].side = BU_NONE;
 #ifdef DEBUG_BU
 			log_debug("[DBG] [BVH] Skipping prim %d, it points to an inner node with a bad split", i);
 #endif
@@ -5617,7 +5613,7 @@ static void DirectBVH4InitNextIteration(
 			else
 			{
 				// The parent of this leaf has too many children, loop again.
-				leafParents[i].leftOrRight = BU_NONE;
+				leafParents[i].side = BU_NONE;
 #ifdef DEBUG_BU
 				log_debug("[DBG] [BVH] prim %d now points to %d, prev parent: slot[%d]:%d", i, leafParents[i].parentIndex, slot, parentIndex);
 #endif

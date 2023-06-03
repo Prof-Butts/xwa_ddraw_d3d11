@@ -29,7 +29,7 @@ char* g_sBVHBuilderTypeNames[BVHBuilderType_MAX] = {
 	"  FastQBVH",
 	//"    Embree",
 	"DirectBVH2CPU",
-	"DirectBVH2GPU",
+	"DirectBVH4GPU",
 };
 
 bool g_bRTEnabledInTechRoom = true;
@@ -1551,7 +1551,7 @@ LBVH* EffectsRenderer::BuildBVH(const std::vector<XwaVector3>& vertices, const s
 	case BVHBuilderType_DirectBVH2CPU:
 		return LBVH::BuildDirectBVH2CPU(vertices.data(), vertices.size(), indices.data(), indices.size());
 
-	case BVHBuilderType_DirectBVH2GPU:
+	case BVHBuilderType_DirectBVH4GPU:
 		return LBVH::BuildDirectBVH4GPU(vertices.data(), vertices.size(), indices.data(), indices.size());
 	}
 	return nullptr;

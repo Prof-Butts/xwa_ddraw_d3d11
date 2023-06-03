@@ -20,6 +20,7 @@ static int g_QBVHEncodeNodeIdx = 0;
 bool g_bEnableQBVHwSAH = false; // The FastLQBVH builder still has some problems when SAH is enabled
 
 // Used by the DirectBVH builder
+int g_directBuilderFirstActiveInnerNode = 0;
 int g_directBuilderNextNode = 0;
 int g_maxDirectBVHIteration = -1;
 
@@ -4236,7 +4237,6 @@ struct InnerNode4BuildDataGPU
 	int   dims[BU_PARTITIONS - 1];
 	float splits[BU_PARTITIONS - 1];
 	AABB  box;
-	bool  processed;
 	bool  skipClassify;
 	int   numChildren;
 	int   fitCounter;
@@ -4314,6 +4314,7 @@ static void Refit(int innerNodeIndex, InnerNode* innerNodes, InnerNodeBuildDataG
 
 static void Refit4(
 	const int innerNodeIndex,
+	const int numInnerNodes,
 	BVHNode* buffer,
 	InnerNode4BuildDataGPU* innerNodeBuildData,
 	std::vector<LeafItem>& leafItems)
@@ -4322,13 +4323,16 @@ static void Refit4(
 	int tabLevel = 1;
 #endif
 	const int rootIndex = 0;
-	const int numInnerNodes = CalcNumInnerQBVHNodes((int)leafItems.size());
 	int curInnerNodeIndex = innerNodeIndex;
 
 	while (curInnerNodeIndex >= rootIndex)
 	{
-		//InnerNode& innerNode = innerNodes[curInnerNodeIndex];
-		//const int parentIndex = innerNodes[curInnerNodeIndex].parent;
+		// There's nothing to do if this node doesn't have enough data to
+		// compute the fit
+		const int fitCounterTarget = innerNodeBuildData[curInnerNodeIndex].fitCounterTarget;
+		if (innerNodeBuildData[curInnerNodeIndex].fitCounter < fitCounterTarget)
+			return;
+
 		BVHNode& node = buffer[curInnerNodeIndex];
 		const int parentIndex = node.parent;
 //#ifdef DEBUG_BU
@@ -4337,11 +4341,6 @@ static void Refit4(
 //			innerNodeBuildData[curInnerNodeIndex].numChildren,
 //			innerNodeBuildData[curInnerNodeIndex].fitCounter);
 //#endif
-		// There's nothing to do if this node doesn't have enough data to
-		// compute the fit
-		const int fitCounterTarget = innerNodeBuildData[curInnerNodeIndex].fitCounterTarget;
-		if (innerNodeBuildData[curInnerNodeIndex].fitCounter < fitCounterTarget)
-			return;
 
 		// Compress the children indices
 		int tmpIndices[BU_PARTITIONS] = { -1, -1, -1, -1 };
@@ -4392,8 +4391,6 @@ static void Refit4(
 		buffer[curInnerNodeIndex].min[3] = 1.0f;
 		buffer[curInnerNodeIndex].max[3] = 1.0f;
 
-		// The root probably doesn't need to be refit, but we need to write its AABB
-		// during initialization, so either way is fine.
 		if (parentIndex >= rootIndex)
 		{
 			innerNodeBuildData[parentIndex].fitCounter += fitCounterTarget;
@@ -5228,6 +5225,7 @@ static void DirectBVH4Init(
 #endif
 
 	root_out = 0;
+	g_directBuilderFirstActiveInnerNode = 0;
 	g_directBuilderNextNode = 1; // The root already exists, so the next available inner node is idx 1
 
 	// All leafs are initially connected to the root, but they are not classified yet
@@ -5237,6 +5235,9 @@ static void DirectBVH4Init(
 		leafParents[i].leftOrRight = BU_NONE;
 	}
 
+	// Inner nodes need no initialization, they are filled out as needed.
+	// We only need to initialize the root.
+	/*
 	for (int i = 0; i < numInnerNodes; i++)
 	{
 		InnerNode4BuildDataGPU splitData = { 0 };
@@ -5248,8 +5249,9 @@ static void DirectBVH4Init(
 		}
 		innerNodeBuildData[i] = splitData;
 	}
+	*/
 
-	// Initialize the node counters for the root, along with the box and split data
+	// Initialize the root
 	InnerNode4BuildDataGPU rootSplitData = { 0 };
 	rootSplitData.box = centroidBox;
 	rootSplitData.fitCounterTarget = numPrimitives;
@@ -5267,7 +5269,7 @@ static void DirectBVH4Init(
 	BVHNode root;
 	root.rootIdx     = root_out;
 	root.ref         = -1;
-	root.parent      = -1; // Needed to stop the Refit() operation
+	root.parent      = -1; // Needed to stop the Refit4() operation
 	root.numChildren = 0;
 	for (int i = 0; i < 4; i++)
 		root.children[i] = -1;
@@ -5397,20 +5399,9 @@ static void DirectBVH4EmitInnerNodes(
 	log_debug("[DBG] [BVH] lastActiveInnerNode: %d", lastActiveInnerNode);
 #endif
 
-	for (int i = 0; i < lastActiveInnerNode; i++)
+	for (int i = g_directBuilderFirstActiveInnerNode; i < lastActiveInnerNode; i++)
 	{
 		InnerNode4BuildDataGPU& innerNodeBD = innerNodeBuildData[i];
-
-		// Skip full nodes
-		if (innerNodeBD.processed)
-		{
-#ifdef DEBUG_BU
-			log_debug("[DBG] [BVH] Skipping inner node %d (already processed), numChildren: %d",
-				i, innerNodeBD.numChildren);
-#endif
-			continue;
-		}
-		innerNodeBD.processed = true; // We don't need to process this same node in the next iteration.
 
 		AABB  innerNodeBox = innerNodeBD.box; // this is the centroidBox used in the previous cut
 		const int   dim0   = innerNodeBD.dims[0];
@@ -5517,6 +5508,8 @@ static void DirectBVH4EmitInnerNodes(
 			}
 		}
 	}
+
+	g_directBuilderFirstActiveInnerNode = lastActiveInnerNode;
 }
 
 static void DirectBVH4EmitLeaf(
@@ -5562,7 +5555,7 @@ static void DirectBVH4EmitLeaf(
 #ifdef DEBUG_BU
 		log_debug("[DBG] [BVH] REFITTING inner node: %d", parentIndex);
 #endif
-		Refit4(parentIndex, buffer, innerNodeBuildData, leafItems);
+		Refit4(parentIndex, numInnerNodes, buffer, innerNodeBuildData, leafItems);
 	}
 }
 

@@ -10,6 +10,7 @@
 #endif
 
 #include <d3d.h>
+#include "Vectors.h"
 
 #pragma pack(push, 1)
 
@@ -259,6 +260,13 @@ struct XwaVector3
 		this->z = z;
 	}
 
+	XwaVector3(const Vector3& that)
+	{
+		this->x = that.x;
+		this->y = that.y;
+		this->z = that.z;
+	}
+
 	friend XwaVector3 operator+(XwaVector3 lhs, const XwaVector3& rhs)
 	{
 		lhs.x += rhs.x;
@@ -281,6 +289,14 @@ struct XwaVector3
 		lhs.y *= rhs;
 		lhs.z *= rhs;
 		return lhs;
+	}
+
+	inline float operator[](int index) const {
+		return (&x)[index];
+	}
+
+	inline float& operator[](int index) {
+		return (&x)[index];
 	}
 
 	bool equals(const XwaVector3 &rhs)

@@ -40,6 +40,7 @@ void PrintTreeBuffer(std::string level, BVHNode* buffer, int curNode);
 InnerNode* DirectBVH2BuilderGPU(AABB sceneAABB, std::vector<LeafItem>& leafItems, int& root_out);
 InnerNode* DirectBVH2BuilderCPU(AABB sceneAABB, AABB centroidBox, std::vector<LeafItem>& leafItems, int& root_out);
 BVHNode* DirectBVH4BuilderGPU(AABB centroidBox, std::vector<LeafItem>& leafItems, int& numNodes, const XwaVector3* vertices, const int* indices);
+BVHNode* AVLBuilder(std::vector<LeafItem>& leafItems, int& numNodes, const XwaVector3* vertices, const int* indices);
 
 // Load a BVH2, deprecated since the BVH4 are more better
 #ifdef DISABLED
@@ -1891,6 +1892,26 @@ static void PrintTree(std::string level, IGenericTreeNode *T)
 	if (arity > 2 && !isLeaf) log_debug("[DBG] [BVH] %s", (level + "   \\--/").c_str());
 }
 
+static void PrintTreeNode(std::string level, TreeNode* T)
+{
+	if (T == nullptr)
+		return;
+
+	bool isLeaf = T->IsLeaf();
+
+	PrintTreeNode(level + "      ", T->right);
+
+	log_debug("[DBG] [BVH] %s(%d:%0.3f),%d,%d%s",
+		level.c_str(),
+		T->TriID,
+		isLeaf ? T->centroid.x : 0.0f,
+		T->bal,
+		T->numNodes,
+		isLeaf ? "]" : "");
+
+	PrintTreeNode(level + "      ", T->left);
+}
+
 void PrintTreeBuffer(std::string level, BVHNode *buffer, int curNode)
 {
 	if (buffer == nullptr)
@@ -2726,6 +2747,7 @@ TreeNode* RotLeft(TreeNode* T)
 {
 	if (T == nullptr) return nullptr;
 
+	const int rootNumNodes = T->numNodes;
 	TreeNode* L = T->left;
 	TreeNode* R = T->right;
 	TreeNode* RL = T->right->left;
@@ -2735,6 +2757,8 @@ TreeNode* RotLeft(TreeNode* T)
 	T->left = L;
 	T->right = RL;
 
+	T->numNodes = T->left->numNodes + T->right->numNodes + 1;
+	R->numNodes = R->left->numNodes + R->right->numNodes + 1;
 	return R;
 }
 
@@ -2742,6 +2766,7 @@ TreeNode* RotRight(TreeNode* T)
 {
 	if (T == nullptr) return nullptr;
 
+	const int rootNumNodes = T->numNodes;
 	TreeNode* L = T->left;
 	TreeNode* R = T->right;
 	TreeNode* LL = T->left->left;
@@ -2751,6 +2776,8 @@ TreeNode* RotRight(TreeNode* T)
 	T->left = LR;
 	T->right = R;
 
+	T->numNodes = T->left->numNodes + T->right->numNodes + 1;
+	L->numNodes = L->left->numNodes + L->right->numNodes + 1;
 	return L;
 }
 
@@ -2850,6 +2877,115 @@ int DumpRBToOBJ(FILE* file, TreeNode* T, const std::string &name, int VerticesCo
 	VerticesCountOffset = DumpRBToOBJ(file, T->left, name + "L", VerticesCountOffset);
 	VerticesCountOffset = DumpRBToOBJ(file, T->right, name + "R", VerticesCountOffset);
 	return VerticesCountOffset;
+}
+
+#undef DEBUG_AVL
+//#define DEBUG_AVL 1
+
+void Refit(TreeNode* T)
+{
+	if (T == nullptr)
+		return;
+
+	if (T->IsLeaf())
+		return;
+
+	Refit(T->left);
+	Refit(T->right);
+
+	T->box.SetInfinity();
+	T->box.Expand(T->left->box);
+	T->box.Expand(T->right->box);
+}
+
+// AVL-based BVH.
+TreeNode* InsertAVL(TreeNode* T, int TriID, const XwaVector3& centroid, const AABB &box)
+{
+	if (T == nullptr)
+	{
+		return new TreeNode(TriID, centroid, box);
+	}
+
+	if (T->TriID != -1)
+	{
+		// We have reached a leaf, create a new inner node
+		AABB newBox = box;
+		newBox.Expand(T->box);
+		const int dim = newBox.GetLargestDimension();
+		const float split = 0.5f * (newBox.min[dim] + newBox.max[dim]);
+		const bool goLeft = centroid[dim] <= split;
+
+		TreeNode* newNode = new TreeNode(-1);
+		TreeNode* newLeaf = new TreeNode(TriID, centroid, box);
+
+		newNode->box = newBox;
+		newNode->numNodes = 3;
+		if (goLeft)
+		{
+			newNode->left = newLeaf;
+			newNode->right = T;
+		}
+		else
+		{
+			newNode->left = T;
+			newNode->right = newLeaf;
+		}
+		return newNode;
+	}
+
+	AABB &innerBox = T->box;
+	const int dim = innerBox.GetLargestDimension();
+	const float split = 0.5f * (innerBox.min[dim] + innerBox.max[dim]);
+#ifdef DEBUG_AVL
+	log_debug("[DBG] [BVH] centroid[%d]:%0.3f, split: %0.3f, %s",
+		dim,
+		centroid[dim],
+		split,
+		innerBox.ToString().c_str());
+#endif
+	if (centroid[dim] <= split)
+	{
+		T->left = InsertAVL(T->left, TriID, centroid, box);
+		T->numNodes += 2;
+		T->bal--;
+
+		if (T->bal == -2)
+		{
+			if (T->left->bal > 0)
+				T->left = RotLeft(T->left);
+			T = RotRight(T);
+			T->bal = 0;
+			T->left->bal = 0;
+			T->right->bal = 0;
+		}
+
+		// Refit
+		//T->box = T->left->box;
+		//T->box.Expand(T->right->box);
+	}
+	else
+	{
+		T->right = InsertAVL(T->right, TriID, centroid, box);
+		T->numNodes += 2;
+		T->bal++;
+
+		if (T->bal == 2)
+		{
+			if (T->right->bal < 0)
+				T->right = RotRight(T->right);
+			T = RotLeft(T);
+			T->bal = 0;
+			T->left->bal = 0;
+			T->right->bal = 0;
+		}
+
+		// Refit
+		//T->box = T->left->box;
+		//T->box.Expand(T->right->box);
+	}
+	Refit(T);
+
+	return T;
 }
 
 // Function to swap two elements
@@ -3413,6 +3549,41 @@ LBVH* LBVH::BuildDirectBVH4GPU(const XwaVector3* vertices, const int numVertices
 
 	// Tidy up
 	//DeleteTree(Q);
+	return lbvh;
+}
+
+LBVH* LBVH::BuildAVL(const XwaVector3* vertices, const int numVertices, const int* indices, const int numIndices)
+{
+	const int numPrimitives = numIndices / 3;
+
+	// Get the centroid and AABB for each triangle.
+	std::vector<LeafItem> leafItems;
+	AABB centroidBox;
+	for (int i = 0, TriID = 0; i < numIndices; i += 3, TriID++) {
+		AABB aabb;
+		aabb.Expand(vertices[indices[i + 0]]);
+		aabb.Expand(vertices[indices[i + 1]]);
+		aabb.Expand(vertices[indices[i + 2]]);
+
+		Vector3 centroid = aabb.GetCentroidVector3();
+		leafItems.push_back({ 0, centroid, aabb, TriID });
+	}
+
+	int numNodes = 0;
+	BVHNode* buffer = AVLBuilder(leafItems, numNodes, vertices, indices);
+	log_debug("[DBG] [BVH] AVLBuilder succeeded. numPrims: %d, numNodes: %d",
+		leafItems.size(), numNodes);
+
+	LBVH* lbvh = new LBVH();
+	lbvh->nodes = (BVHNode*)buffer;
+	lbvh->numVertices = numVertices;
+	lbvh->numIndices = numIndices;
+	lbvh->numNodes = numNodes;
+	lbvh->scale = 1.0f;
+	lbvh->scaleComputed = true;
+
+	//lbvh->DumpToOBJ(".\\test.obj");
+
 	return lbvh;
 }
 
@@ -3990,6 +4161,62 @@ QTreeNode *BinTreeToQTree(int curNode, bool curNodeIsLeaf, const InnerNode* inne
 		box.Expand(children[i]->box);
 
 	return new QTreeNode(-1, box, children, nullptr);
+}
+
+QTreeNode* BinTreeToQTree(TreeNode *T)
+{
+	QTreeNode* children[] = { nullptr, nullptr, nullptr, nullptr };
+	if (T == nullptr) {
+		return nullptr;
+	}
+
+	if (T->IsLeaf()) {
+		return new QTreeNode(T->TriID, T->box);
+	}
+
+	TreeNode *left = T->left;
+	TreeNode* right = T->right;
+	int nextchild = 0;
+	int nodeCounter = 0;
+
+	// if (left != -1) // All inner nodes in the Fast LBVH have 2 children
+	{
+		if (left->IsLeaf())
+		{
+			children[nextchild++] = BinTreeToQTree(left);
+		}
+		else
+		{
+			children[nextchild++] = BinTreeToQTree(left->left);
+			children[nextchild++] = BinTreeToQTree(left->right);
+		}
+	}
+
+	// if (right != -1) // All inner nodes in the Fast LBVH have 2 children
+	{
+		if (right->IsLeaf())
+		{
+			children[nextchild++] = BinTreeToQTree(right);
+		}
+		else
+		{
+			children[nextchild++] = BinTreeToQTree(right->left);
+			children[nextchild++] = BinTreeToQTree(right->right);
+		}
+	}
+
+	// Compute the AABB for this node
+	AABB box;
+	int numNodes = 0;
+	for (int i = 0; i < nextchild; i++)
+	{
+		box.Expand(children[i]->box);
+		numNodes += children[i]->numNodes;
+	}
+
+	QTreeNode *Q = new QTreeNode(-1, box, children, nullptr);
+	Q->numNodes = 1 + numNodes;
+	return Q;
 }
 
 bool LoadEmbree()
@@ -5761,6 +5988,43 @@ BVHNode* DirectBVH4BuilderGPU(AABB centroidBox, std::vector<LeafItem>& leafItems
 	return QBVHBuffer;
 }
 
+BVHNode* AVLBuilder(std::vector<LeafItem>& leafItems, int &numNodes, const XwaVector3* vertices, const int* indices)
+{
+	const int numPrimitives = leafItems.size();
+	BVHNode* QBVHBuffer = nullptr;
+
+	//log_debug("[DBG] [BVH] numTris: %d, numInnerNodes: %d, numNodes: %d",
+	//	numPrimitives, numInnerNodes, numNodes);
+
+	TreeNode* T = nullptr;
+	for (LeafItem& leaf : leafItems)
+	{
+		XwaVector3 centroid(leaf.centroid);
+		T = InsertAVL(T, leaf.PrimID, centroid, leaf.aabb);
+	}
+
+	//log_debug("[DBG] [BVH] T->box: %s", T->box.ToString().c_str());
+	QTreeNode* Q = BinTreeToQTree(T);
+	DeleteTree(T);
+	//log_debug("[DBG] [BVH] Q->box: %s", Q->box.ToString().c_str());
+
+	BVHNode* result = (BVHNode *)EncodeNodes(Q, vertices, indices);
+	numNodes = Q->GetNumNodes();
+	result[0].rootIdx = 0;
+	//log_debug("[DBG] [BVH] buffer min: %0.3f, %0.3f, %0.3f",
+	//	result[0].min[0], result[0].min[1], result[0].min[2]);
+	//log_debug("[DBG] [BVH] buffer max: %0.3f, %0.3f, %0.3f",
+	//	result[0].max[0], result[0].max[1], result[0].max[2]);
+
+	//log_debug("[DBG] [BVH] Inner nodes used: %d, leaves used: %d, actual nodes: %d",
+	//	g_directBuilderNextNode, numPrimitives, g_directBuilderNextNode + numPrimitives);
+
+	//RefitBVH4Buffer(QBVHBuffer, numPrimitives, numInnerNodes, root, leafItems);
+	//TestBVH4Buffer(innerNodeBuildData, QBVHBuffer, root);
+
+	return result;
+}
+
 void TestFastLBVH()
 {
 	log_debug("[DBG] [BVH] ****************************************************************");
@@ -6298,4 +6562,103 @@ void TestImplicitMortonCodes4()
 			node.children[0], node.children[1], node.children[2], node.children[3]);
 	}
 	PrintTreeBuffer("", QBVHBuffer, 0);
+}
+
+void TestAVLBuilder()
+{
+	log_debug("[DBG] [BVH] ****************************************************************");
+	log_debug("[DBG] [BVH] TestAVLBuilder() START");
+	// using LeafItem = std::tuple<MortonCode_t, AABB, int>;
+	std::vector<LeafItem> leafItems;
+
+	AABB aabb, sceneAABB;
+	// Init the leaves
+	{
+		// 1.0
+		aabb.min = Vector3(0.0f, 0.0f, 0.0f);
+		aabb.max = Vector3(2.0f, 0.0f, 0.0f);
+		leafItems.push_back({ 0, aabb.GetCentroidVector3(), aabb, 1 });
+		sceneAABB.Expand(aabb);
+
+		// 2.0
+		aabb.min = Vector3(1.0f, 0.0f, 0.0f);
+		aabb.max = Vector3(3.0f, 0.0f, 0.0f);
+		leafItems.push_back({ 0, aabb.GetCentroidVector3(), aabb, 6 });
+		sceneAABB.Expand(aabb);
+
+		// 3.0
+		aabb.min = Vector3(2.0f, 0.0f, 0.0f);
+		aabb.max = Vector3(4.0f, 0.0f, 0.0f);
+		leafItems.push_back({ 0, aabb.GetCentroidVector3(), aabb, 0 });
+		sceneAABB.Expand(aabb);
+
+		// 3.0
+		aabb.min = Vector3(2.0f, 0.0f, 0.0f); // Repeated element!
+		aabb.max = Vector3(4.0f, 0.0f, 0.0f);
+		leafItems.push_back({ 0, aabb.GetCentroidVector3(), aabb, 2 });
+		sceneAABB.Expand(aabb);
+
+		// 4.0
+		aabb.min = Vector3(3.0f, 0.0f, 0.0f);
+		aabb.max = Vector3(5.0f, 0.0f, 0.0f);
+		leafItems.push_back({ 0, aabb.GetCentroidVector3(), aabb, 5 });
+		sceneAABB.Expand(aabb);
+
+		// 5.0
+		aabb.min = Vector3(4.0f, 0.0f, 0.0f);
+		aabb.max = Vector3(6.0f, 0.0f, 0.0f);
+		leafItems.push_back({ 0, aabb.GetCentroidVector3(), aabb, 3 });
+		sceneAABB.Expand(aabb);
+
+		// 7.0
+		aabb.min = Vector3(6.0f, 0.0f, 0.0f);
+		aabb.max = Vector3(8.0f, 0.0f, 0.0f);
+		leafItems.push_back({ 0, aabb.GetCentroidVector3(), aabb, 4 });
+		sceneAABB.Expand(aabb);
+	}
+
+	const int numPrimitives = leafItems.size();
+
+	//BVHNode* QBVHBuffer = new BVHNode[numQBVHNodes];
+	/*log_debug("[DBG] [BVH] numTris: %d, numQBVHInnerNodes: %d, numQBVHNodes: %d",
+		numPrimitives, numQBVHInnerNodes, numQBVHNodes);
+	log_debug("[DBG] [BVH] scene: %s", sceneAABB.ToString().c_str());*/
+
+	// Encode the leaves
+	/*
+	int LeafEncodeIdx = numQBVHInnerNodes;
+	for (unsigned int i = 0; i < leafItems.size(); i++)
+	{
+		EncodeLeafNode(QBVHBuffer, leafItems, i, LeafEncodeIdx++, nullptr, nullptr);
+	}
+	*/
+
+	TreeNode* T = nullptr;
+	for (LeafItem &leaf : leafItems)
+	{
+		XwaVector3 centroid(leaf.centroid);
+		log_debug("[DBG] [BVH] Inserting: %0.3f", centroid[0]);
+		T = InsertAVL(T, leaf.PrimID, centroid, leaf.aabb);
+		PrintTreeNode("", T);
+		log_debug("[DBG] [BVH] ---------------------------------------------");
+	}
+
+	/*int root = -1;
+	InnerNode* innerNodes = DirectBVH2BuilderGPU(centroidBox, leafItems, root);
+	if (innerNodes == nullptr)
+		return;*/
+
+	/*log_debug("[DBG] [BVH] Tree built, printing");
+	printTree(0, root, false, innerNodes);
+
+	log_debug("[DBG] [BVH] ****************************************************************");
+	log_debug("[DBG] [BVH] BVH2 --> QBVH conversion");
+	QTreeNode* Q = BinTreeToQTree(root, false, innerNodes, leafItems);
+
+	delete[] innerNodes;
+
+	log_debug("[DBG] [BVH] ****************************************************************");
+	log_debug("[DBG] [BVH] Printing QTree");
+	PrintTree("", Q);
+	DeleteTree(Q);*/
 }

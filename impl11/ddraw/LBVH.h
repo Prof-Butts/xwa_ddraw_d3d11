@@ -345,18 +345,20 @@ public:
 	AABB box;
 	XwaVector3 centroid;
 	MortonCode_t code;
-	Matrix4 m; // Used for TLAS leaves to represent OOBBs
-	bool red; // For Red-Black tree implementation
+	Matrix4 m; // Used for TLAS leaves to represent OOBBs.
+	bool red;  // Used in the Red-Black tree implementation.
+	int bal;   // Used in the AVL tree BVH implementation.
 
 	void InitNode()
 	{
 		TriID = -1;
 		left = right = parent = nullptr;
 		box.SetInfinity();
-		numNodes = 0;
+		numNodes = 1;
 		code = 0xFFFFFFFF;
 		// All new nodes are red by default
 		red = true;
+		bal = 0;
 		// Invalid centroid:
 		centroid.x = NAN;
 		centroid.y = NAN;
@@ -412,6 +414,14 @@ public:
 		InitNode();
 		this->TriID = TriID;
 		this->box.Expand(box);
+	}
+
+	TreeNode(int TriID, const XwaVector3 &centroid, const AABB& box)
+	{
+		InitNode();
+		this->TriID = TriID;
+		this->box.Expand(box);
+		this->centroid = centroid;
 	}
 
 	/*
@@ -755,6 +765,8 @@ public:
 	static LBVH* BuildDirectBVH2GPU(const XwaVector3* vertices, const int numVertices, const int* indices, const int numIndices);
 	// Build & Encode using the DirectBVH4 approach (no Morton codes). GPU-Friendly version.
 	static LBVH* BuildDirectBVH4GPU(const XwaVector3* vertices, const int numVertices, const int* indices, const int numIndices);
+	// Online build, powered by the AVL algorithm (experimental)
+	static LBVH* BuildAVL(const XwaVector3* vertices, const int numVertices, const int* indices, const int numIndices);
 
 	void PrintTree(std::string level, int curnode);
 	void DumpToOBJ(char *sFileName, bool isTLAS=false, bool useMetricScale=true);

@@ -753,6 +753,8 @@ public:
 	static LBVH *LoadLBVH(char *sFileName, bool EmbeddedVerts=false, bool verbose=false);
 	// Build the BVH2. Convert to QBVH. Encode the QBVH.
 	static LBVH *Build(const XwaVector3* vertices, const int numVertices, const int* indices, const int numIndices);
+	// PLOC. Build BVH2, convert to QBVH, encode.
+	static LBVH* BuildPLOC(const XwaVector3* vertices, const int numVertices, const int* indices, const int numIndices);
 	// Build the QBVH at the same time as the BVH2 is built. Encoding is a separate step.
 	static LBVH *BuildQBVH(const XwaVector3* vertices, const int numVertices, const int* indices, const int numIndices);
 	// Build & Encode the QBVH at the same time as the BVH2 is built.

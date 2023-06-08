@@ -1824,6 +1824,175 @@ void TestTLASBuilder(char* sFileName)
 	}
 }
 
+#define DEBUG_PLOC 1
+
+constexpr int PLOC_RADIUS = 10;
+
+int g_plocNextAvailableNode;
+
+struct PLOCCluster
+{
+	int id;
+	Vector3 centroid;
+	bool active;
+	int bestNeighbor;
+	bool isLeaf;
+};
+
+InnerNode* PLOC(const std::vector<LeafItem>& leafItems, int& root)
+{
+	int numLeaves = leafItems.size();
+	root = -1;
+	//log_debug("[DBG] [BVH] numLeaves: %d", numLeaves);
+	if (numLeaves <= 1)
+		// Nothing to do, the single leaf is the root
+		return nullptr;
+
+	// Initialize the inner nodes
+	int numInnerNodes = numLeaves - 1;
+	g_plocNextAvailableNode = numInnerNodes - 1;
+
+	//int innerNodesProcessed = 0;
+	InnerNode* innerNodes = new InnerNode[numInnerNodes];
+	for (int i = 0; i < numInnerNodes; i++)
+	{
+		innerNodes[i].readyCount = 0;
+		innerNodes[i].processed = false;
+		innerNodes[i].aabb.SetInfinity();
+	}
+
+	// Initialize the clusters
+	std::vector<PLOCCluster> clusters;
+	for (int i = 0; i < numLeaves; i++)
+	{
+		const LeafItem& leaf = leafItems[i];
+		PLOCCluster c = { i, leaf.centroid, true, -1, true };
+		clusters.push_back(c);
+	}
+
+	for (int iteration = 0; iteration < numLeaves; iteration++)
+	{
+#ifdef DEBUG_PLOC
+		log_debug("[DBG] [BVH] iteration: %d, num clusters: %d", iteration, clusters.size());
+#endif
+
+		// Find the nearest neighbor of each cluster
+		for (int i = 0; i < (int)clusters.size(); i++)
+		{
+			PLOCCluster& c = clusters[i];
+			if (!c.active)
+				continue;
+
+			// Find the best neighbor for cluster i
+			float bestDist = FLT_MAX;
+			int left = max(0, i - PLOC_RADIUS);
+			int right = min(i + PLOC_RADIUS, (int)clusters.size() - 1);
+			c.bestNeighbor = -1;
+			for (int j = left; j <= right; j++)
+			{
+				if (i == j || !clusters[j].active)
+					continue;
+
+				const float dist = c.centroid.distance(clusters[j].centroid);
+				if (dist < bestDist)
+				{
+					c.bestNeighbor = j;
+					bestDist = dist;
+				}
+			}
+
+#ifdef DEBUG_PLOC
+			log_debug("[DBG] [BVH] cluster[%d]: centroid: %0.3f, bestNeighbor: %d",
+				i, c.centroid[0], c.bestNeighbor);
+#endif
+		}
+
+		// All clusters have selected their best neighbor, let's join them
+		for (int i = 0; i < (int)clusters.size(); i++)
+		{
+			if (!clusters[i].active)
+				continue;
+
+			const int j = clusters[i].bestNeighbor;
+			if (j < 0)
+				continue;
+
+			const int j_neighbor = clusters[j].bestNeighbor;
+
+			if (i == j_neighbor)
+			{
+				// Join ...
+#ifdef DEBUG_PLOC
+				log_debug("[DBG] [BVH] cluster %d and %d should join", i, j);
+#endif
+				// Disable the second cluster
+				clusters[j].active = false;
+
+				// Emit an inner node to join the two clusters
+				const int nextNodeIdx = g_plocNextAvailableNode--;
+				InnerNode& newNode = innerNodes[nextNodeIdx];
+
+				newNode.left = clusters[i].id;
+				newNode.leftIsLeaf = clusters[i].isLeaf;
+				newNode.right = clusters[j].id;
+				newNode.rightIsLeaf = clusters[j].isLeaf;
+
+				// Refit
+				newNode.aabb.SetInfinity();
+				AABB leftBox = newNode.leftIsLeaf ? leafItems[newNode.left].aabb : innerNodes[newNode.left].aabb;
+				AABB rightBox = newNode.rightIsLeaf ? leafItems[newNode.right].aabb : innerNodes[newNode.right].aabb;
+				newNode.aabb.Expand(leftBox);
+				newNode.aabb.Expand(rightBox);
+
+				// Update the old cluster: it now points to the new inner node just created
+				clusters[i].isLeaf = false;
+				clusters[i].id = nextNodeIdx;
+				clusters[i].centroid = 0.5f * (leftBox.GetCentroidVector3() + rightBox.GetCentroidVector3());
+
+#ifdef DEBUG_PLOC
+				log_debug("[DBG] [BVH] nextNodeIdx: %d, centroid: %0.3f, left: %d(%s), right: %d(%s), box: %s",
+					nextNodeIdx, clusters[i].centroid[0],
+					newNode.left, newNode.leftIsLeaf ? "L" : "I",
+					newNode.right, newNode.rightIsLeaf ? "L" : "I",
+					newNode.aabb.ToString().c_str());
+#endif
+			}
+		}
+
+		// Test the exit condition.
+		if (g_plocNextAvailableNode < 0)
+		{
+			root = 0;
+#ifdef DEBUG_PLOC
+			log_debug("[DBG] [BVH] PLOC has finished");
+#endif
+			break;
+		}
+
+		// Remove disabled clusters
+		auto it = clusters.begin();
+		while (it != clusters.end())
+		{
+			if (it->active)
+			{
+				it++;
+			}
+			else
+			{
+				clusters.erase(it);
+			}
+		}
+
+#ifdef DEBUG_PLOC
+		log_debug("[DBG] [BVH] num clusters: %d", clusters.size());
+		log_debug("[DBG] [BVH] ***************************************************");
+#endif
+	}
+
+	// TODO: Write the right index to the root
+	return innerNodes;
+}
+
 std::string tab(int N)
 {
 	std::string res = "";
@@ -3102,6 +3271,78 @@ LBVH* LBVH::Build(const XwaVector3* vertices, const int numVertices, const int *
 
 	LBVH *lbvh = new LBVH();
 	lbvh->nodes = (BVHNode *)buffer;
+	lbvh->numVertices = numVertices;
+	lbvh->numIndices = numIndices;
+	//lbvh->numNodes = Q->numNodes;
+	lbvh->numNodes = numNodes;
+	lbvh->scale = 1.0f;
+	lbvh->scaleComputed = true;
+	// DEBUG
+	//log_debug("[DBG} [BVH] Dumping file: %s", sFileName);
+	//lbvh->DumpToOBJ(sFileName);
+	//log_debug("[DBG] [BVH] BLAS dumped");
+	// DEBUG
+
+	// Tidy up
+	//DeleteTree(Q);
+	return lbvh;
+}
+
+// Parallel Locally-Ordered Clustering BVH builder
+LBVH* LBVH::BuildPLOC(const XwaVector3* vertices, const int numVertices, const int* indices, const int numIndices)
+{
+	// Get the scene limits
+	AABB sceneBox;
+	XwaVector3 range;
+	for (int i = 0; i < numVertices; i++)
+		sceneBox.Expand(vertices[i]);
+	range.x = sceneBox.max.x - sceneBox.min.x;
+	range.y = sceneBox.max.y - sceneBox.min.y;
+	range.z = sceneBox.max.z - sceneBox.min.z;
+
+	int numTris = numIndices / 3;
+
+	// Get the Morton Code and AABB for each triangle.
+	std::vector<LeafItem> leafItems;
+	for (int i = 0, TriID = 0; i < numIndices; i += 3, TriID++) {
+		AABB aabb;
+		aabb.Expand(vertices[indices[i + 0]]);
+		aabb.Expand(vertices[indices[i + 1]]);
+		aabb.Expand(vertices[indices[i + 2]]);
+
+		Vector3 centroid = aabb.GetCentroidVector3();
+		Normalize(centroid, sceneBox, range);
+		MortonCode_t m = GetMortonCode(centroid);
+		leafItems.push_back({ m, Vector3(), aabb, TriID });
+	}
+
+	// Sort the morton codes
+	std::sort(leafItems.begin(), leafItems.end(), leafSorter);
+
+	// Build the tree
+	int root = -1;
+	InnerNode* innerNodes = PLOC(leafItems, root);
+
+	//char sFileName[80];
+	//sprintf_s(sFileName, 80, ".\\BLAS-%d.obj", meshIndex);
+	//DumpInnerNodesToOBJ(sFileName, root, innerNodes, leafItems, vertices, indices);
+
+	// Convert to QBVH
+	//QTreeNode *Q = BinTreeToQTree(root, leafItems.size() == 1, innerNodes, leafItems);
+	//delete[] innerNodes;
+	// Encode the QBVH in a buffer
+	//void *buffer = EncodeNodes(Q, vertices, indices);
+
+	int numNodes = 0;
+	BVHNode* buffer = EncodeNodesAsQBVHwSAH(root, innerNodes, leafItems, vertices, indices, numNodes);
+	delete[] innerNodes;
+
+	//log_debug("[DBG] [BVH] ****************************************************************");
+	//log_debug("[DBG] [BVH] Printing Buffer");
+	//PrintTreeBuffer("", buffer, 0);
+
+	LBVH* lbvh = new LBVH();
+	lbvh->nodes = (BVHNode*)buffer;
 	lbvh->numVertices = numVertices;
 	lbvh->numIndices = numIndices;
 	//lbvh->numNodes = Q->numNodes;
@@ -6651,6 +6892,81 @@ void TestAVLBuilder()
 	/*log_debug("[DBG] [BVH] Tree built, printing");
 	printTree(0, root, false, innerNodes);
 
+	log_debug("[DBG] [BVH] ****************************************************************");
+	log_debug("[DBG] [BVH] BVH2 --> QBVH conversion");
+	QTreeNode* Q = BinTreeToQTree(root, false, innerNodes, leafItems);
+
+	delete[] innerNodes;
+
+	log_debug("[DBG] [BVH] ****************************************************************");
+	log_debug("[DBG] [BVH] Printing QTree");
+	PrintTree("", Q);
+	DeleteTree(Q);*/
+}
+
+void TestPLOC()
+{
+	log_debug("[DBG] [BVH] ****************************************************************");
+	log_debug("[DBG] [BVH] TestPLOC() START");
+	// using LeafItem = std::tuple<MortonCode_t, AABB, int>;
+	std::vector<LeafItem> leafItems;
+
+	AABB aabb, sceneAABB;
+	// Init the leaves
+	{
+		// 1.0
+		aabb.min = Vector3(0.0f, 0.0f, 0.0f);
+		aabb.max = Vector3(2.0f, 0.0f, 0.0f);
+		leafItems.push_back({ 0, aabb.GetCentroidVector3(), aabb, 1 });
+		sceneAABB.Expand(aabb);
+
+		// 2.0
+		aabb.min = Vector3(1.0f, 0.0f, 0.0f);
+		aabb.max = Vector3(3.0f, 0.0f, 0.0f);
+		leafItems.push_back({ 0, aabb.GetCentroidVector3(), aabb, 6 });
+		sceneAABB.Expand(aabb);
+
+		// 3.0
+		aabb.min = Vector3(2.0f, 0.0f, 0.0f);
+		aabb.max = Vector3(4.0f, 0.0f, 0.0f);
+		leafItems.push_back({ 0, aabb.GetCentroidVector3(), aabb, 0 });
+		sceneAABB.Expand(aabb);
+
+		// 3.0
+		aabb.min = Vector3(2.0f, 0.0f, 0.0f); // Repeated element!
+		aabb.max = Vector3(4.0f, 0.0f, 0.0f);
+		leafItems.push_back({ 0, aabb.GetCentroidVector3(), aabb, 2 });
+		sceneAABB.Expand(aabb);
+
+		// 4.0
+		aabb.min = Vector3(3.0f, 0.0f, 0.0f);
+		aabb.max = Vector3(5.0f, 0.0f, 0.0f);
+		leafItems.push_back({ 0, aabb.GetCentroidVector3(), aabb, 5 });
+		sceneAABB.Expand(aabb);
+
+		// 5.0
+		aabb.min = Vector3(4.0f, 0.0f, 0.0f);
+		aabb.max = Vector3(6.0f, 0.0f, 0.0f);
+		leafItems.push_back({ 0, aabb.GetCentroidVector3(), aabb, 3 });
+		sceneAABB.Expand(aabb);
+
+		// 7.0
+		aabb.min = Vector3(6.0f, 0.0f, 0.0f);
+		aabb.max = Vector3(8.0f, 0.0f, 0.0f);
+		leafItems.push_back({ 0, aabb.GetCentroidVector3(), aabb, 4 });
+		sceneAABB.Expand(aabb);
+	}
+
+	const int numPrimitives = leafItems.size();
+	int root = -1;
+	InnerNode *innerNodes = PLOC(leafItems, root);
+	if (innerNodes == nullptr)
+		return;
+
+	log_debug("[DBG] [BVH] Tree built, printing");
+	printTree(0, root, false, innerNodes);
+
+	/*
 	log_debug("[DBG] [BVH] ****************************************************************");
 	log_debug("[DBG] [BVH] BVH2 --> QBVH conversion");
 	QTreeNode* Q = BinTreeToQTree(root, false, innerNodes, leafItems);

@@ -1824,7 +1824,8 @@ void TestTLASBuilder(char* sFileName)
 	}
 }
 
-#define DEBUG_PLOC 1
+//#define DEBUG_PLOC 1
+#undef DEBUG_PLOC
 
 constexpr int PLOC_RADIUS = 10;
 
@@ -1852,7 +1853,6 @@ InnerNode* PLOC(const std::vector<LeafItem>& leafItems, int& root)
 	int numInnerNodes = numLeaves - 1;
 	g_plocNextAvailableNode = numInnerNodes - 1;
 
-	//int innerNodesProcessed = 0;
 	InnerNode* innerNodes = new InnerNode[numInnerNodes];
 	for (int i = 0; i < numInnerNodes; i++)
 	{
@@ -1876,7 +1876,7 @@ InnerNode* PLOC(const std::vector<LeafItem>& leafItems, int& root)
 		log_debug("[DBG] [BVH] iteration: %d, num clusters: %d", iteration, clusters.size());
 #endif
 
-		// Find the nearest neighbor of each cluster
+		// Find the nearest neighbor for each cluster
 		for (int i = 0; i < (int)clusters.size(); i++)
 		{
 			PLOCCluster& c = clusters[i];
@@ -1902,8 +1902,12 @@ InnerNode* PLOC(const std::vector<LeafItem>& leafItems, int& root)
 			}
 
 #ifdef DEBUG_PLOC
-			log_debug("[DBG] [BVH] cluster[%d]: centroid: %0.3f, bestNeighbor: %d",
-				i, c.centroid[0], c.bestNeighbor);
+			log_debug("[DBG] [BVH] cluster[%d]: centroid: (%0.3f, %0.3f, %0.3f), bestNeighbor: %d",
+				i,
+				c.centroid[0],
+				c.centroid[1],
+				c.centroid[2],
+				c.bestNeighbor);
 #endif
 		}
 
@@ -1927,9 +1931,11 @@ InnerNode* PLOC(const std::vector<LeafItem>& leafItems, int& root)
 #endif
 				// Disable the second cluster
 				clusters[j].active = false;
+				Vector3 newCentroid = 0.5f * (clusters[i].centroid + clusters[j].centroid);
 
 				// Emit an inner node to join the two clusters
-				const int nextNodeIdx = g_plocNextAvailableNode--;
+				const int nextNodeIdx = g_plocNextAvailableNode;
+				g_plocNextAvailableNode--;
 				InnerNode& newNode = innerNodes[nextNodeIdx];
 
 				newNode.left = clusters[i].id;
@@ -1939,21 +1945,27 @@ InnerNode* PLOC(const std::vector<LeafItem>& leafItems, int& root)
 
 				// Refit
 				newNode.aabb.SetInfinity();
-				AABB leftBox = newNode.leftIsLeaf ? leafItems[newNode.left].aabb : innerNodes[newNode.left].aabb;
+				AABB leftBox  = newNode.leftIsLeaf  ? leafItems[newNode.left].aabb  : innerNodes[newNode.left].aabb;
 				AABB rightBox = newNode.rightIsLeaf ? leafItems[newNode.right].aabb : innerNodes[newNode.right].aabb;
 				newNode.aabb.Expand(leftBox);
 				newNode.aabb.Expand(rightBox);
+				// Update the inner nodes
+				innerNodes[nextNodeIdx] = newNode;
 
 				// Update the old cluster: it now points to the new inner node just created
 				clusters[i].isLeaf = false;
 				clusters[i].id = nextNodeIdx;
-				clusters[i].centroid = 0.5f * (leftBox.GetCentroidVector3() + rightBox.GetCentroidVector3());
+				//clusters[i].centroid = 0.5f * (leftBox.GetCentroidVector3() + rightBox.GetCentroidVector3());
+				clusters[i].centroid = newCentroid;
 
 #ifdef DEBUG_PLOC
-				log_debug("[DBG] [BVH] nextNodeIdx: %d, centroid: %0.3f, left: %d(%s), right: %d(%s), box: %s",
-					nextNodeIdx, clusters[i].centroid[0],
-					newNode.left, newNode.leftIsLeaf ? "L" : "I",
-					newNode.right, newNode.rightIsLeaf ? "L" : "I",
+				log_debug("[DBG] [BVH] nextNodeIdx: %d, centroid: (%0.3f, %0.3f, %0.3f), left: %d(%s), right: %d(%s), box: %s",
+					nextNodeIdx,
+					clusters[i].centroid[0],
+					clusters[i].centroid[1],
+					clusters[i].centroid[2],
+					newNode.left, newNode.leftIsLeaf ? "]" : "I",
+					newNode.right, newNode.rightIsLeaf ? "]" : "I",
 					newNode.aabb.ToString().c_str());
 #endif
 			}
@@ -3313,7 +3325,7 @@ LBVH* LBVH::BuildPLOC(const XwaVector3* vertices, const int numVertices, const i
 		Vector3 centroid = aabb.GetCentroidVector3();
 		Normalize(centroid, sceneBox, range);
 		MortonCode_t m = GetMortonCode(centroid);
-		leafItems.push_back({ m, Vector3(), aabb, TriID });
+		leafItems.push_back({ m, centroid, aabb, TriID });
 	}
 
 	// Sort the morton codes
@@ -6923,41 +6935,45 @@ void TestPLOC()
 		// 2.0
 		aabb.min = Vector3(1.0f, 0.0f, 0.0f);
 		aabb.max = Vector3(3.0f, 0.0f, 0.0f);
-		leafItems.push_back({ 0, aabb.GetCentroidVector3(), aabb, 6 });
+		leafItems.push_back({ 1, aabb.GetCentroidVector3(), aabb, 6 });
 		sceneAABB.Expand(aabb);
 
 		// 3.0
 		aabb.min = Vector3(2.0f, 0.0f, 0.0f);
 		aabb.max = Vector3(4.0f, 0.0f, 0.0f);
-		leafItems.push_back({ 0, aabb.GetCentroidVector3(), aabb, 0 });
+		leafItems.push_back({ 2, aabb.GetCentroidVector3(), aabb, 0 });
 		sceneAABB.Expand(aabb);
 
 		// 3.0
 		aabb.min = Vector3(2.0f, 0.0f, 0.0f); // Repeated element!
 		aabb.max = Vector3(4.0f, 0.0f, 0.0f);
-		leafItems.push_back({ 0, aabb.GetCentroidVector3(), aabb, 2 });
+		leafItems.push_back({ 3, aabb.GetCentroidVector3(), aabb, 2 });
 		sceneAABB.Expand(aabb);
 
 		// 4.0
 		aabb.min = Vector3(3.0f, 0.0f, 0.0f);
 		aabb.max = Vector3(5.0f, 0.0f, 0.0f);
-		leafItems.push_back({ 0, aabb.GetCentroidVector3(), aabb, 5 });
+		leafItems.push_back({ 4, aabb.GetCentroidVector3(), aabb, 5 });
 		sceneAABB.Expand(aabb);
 
 		// 5.0
 		aabb.min = Vector3(4.0f, 0.0f, 0.0f);
 		aabb.max = Vector3(6.0f, 0.0f, 0.0f);
-		leafItems.push_back({ 0, aabb.GetCentroidVector3(), aabb, 3 });
+		leafItems.push_back({ 5, aabb.GetCentroidVector3(), aabb, 3 });
 		sceneAABB.Expand(aabb);
 
 		// 7.0
 		aabb.min = Vector3(6.0f, 0.0f, 0.0f);
 		aabb.max = Vector3(8.0f, 0.0f, 0.0f);
-		leafItems.push_back({ 0, aabb.GetCentroidVector3(), aabb, 4 });
+		leafItems.push_back({ 6, aabb.GetCentroidVector3(), aabb, 4 });
 		sceneAABB.Expand(aabb);
 	}
 
 	const int numPrimitives = leafItems.size();
+
+	// Sort the morton codes
+	std::sort(leafItems.begin(), leafItems.end(), leafSorter);
+
 	int root = -1;
 	InnerNode *innerNodes = PLOC(leafItems, root);
 	if (innerNodes == nullptr)

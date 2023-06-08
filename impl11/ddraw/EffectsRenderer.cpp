@@ -31,6 +31,7 @@ char* g_sBVHBuilderTypeNames[BVHBuilderType_MAX] = {
 	"DirectBVH2CPU",
 	"DirectBVH4GPU",
 	"       AVL",
+	"      PLOC",
 };
 
 bool g_bRTEnabledInTechRoom = true;
@@ -1557,6 +1558,9 @@ LBVH* EffectsRenderer::BuildBVH(const std::vector<XwaVector3>& vertices, const s
 
 	case BVHBuilderType_AVL:
 		return LBVH::BuildAVL(vertices.data(), vertices.size(), indices.data(), indices.size());
+
+	case BVHBuilderType_PLOC:
+		return LBVH::BuildPLOC(vertices.data(), vertices.size(), indices.data(), indices.size());
 	}
 	return nullptr;
 }

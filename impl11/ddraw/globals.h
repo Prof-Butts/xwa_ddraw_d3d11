@@ -236,6 +236,7 @@ enum BVHBuilderType
 	BVHBuilderType_DirectBVH2CPU,
 	BVHBuilderType_DirectBVH4GPU,
 	BVHBuilderType_AVL,
+	BVHBuilderType_PLOC,
 	BVHBuilderType_MAX,
 };
 constexpr BVHBuilderType DEFAULT_BVH_BUILDER = BVHBuilderType_DirectBVH4GPU;

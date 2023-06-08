@@ -821,7 +821,7 @@ LRESULT CALLBACK MyWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam
 			//}
 			// Ctrl+S
 			case 'S': {
-#define BENCHMARK_MODE 1
+#define BENCHMARK_MODE 0
 #if BENCHMARK_MODE == 0
 				g_bRTEnabledInTechRoom = !g_bRTEnabledInTechRoom;
 				log_debug("[DBG] [BVH] g_bRTEnabledInTechRoom: %d", g_bRTEnabledInTechRoom);
@@ -1396,15 +1396,11 @@ out:
 	log_debug("[DBG] [POV] %d POV entries modified", entries_applied);
 }
 
-void TestAVLBuilder();
-
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserved)
 {
 	switch (ul_reason_for_call)
 	{
 	case DLL_PROCESS_ATTACH:
-		TestAVLBuilder();
-
 		log_debug("[DBG] **********************");
 		log_debug("[DBG] Initializing VR ddraw.dll");
 		QueryPerformanceFrequency(&(g_HiResTimer.PC_Frequency));

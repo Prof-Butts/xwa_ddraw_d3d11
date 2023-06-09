@@ -1834,7 +1834,8 @@ int g_plocNextAvailableNode;
 struct PLOCCluster
 {
 	int id;
-	Vector3 centroid;
+	//Vector3 centroid;
+	AABB aabb;
 	bool active;
 	int bestNeighbor;
 	bool isLeaf;
@@ -1856,18 +1857,19 @@ InnerNode* PLOC(const std::vector<LeafItem>& leafItems, int& root)
 	InnerNode* innerNodes = new InnerNode[numInnerNodes];
 	for (int i = 0; i < numInnerNodes; i++)
 	{
-		innerNodes[i].readyCount = 0;
-		innerNodes[i].processed = false;
 		innerNodes[i].aabb.SetInfinity();
 	}
 
 	// Initialize the clusters
-	std::vector<PLOCCluster> clusters;
+	PLOCCluster* clusters[2];
+	clusters[0] = new PLOCCluster[numLeaves];
+	clusters[1] = new PLOCCluster[numLeaves];
+	int clusterNums[2] = { numLeaves, 0 };
+	int curClusterSet = 0, nextClusterSet;
 	for (int i = 0; i < numLeaves; i++)
 	{
 		const LeafItem& leaf = leafItems[i];
-		PLOCCluster c = { i, leaf.centroid, true, -1, true };
-		clusters.push_back(c);
+		clusters[curClusterSet][i] = { i, leaf.aabb, true, -1, true };
 	}
 
 	for (int iteration = 0; iteration < numLeaves; iteration++)
@@ -1877,23 +1879,26 @@ InnerNode* PLOC(const std::vector<LeafItem>& leafItems, int& root)
 #endif
 
 		// Find the nearest neighbor for each cluster
-		for (int i = 0; i < (int)clusters.size(); i++)
+		for (int i = 0; i < clusterNums[curClusterSet]; i++)
 		{
-			PLOCCluster& c = clusters[i];
+			PLOCCluster& c = clusters[curClusterSet][i];
 			if (!c.active)
 				continue;
 
 			// Find the best neighbor for cluster i
 			float bestDist = FLT_MAX;
 			int left = max(0, i - PLOC_RADIUS);
-			int right = min(i + PLOC_RADIUS, (int)clusters.size() - 1);
+			int right = min(i + PLOC_RADIUS, clusterNums[curClusterSet] - 1);
 			c.bestNeighbor = -1;
 			for (int j = left; j <= right; j++)
 			{
-				if (i == j || !clusters[j].active)
+				if (i == j || !clusters[curClusterSet][j].active)
 					continue;
 
-				const float dist = c.centroid.distance(clusters[j].centroid);
+				//const float dist = c.centroid.distance(clusters[curClusterSet][j].centroid);
+				AABB tmpBox = c.aabb;
+				tmpBox.Expand(clusters[curClusterSet][j].aabb);
+				const float dist = tmpBox.GetArea();
 				if (dist < bestDist)
 				{
 					c.bestNeighbor = j;
@@ -1912,36 +1917,38 @@ InnerNode* PLOC(const std::vector<LeafItem>& leafItems, int& root)
 		}
 
 		// All clusters have selected their best neighbor, let's join them
-		for (int i = 0; i < (int)clusters.size(); i++)
+		for (int i = 0; i < clusterNums[curClusterSet]; i++)
 		{
-			if (!clusters[i].active)
+			if (!clusters[curClusterSet][i].active)
 				continue;
 
-			const int j = clusters[i].bestNeighbor;
+			const int j = clusters[curClusterSet][i].bestNeighbor;
 			if (j < 0)
 				continue;
 
-			const int j_neighbor = clusters[j].bestNeighbor;
+			const int j_neighbor = clusters[curClusterSet][j].bestNeighbor;
 
 			if (i == j_neighbor)
 			{
-				// Join ...
+				// Join clusters i and j
 #ifdef DEBUG_PLOC
 				log_debug("[DBG] [BVH] cluster %d and %d should join", i, j);
 #endif
 				// Disable the second cluster
-				clusters[j].active = false;
-				Vector3 newCentroid = 0.5f * (clusters[i].centroid + clusters[j].centroid);
+				clusters[curClusterSet][j].active = false;
+				//Vector3 newCentroid = 0.5f * (clusters[curClusterSet][i].centroid + clusters[curClusterSet][j].centroid);
+				AABB newAABB = clusters[curClusterSet][i].aabb;
+				newAABB.Expand(clusters[curClusterSet][j].aabb);
 
 				// Emit an inner node to join the two clusters
 				const int nextNodeIdx = g_plocNextAvailableNode;
 				g_plocNextAvailableNode--;
 				InnerNode& newNode = innerNodes[nextNodeIdx];
 
-				newNode.left = clusters[i].id;
-				newNode.leftIsLeaf = clusters[i].isLeaf;
-				newNode.right = clusters[j].id;
-				newNode.rightIsLeaf = clusters[j].isLeaf;
+				newNode.left = clusters[curClusterSet][i].id;
+				newNode.leftIsLeaf = clusters[curClusterSet][i].isLeaf;
+				newNode.right = clusters[curClusterSet][j].id;
+				newNode.rightIsLeaf = clusters[curClusterSet][j].isLeaf;
 
 				// Refit
 				newNode.aabb.SetInfinity();
@@ -1953,10 +1960,10 @@ InnerNode* PLOC(const std::vector<LeafItem>& leafItems, int& root)
 				innerNodes[nextNodeIdx] = newNode;
 
 				// Update the old cluster: it now points to the new inner node just created
-				clusters[i].isLeaf = false;
-				clusters[i].id = nextNodeIdx;
+				clusters[curClusterSet][i].isLeaf = false;
+				clusters[curClusterSet][i].id = nextNodeIdx;
 				//clusters[i].centroid = 0.5f * (leftBox.GetCentroidVector3() + rightBox.GetCentroidVector3());
-				clusters[i].centroid = newCentroid;
+				clusters[curClusterSet][i].aabb = newAABB;
 
 #ifdef DEBUG_PLOC
 				log_debug("[DBG] [BVH] nextNodeIdx: %d, centroid: (%0.3f, %0.3f, %0.3f), left: %d(%s), right: %d(%s), box: %s",
@@ -1982,18 +1989,15 @@ InnerNode* PLOC(const std::vector<LeafItem>& leafItems, int& root)
 		}
 
 		// Remove disabled clusters
-		auto it = clusters.begin();
-		while (it != clusters.end())
+		nextClusterSet = (curClusterSet + 1) % 2;
+		int k = 0;
+		for (int i = 0; i < clusterNums[curClusterSet]; i++)
 		{
-			if (it->active)
-			{
-				it++;
-			}
-			else
-			{
-				clusters.erase(it);
-			}
+			if (clusters[curClusterSet][i].active)
+				clusters[nextClusterSet][k++] = clusters[curClusterSet][i];
 		}
+		clusterNums[nextClusterSet] = k;
+		curClusterSet = nextClusterSet;
 
 #ifdef DEBUG_PLOC
 		log_debug("[DBG] [BVH] num clusters: %d", clusters.size());
@@ -2001,7 +2005,8 @@ InnerNode* PLOC(const std::vector<LeafItem>& leafItems, int& root)
 #endif
 	}
 
-	// TODO: Write the right index to the root
+	delete[] clusters[0];
+	delete[] clusters[1];
 	return innerNodes;
 }
 
@@ -6928,44 +6933,44 @@ void TestPLOC()
 	{
 		// 1.0
 		aabb.min = Vector3(0.0f, 0.0f, 0.0f);
-		aabb.max = Vector3(2.0f, 0.0f, 0.0f);
-		leafItems.push_back({ 0, aabb.GetCentroidVector3(), aabb, 1 });
+		aabb.max = Vector3(2.0f, 1.0f, 1.0f);
+		leafItems.push_back({ 1, aabb.GetCentroidVector3(), aabb, 1 });
 		sceneAABB.Expand(aabb);
 
 		// 2.0
 		aabb.min = Vector3(1.0f, 0.0f, 0.0f);
-		aabb.max = Vector3(3.0f, 0.0f, 0.0f);
-		leafItems.push_back({ 1, aabb.GetCentroidVector3(), aabb, 6 });
+		aabb.max = Vector3(3.0f, 1.0f, 1.0f);
+		leafItems.push_back({ 2, aabb.GetCentroidVector3(), aabb, 6 });
 		sceneAABB.Expand(aabb);
 
 		// 3.0
 		aabb.min = Vector3(2.0f, 0.0f, 0.0f);
-		aabb.max = Vector3(4.0f, 0.0f, 0.0f);
-		leafItems.push_back({ 2, aabb.GetCentroidVector3(), aabb, 0 });
+		aabb.max = Vector3(4.0f, 1.0f, 1.0f);
+		leafItems.push_back({ 3, aabb.GetCentroidVector3(), aabb, 0 });
 		sceneAABB.Expand(aabb);
 
 		// 3.0
 		aabb.min = Vector3(2.0f, 0.0f, 0.0f); // Repeated element!
-		aabb.max = Vector3(4.0f, 0.0f, 0.0f);
+		aabb.max = Vector3(4.0f, 1.0f, 1.0f);
 		leafItems.push_back({ 3, aabb.GetCentroidVector3(), aabb, 2 });
 		sceneAABB.Expand(aabb);
 
 		// 4.0
 		aabb.min = Vector3(3.0f, 0.0f, 0.0f);
-		aabb.max = Vector3(5.0f, 0.0f, 0.0f);
+		aabb.max = Vector3(5.0f, 1.0f, 1.0f);
 		leafItems.push_back({ 4, aabb.GetCentroidVector3(), aabb, 5 });
 		sceneAABB.Expand(aabb);
 
 		// 5.0
 		aabb.min = Vector3(4.0f, 0.0f, 0.0f);
-		aabb.max = Vector3(6.0f, 0.0f, 0.0f);
+		aabb.max = Vector3(6.0f, 1.0f, 1.0f);
 		leafItems.push_back({ 5, aabb.GetCentroidVector3(), aabb, 3 });
 		sceneAABB.Expand(aabb);
 
 		// 7.0
 		aabb.min = Vector3(6.0f, 0.0f, 0.0f);
-		aabb.max = Vector3(8.0f, 0.0f, 0.0f);
-		leafItems.push_back({ 6, aabb.GetCentroidVector3(), aabb, 4 });
+		aabb.max = Vector3(8.0f, 1.0f, 1.0f);
+		leafItems.push_back({ 7, aabb.GetCentroidVector3(), aabb, 4 });
 		sceneAABB.Expand(aabb);
 	}
 

@@ -788,6 +788,7 @@ void DeleteRB(TreeNode* T);
 int DumpRBToOBJ(FILE* file, TreeNode* T, const std::string& name, int VerticesCountOffset);
 
 QTreeNode* BinTreeToQTree(int curNode, bool curNodeIsLeaf, const InnerNode* innerNodes, const std::vector<LeafItem>& leafItems);
+void DeleteTree(TreeNode* T);
 void DeleteTree(QTreeNode* Q);
 
 uint8_t* EncodeNodes(IGenericTreeNode* root, const XwaVector3* Vertices, const int* Indices);

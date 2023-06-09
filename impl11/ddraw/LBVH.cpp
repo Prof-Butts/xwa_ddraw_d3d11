@@ -3174,6 +3174,75 @@ TreeNode* InsertAVL(TreeNode* T, int TriID, const XwaVector3& centroid, const AA
 	return T;
 }
 
+// Regular Binary Tree insertion. Let's pre-sort the primitives, aye?
+TreeNode* InsertTree(TreeNode* T, int TriID, const XwaVector3& centroid, const AABB& box)
+{
+	if (T == nullptr)
+	{
+		return new TreeNode(TriID, centroid, box);
+	}
+
+	if (T->TriID != -1)
+	{
+		// We have reached a leaf, create a new inner node
+		AABB newBox = box;
+		newBox.Expand(T->box);
+		const int dim = newBox.GetLargestDimension();
+		const float split = 0.5f * (newBox.min[dim] + newBox.max[dim]);
+		const bool goLeft = centroid[dim] <= split;
+
+		TreeNode* newNode = new TreeNode(-1);
+		TreeNode* newLeaf = new TreeNode(TriID, centroid, box);
+
+		newNode->box = newBox;
+		newNode->numNodes = 3;
+		if (goLeft)
+		{
+			newNode->left = newLeaf;
+			newNode->right = T;
+		}
+		else
+		{
+			newNode->left = T;
+			newNode->right = newLeaf;
+		}
+		return newNode;
+	}
+
+	AABB& innerBox = T->box;
+	const int dim = innerBox.GetLargestDimension();
+	const float split = 0.5f * (innerBox.min[dim] + innerBox.max[dim]);
+#ifdef DEBUG_AVL
+	log_debug("[DBG] [BVH] centroid[%d]:%0.3f, split: %0.3f, %s",
+		dim,
+		centroid[dim],
+		split,
+		innerBox.ToString().c_str());
+#endif
+	if (centroid[dim] <= split)
+	{
+		T->left = InsertAVL(T->left, TriID, centroid, box);
+	}
+	else
+	{
+		T->right = InsertAVL(T->right, TriID, centroid, box);
+	}
+	// Refit
+	T->box.Expand(box);
+
+	return T;
+}
+
+void InOrder(TreeNode* T, std::vector<LeafItem> &result)
+{
+	if (T == nullptr)
+		return;
+	InOrder(T->left, result);
+	if (T->TriID != -1)
+		result.push_back({0, T->box.GetCentroidVector3(), T->box, T->TriID});
+	InOrder(T->right, result);
+}
+
 // Function to swap two elements
 void swap(LeafItem* a, LeafItem* b)
 {
@@ -3320,6 +3389,7 @@ LBVH* LBVH::BuildPLOC(const XwaVector3* vertices, const int numVertices, const i
 	int numTris = numIndices / 3;
 
 	// Get the Morton Code and AABB for each triangle.
+	//TreeNode* T = nullptr;
 	std::vector<LeafItem> leafItems;
 	for (int i = 0, TriID = 0; i < numIndices; i += 3, TriID++) {
 		AABB aabb;
@@ -3331,10 +3401,14 @@ LBVH* LBVH::BuildPLOC(const XwaVector3* vertices, const int numVertices, const i
 		Normalize(centroid, sceneBox, range);
 		MortonCode_t m = GetMortonCode(centroid);
 		leafItems.push_back({ m, centroid, aabb, TriID });
+		//T = InsertTree(T, TriID, centroid, aabb);
+		//T = InsertAVL(T, TriID, centroid, aabb);
 	}
 
 	// Sort the morton codes
 	std::sort(leafItems.begin(), leafItems.end(), leafSorter);
+	//InOrder(T, leafItems);
+	//DeleteTree(T);
 
 	// Build the tree
 	int root = -1;
@@ -6978,6 +7052,18 @@ void TestPLOC()
 
 	// Sort the morton codes
 	std::sort(leafItems.begin(), leafItems.end(), leafSorter);
+	/*TreeNode* T = nullptr;
+	for (const LeafItem& leaf : leafItems)
+	{
+		T = InsertTree(T, leaf.PrimID, leaf.centroid, leaf.aabb);
+	}
+	std::vector<LeafItem> result;
+	InOrder(T, result);
+	DeleteTree(T);
+	for (int i = 0; i < (int)result.size(); i++)
+	{
+		log_debug("[DBG] [BVH] sorted centroid: %0.3f", result[i].centroid[0]);
+	}*/
 
 	int root = -1;
 	InnerNode *innerNodes = PLOC(leafItems, root);

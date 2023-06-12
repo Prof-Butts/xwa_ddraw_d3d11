@@ -233,9 +233,9 @@ enum BVHBuilderType
 	BVHBuilderType_QBVH,
 	BVHBuilderType_FastQBVH,
 	//BVHBuilderType_Embree,
-	BVHBuilderType_DirectBVH2CPU,
+	//BVHBuilderType_DirectBVH2CPU,
 	BVHBuilderType_DirectBVH4GPU,
-	BVHBuilderType_AVL,
+	//BVHBuilderType_AVL,
 	BVHBuilderType_PLOC,
 	BVHBuilderType_MAX,
 };

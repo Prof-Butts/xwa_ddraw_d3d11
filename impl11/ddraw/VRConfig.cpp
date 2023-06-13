@@ -216,7 +216,7 @@ float g_fViewYawSign = -1.0f, g_fViewPitchSign = 1.0f; // New values for XwaLigh
 float g_fSpecIntensity = 1.0f, g_fSpecBloomIntensity = 1.25f, g_fXWALightsSaturation = 0.8f, g_fXWALightsIntensity = 1.0f;
 float g_fMinLightIntensity = 0.1f; // When lights are faded, this is the minimum intensity they will get
 bool g_bApplyXWALightsIntensity = true, g_bProceduralSuns = true, g_bEnableHeadLights = false, g_bProceduralLava = true;
-bool g_bNormalizeLights = true;
+bool g_bNormalizeLights = false;
 bool g_bBlurSSAO = true, g_bDepthBufferResolved = false; // g_bDepthBufferResolved gets reset to false at the end of each frame
 bool g_bShowSSAODebug = false, g_bDumpSSAOBuffers = false, g_bEnableIndirectSSDO = false, g_bFNEnable = true, g_bFadeLights = false, g_bDisplayGlowMarks = true;
 bool g_bDisableDualSSAO = false, g_bEnableSSAOInShader = true, g_bEnableBentNormalsInShader = true;

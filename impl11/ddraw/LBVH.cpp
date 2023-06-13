@@ -5773,7 +5773,6 @@ static void DirectBVH4Init(
 	const int numPrimitives,
 	const int numInnerNodes,
 	AABB centroidBox,
-	std::vector<LeafItem>& leafItems,
 	BuilderItem* leafParents,
 	InnerNode4BuildDataGPU* innerNodeBuildData,
 	int& root_out,
@@ -5971,6 +5970,16 @@ static void DirectBVH4EmitInnerNodes(
 			// If we have between 2 and 4 children, we can emit one new inner node and put
 			// all those children there right away. The single-children case is handled separately
 			// but maybe later that case can be factored too.
+
+			// If a slot has:
+			// 5..N children: emit new inner node, for the next iteration.
+			// 2..4 children: emit a new inner node, with skip classify turned on.
+			// 1 children: emit a leaf node (in the next phase).
+			// 0: no new nodes are emitted
+			//
+			// So, the number of new nodes(either leaves or inner nodes) emitted is equal to the number
+			// of nonzero slots, and this information is known when EmitInnerNodes() is running
+
 			if (1 < innerNodeBD.counts[k] && innerNodeBD.counts[k] <= BU_PARTITIONS)
 			{
 				// Emit a new inner node for this slot but don't split the subrange anymore since
@@ -6283,7 +6292,7 @@ BVHNode* DirectBVH4BuilderGPU(AABB centroidBox, std::vector<LeafItem>& leafItems
 
 	BuilderItem* leafParents = new BuilderItem[numPrimitives];
 	InnerNode4BuildDataGPU* innerNodeBuildData = new InnerNode4BuildDataGPU[numInnerNodes];
-	DirectBVH4Init(numPrimitives, numInnerNodes, centroidBox, leafItems, leafParents, innerNodeBuildData, root, &QBVHBuffer);
+	DirectBVH4Init(numPrimitives, numInnerNodes, centroidBox, leafParents, innerNodeBuildData, root, &QBVHBuffer);
 
 	// Encode the leaves
 	int LeafEncodeIdx = numInnerNodes;

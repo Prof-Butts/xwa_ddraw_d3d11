@@ -1873,9 +1873,14 @@ void ReadMaterialLine(char* buf, Material* curMaterial, char *OPTname) {
 	*/
 }
 
-/*
- * Load the material parameters for an individual OPT or DAT
- */
+/// <summary>
+/// Load the craft material parameters for an individual OPT or DAT.
+/// If successful, it will add a new entry into g_Materials.
+/// </summary>
+/// <param name="OPTname"></param>
+/// <param name="sFileName"></param>
+/// <param name="verbose"></param>
+/// <returns>Returns true if the file could be loaded successfully</returns>
 bool LoadIndividualMATParams(char *OPTname, char *sFileName, bool verbose) {
 	// I may have to use std::array<char, DIM> and std::vector<std::array<char, Dim>> instead
 	// of TexnameType
@@ -1997,7 +2002,8 @@ bool LoadIndividualMATParams(char *OPTname, char *sFileName, bool verbose) {
 				}
 				texnameList.clear();
 
-				// Extract the name(s) of the texture(s)
+				// Parse the "[TEXNNNNN,TEXMMMMM,...]" line and extract the name(s) of the texture(s)
+				// texnameList is populated here
 				{
 					char* start = buf + 1; // Skip the '[' bracket
 					char* end;
@@ -2011,7 +2017,7 @@ bool LoadIndividualMATParams(char *OPTname, char *sFileName, bool verbose) {
 						{
 							TexnameType texname;
 							strncpy_s(texname.name, start, end - start);
-							//log_debug("[DBG] [MAT] Adding texname: [%s]", texname.texname);
+							//log_debug("[DBG] [MAT] Adding texname: [%s]", texname.name);
 							texnameList.push_back(texname);
 							start = end + 1;
 						}
@@ -2211,12 +2217,34 @@ int FindCraftMaterial(char* OPTname) {
 	return -1;
 }
 
-/*
-Find the material in the specified CraftIndex of g_Materials that corresponds to
-TexName. Returns the default material if it wasn't found or if TexName is null/empty
-*/
-Material FindMaterial(int CraftIndex, char* TexName, bool debug) {
+/// <summary>
+/// Find the material in the specified CraftIndex of g_Materials that corresponds to
+/// TexName. Returns the default material if it wasn't found or if TexName is null/empty
+/// </summary>
+/// <param name="CraftIndex"></param>
+/// <param name="TexName"></param>
+/// <param name="debug"></param>
+/// <returns></returns>
+Material FindMaterial(int CraftIndex, char* _TexName, bool debug) {
 	CraftMaterials* craftMats = &(g_Materials[CraftIndex]);
+	char TexName[MAX_TEXNAME + 1];
+
+	// Check for "_fg_" in the texname: that means this texture has a skin
+	char* end = stristr(_TexName, "_fg_");
+	if (end != NULL)
+	{
+		// Remove the skin part
+		char* start = _TexName;
+		int size = end - start;
+		strncpy_s(TexName, MAX_TEXNAME, start, size);
+		if (debug)
+			log_debug("[DBG] [MAT] Removing skin. Now using: %s", TexName);
+	}
+	else
+	{
+		strcpy_s(TexName, MAX_TEXNAME, _TexName);
+	}
+
 	// Slot should always be present and it should be the default craft material
 	Material defMat = craftMats->MaterialList[0].material;
 	if (TexName == NULL || TexName[0] == 0)

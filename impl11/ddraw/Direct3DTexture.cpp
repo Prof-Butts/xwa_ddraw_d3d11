@@ -745,9 +745,24 @@ void Direct3DTexture::TagTexture() {
 	TextureSurface *surface = this->_surface;
 	auto &resources = this->_deviceResources;
 	this->is_Tagged = true;
+	const bool bIsDAT = (stristr(surface->_cname, "dat,") != NULL);
 
 	// DEBUG: Remove later!
 	//log_debug("[DBG] %s", surface->_cname);
+
+	// Skip tagging lower-level mips on OPT textures
+	if (!bIsDAT)
+	{
+		const int len = strlen(surface->_cname);
+		const int lastDigit = surface->_cname[len - 1] - '0';
+		//log_debug("[DBG] [DBG] %s::%d", surface->_cname, lastDigit);
+		// OPTs with mipmaps will have multiple entries for the same texture
+		// let's not bother tagging lower-level mips... This prevents loading
+		// auxiliar textures (like normal maps) multiple times for lower mips
+		if (lastDigit > 1)
+			return;
+	}
+
 	{
 		// Capture the textures
 #ifdef DBG_VR
@@ -867,7 +882,7 @@ void Direct3DTexture::TagTexture() {
 		if (isInVector(surface->_cname, SpaceDebris_ResNames))
 			this->is_Debris = true;
 		// Catch DAT files
-		if (strstr(surface->_cname, "dat,") != NULL) {
+		if (bIsDAT) {
 			int GroupId, ImageId;
 			this->is_DAT = true;
 			// Check if this DAT image is a custom reticle
@@ -964,6 +979,13 @@ void Direct3DTexture::TagTexture() {
 	OPTname.name[0] = 0;
 	{
 		// Capture the OPT name
+		// Sample surface->_cname's:
+		// opt,FlightModels\PreybirdFighterExterior.opt,TEX00001,color,0
+		// opt,FlightModels\PreybirdFighterExterior.opt,TEX00001,light,0
+		// opt,FlightModels\PreybirdFighterExterior.opt,TEX00005,color-transparent,0
+		// In the following example, the "_fg_" part means a skin is active:
+		// opt,FlightModels\SlaveOneExterior.opt,Tex00000_fg_0_Default,color,0
+		// opt,FlightModels\SlaveOneExterior.opt,Tex00000_fg_1_Default,color,0
 		char *start = strstr(surface->_cname, "\\");
 		char *end = strstr(surface->_cname, ".opt");
 		char sFileName[180], sFileNameShort[180];
@@ -980,7 +1002,7 @@ void Direct3DTexture::TagTexture() {
 				LoadIndividualMATParams(OPTname.name, sFileName); // OPT material
 			}
 		}
-		else if (strstr(surface->_cname, "dat,") != NULL) {
+		else if (bIsDAT) {
 			// For DAT images, OPTname.name is the full DAT name:
 			strncpy_s(OPTname.name, MAX_OPT_NAME, surface->_cname, strlen(surface->_cname));
 			DATNameToMATParamsFile(OPTname.name, sFileName, sFileNameShort, 180);
@@ -1292,15 +1314,13 @@ void Direct3DTexture::TagTexture() {
 		}
 
 		// Materials
-		//if (g_bReshadeEnabled) 
 		if (OPTname.name[0] != 0)
 		{
 			int craftIdx = FindCraftMaterial(OPTname.name);
 			if (craftIdx > -1) {
 				char texname[MAX_TEXNAME];
-				bool bIsDat = strstr(OPTname.name, "dat,") != NULL;
 				// We need to check if this is a DAT or an OPT first
-				if (bIsDat) 
+				if (bIsDAT) 
 				{
 					texname[0] = 0; // Retrieve the default material
 				}

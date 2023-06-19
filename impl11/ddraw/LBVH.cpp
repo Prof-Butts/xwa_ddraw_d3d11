@@ -4809,7 +4809,13 @@ struct InnerNode4BuildDataGPU
 	int   nextDim[BU_PARTITIONS];
 	float nextMin[BU_PARTITIONS];
 	float nextMax[BU_PARTITIONS];
-	int   childBufOffsets[BU_PARTITIONS];
+
+	// Index into the inner node array. This is different from the
+	// encode index because the QBVH may interleave leaves and inner
+	// nodes whereas the inner node array only contains inner nodes.
+	int   childScratchOffsets[BU_PARTITIONS];
+	// Encode index, this is the final node index into the QBVH
+	int   childEncodeOffsets[BU_PARTITIONS];
 };
 
 constexpr float BVH_NORM_FACTOR = 1048576.0f; // 2^20, same precision we use for 64-bit Morton Codes
@@ -6025,6 +6031,8 @@ static void DirectBVH4EmitInnerNodes(
 				int newNodeIndex = g_directBuilderNextNode;
 				g_directBuilderNextNode++; // ATOMIC
 				//const int newNodeIndex = innerNodeBD.childOffsets[k];
+				// Connect this inner node to the new one:
+				innerNodeBD.childScratchOffsets[k] = newNodeIndex;
 
 				BVHNode newNode;
 				newNode.parent = i;
@@ -6087,6 +6095,8 @@ static void DirectBVH4EmitInnerNodes(
 				int newNodeIndex = g_directBuilderNextNode;
 				g_directBuilderNextNode++; // ATOMIC
 				//const int newNodeIndex = innerNodeBD.childOffsets[k];
+				// Connect this inner node to the new one:
+				innerNodeBD.childScratchOffsets[k] = newNodeIndex;
 
 				BVHNode newNode;
 				newNode.parent = i;
@@ -6203,7 +6213,8 @@ static void DirectBVH4InitNextIteration(
 		else // if (innerNodeBD.counts[slot] > 1)
 		{
 			// The parent of this leaf emitted a new node.
-			const int newParentIndex = buffer[parentIndex].children[slot];
+			//const int newParentIndex = buffer[parentIndex].children[slot];
+			const int newParentIndex = innerNodeBD.childScratchOffsets[slot];
 			//const int newParentIndex = innerNodeBD.childOffsets[slot];
 			leafParents[primIdx].parentIndex = newParentIndex;
 			// The parent of this leaf has too many children, loop again.

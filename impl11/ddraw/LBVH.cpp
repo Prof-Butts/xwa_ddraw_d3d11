@@ -20,6 +20,9 @@ static int g_QBVHEncodeNodeIdx = 0;
 bool g_bEnableQBVHwSAH = false; // The FastLQBVH builder still has some problems when SAH is enabled
 
 // Used by the DirectBVH builder
+//#define DEBUG_BU 1
+#undef DEBUG_BU
+
 int g_directBuilderFirstActiveInnerNode = 0;
 int g_directBuilderNextNode = 0;
 int g_maxDirectBVHIteration = -1;
@@ -1398,7 +1401,9 @@ int EncodeLeafNode(BVHNode* buffer, const std::vector<LeafItem>& leafItems, int 
 	// The following "if (...)" is only needed when debugging the builders, since they
 	// run without any actual geometry. During regular gameplay, it can be removed
 	// The following check is only needed when testing these algorithms (like TestImplicitMortonCodes4())
-	//if (vertices != nullptr && indices != nullptr)
+#ifdef DEBUG_BU
+	if (vertices != nullptr && indices != nullptr)
+#endif
 	{
 		v0 = vertices[indices[idx + 0]];
 		v1 = vertices[indices[idx + 1]];
@@ -4804,10 +4809,8 @@ struct InnerNode4BuildDataGPU
 	int   nextDim[BU_PARTITIONS];
 	float nextMin[BU_PARTITIONS];
 	float nextMax[BU_PARTITIONS];
+	int   childBufOffsets[BU_PARTITIONS];
 };
-
-//#define DEBUG_BU 1
-#undef DEBUG_BU
 
 constexpr float BVH_NORM_FACTOR = 1048576.0f; // 2^20, same precision we use for 64-bit Morton Codes
 
@@ -5862,12 +5865,24 @@ static bool DirectBVH4Classify(
 		done = false;
 
 		InnerNode4BuildDataGPU& innerNodeBD = innerNodeBuildData[parentNodeIndex];
-		AABB    box      = innerNodeBD.box;
-		Vector3 boxRange = box.GetRange();
-		bool    skip     = innerNodeBD.skipClassify;
+		AABB    box          = innerNodeBD.box;
+		Vector3 boxRange     = box.GetRange();
+		bool    skipClassify = innerNodeBD.skipClassify;
 
-		if (skip)
+		if (skipClassify)
+		{
+			// Don't classify this primitive, just put it on the next available slot
+			const int slot = innerNodeBD.numChildren;
+			innerNodeBD.numChildren++; // ATOMIC
+			innerNodeBD.counts[slot] = 1;
+			leafParents[primIdx] = { parentNodeIndex, (int8_t)slot };
+#ifdef DEBUG_BU
+			log_debug("[DBG] [BVH] SKIP. (%d, (%0.1f, %0.1f, %0.1f)) -> slot[%d]:%d",
+				primIdx, leaf.centroid[0], leaf.centroid[1], leaf.centroid[2],
+				slot, parentNodeIndex);
+#endif
 			continue;
+		}
 
 		AABB subBox = box;
 		bool comps[BU_PARTITIONS - 1] = { false };
@@ -5964,28 +5979,52 @@ static void DirectBVH4EmitInnerNodes(
 		AABB  innerNodeBox = innerNodeBD.box; // this is the centroidBox used in the previous cut
 		const int   dim0   = innerNodeBD.dims[0];
 		const float split0 = innerNodeBD.splits[0];
+
+		// Count all the children. If a slot has:
+		//
+		// 5..N children: emit 1 new inner node for this slot, classify on the next iteration.
+		// 2..4 children: emit 1 new inner node for this slot, do not classify on the next iteration.
+		//    1 children: emit 1 leaf node for this slot (populate in the next phase).
+		//    0 children: no new nodes are emitted for this slot.
+		//
+		// So, the total number of new nodes (either leaves or inner nodes) emitted by this node is equal
+		// to the number of nonzero slots, and this information is known when EmitInnerNodes() is running.
+		int numChildren = 0;
+		for (int k = 0; k < BU_PARTITIONS; k++)
+			numChildren += (innerNodeBD.counts[k] > 0) ? 1 : 0;
+
+		/*
+		int startOffset = g_directBuilderNextNode;
+		g_directBuilderNextNode += numChildren; // ATOMIC: Reserve all the nodes we'll need in one go
+		// Assign node offsets for each slot
+		for (int k = 0; k < BU_PARTITIONS; k++)
+		{
+			if (innerNodeBD.counts[k] > 0)
+			{
+				innerNodeBD.childOffsets[k] = startOffset++;
+#ifdef DEBUG_BU
+				log_debug("[DBG] [BVH] node slot[%d]:%d, childOffset: %d",
+					k, i, innerNodeBD.childOffsets[k]);
+#endif
+			}
+		}
+		// Our children offsets are now contiguous and must be used for encoding on the QBVH buffer
+		*/
+
 		for (int k = 0; k < BU_PARTITIONS; k++)
 		{
 			// Preconditions: All active inner nodes have already been encoded.
 			// If we have between 2 and 4 children, we can emit one new inner node and put
 			// all those children there right away. The single-children case is handled separately
 			// but maybe later that case can be factored too.
-
-			// If a slot has:
-			// 5..N children: emit new inner node, for the next iteration.
-			// 2..4 children: emit a new inner node, with skip classify turned on.
-			// 1 children: emit a leaf node (in the next phase).
-			// 0: no new nodes are emitted
-			//
-			// So, the number of new nodes(either leaves or inner nodes) emitted is equal to the number
-			// of nonzero slots, and this information is known when EmitInnerNodes() is running
-
 			if (1 < innerNodeBD.counts[k] && innerNodeBD.counts[k] <= BU_PARTITIONS)
 			{
+				// Skip Classify path.
 				// Emit a new inner node for this slot but don't split the subrange anymore since
 				// we can fit all the children in this slot under the new inner node.
 				int newNodeIndex = g_directBuilderNextNode;
 				g_directBuilderNextNode++; // ATOMIC
+				//const int newNodeIndex = innerNodeBD.childOffsets[k];
 
 				BVHNode newNode;
 				newNode.parent = i;
@@ -6047,6 +6086,7 @@ static void DirectBVH4EmitInnerNodes(
 				// Emit a new inner node for this slot and split the subrange again
 				int newNodeIndex = g_directBuilderNextNode;
 				g_directBuilderNextNode++; // ATOMIC
+				//const int newNodeIndex = innerNodeBD.childOffsets[k];
 
 				BVHNode newNode;
 				newNode.parent = i;
@@ -6082,7 +6122,7 @@ static void DirectBVH4EmitInnerNodes(
 
 static void DirectBVH4EmitLeaf(
 	const int numInnerNodes,
-	const int slot, // Set this to -1 to get the next available slot
+	const int slot,
 	const int primIndex,
 	const int parentIndex,
 	BuilderItem* leafParents,
@@ -6092,15 +6132,18 @@ static void DirectBVH4EmitLeaf(
 	const XwaVector3* vertices, const int* indices)
 {
 	const int newNodeIndex = primIndex + numInnerNodes;
+	//const int newNodeIndex = innerNodeBuildData[parentIndex].childOffsets[slot];
 
-	const int nextChild = (slot < 0) ? buffer[parentIndex].numChildren : slot;
-	buffer[parentIndex].children[nextChild] = newNodeIndex;
+	buffer[parentIndex].children[slot] = newNodeIndex;
 	buffer[parentIndex].numChildren++;
 
 	innerNodeBuildData[parentIndex].numChildren++;
 	innerNodeBuildData[parentIndex].fitCounter++;
 	// Deactivate this primitive for the next iteration
 	leafParents[primIndex].parentIndex = -1;
+
+	// Encode the leaf proper at offset newNodeIndex
+	//EncodeLeafNode(buffer, leafItems, primIndex, encodeIndex, vertices, indices);
 
 #ifdef DEBUG_BU
 	log_debug("[DBG] [BVH] QBVHIdx: (L) %d --> %d", newNodeIndex, parentIndex);
@@ -6138,10 +6181,10 @@ static void DirectBVH4InitNextIteration(
 	log_debug("[DBG] [BVH] ITER: %d, PHASE 4. Init next iteration, disable prims", iteration);
 #endif
 
-	for (int i = 0; i < numPrimitives; i++)
+	for (int primIdx = 0; primIdx < numPrimitives; primIdx++)
 	{
-		int parentIndex = leafParents[i].parentIndex;
-		int slot = leafParents[i].side;
+		const int parentIndex = leafParents[primIdx].parentIndex;
+		const int slot = leafParents[primIdx].side;
 
 		// Skip inactive primitives
 		if (parentIndex == -1)
@@ -6150,42 +6193,25 @@ static void DirectBVH4InitNextIteration(
 		// Emit leaves if applicable or update parent pointers
 		InnerNode4BuildDataGPU& innerNodeBD = innerNodeBuildData[parentIndex];
 
-		// Handle bad splits
-#ifdef DISABLED
-		if (innerNodeBD.countL == 0 || innerNodeBD.countR == 0)
-		{
-			leafParents[i].side = BU_NONE;
-#ifdef DEBUG_BU
-			log_debug("[DBG] [BVH] Skipping prim %d, it points to an inner node with a bad split", i);
-#endif
-			continue;
-		}
-#endif
-
 		if (innerNodeBD.counts[slot] == 1)
 		{
+			//const int encodeIndex = innerNodeBD.childBufOffsets[slot];
 			// This node is a leaf of parentIndex at the current slot
-			DirectBVH4EmitLeaf(numInnerNodes, slot, i, parentIndex, leafParents, leafItems, innerNodeBuildData, buffer, vertices, indices);
+			DirectBVH4EmitLeaf(numInnerNodes, slot, primIdx, parentIndex,
+				leafParents, leafItems, innerNodeBuildData, buffer, vertices, indices);
 		}
-		else if (innerNodeBD.counts[slot] > 1)
+		else // if (innerNodeBD.counts[slot] > 1)
 		{
 			// The parent of this leaf emitted a new node.
 			const int newParentIndex = buffer[parentIndex].children[slot];
-			leafParents[i].parentIndex = newParentIndex;
-			// The new node needs no more classification, we're done
-			if (innerNodeBuildData[newParentIndex].skipClassify)
-			{
-				// Encode a new BVH leaf
-				DirectBVH4EmitLeaf(numInnerNodes, -1, i, newParentIndex, leafParents, leafItems, innerNodeBuildData, buffer, vertices, indices);
-			}
-			else
-			{
-				// The parent of this leaf has too many children, loop again.
-				leafParents[i].side = BU_NONE;
+			//const int newParentIndex = innerNodeBD.childOffsets[slot];
+			leafParents[primIdx].parentIndex = newParentIndex;
+			// The parent of this leaf has too many children, loop again.
+			leafParents[primIdx].side = BU_NONE;
 #ifdef DEBUG_BU
-				log_debug("[DBG] [BVH] prim %d now points to %d, prev parent: slot[%d]:%d", i, leafParents[i].parentIndex, slot, parentIndex);
+			log_debug("[DBG] [BVH] prim %d now points to %d, prev parent: slot[%d]:%d",
+				primIdx, leafParents[primIdx].parentIndex, slot, parentIndex);
 #endif
-			}
 		}
 	}
 }

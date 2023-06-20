@@ -25,6 +25,7 @@ bool g_bEnableQBVHwSAH = false; // The FastLQBVH builder still has some problems
 
 int g_directBuilderFirstActiveInnerNode = 0;
 int g_directBuilderNextNode = 0;
+int g_directBuilderNextEncodeIndex = 0;
 int g_maxDirectBVHIteration = -1;
 
 static HMODULE hEmbree = NULL;
@@ -5793,6 +5794,7 @@ static void DirectBVH4Init(
 
 	root_out = 0;
 	g_directBuilderFirstActiveInnerNode = 0;
+	g_directBuilderNextEncodeIndex = 0; // This is the offset into the QBVH buffer where nodes will get encoded.
 	g_directBuilderNextNode = 1; // The root already exists, so the next available inner node is idx 1
 
 	// All leafs are initially connected to the root, but they are not classified yet
@@ -5804,21 +5806,6 @@ static void DirectBVH4Init(
 
 	// Inner nodes need no initialization, they are filled out as needed.
 	// We only need to initialize the root.
-	/*
-	for (int i = 0; i < numInnerNodes; i++)
-	{
-		InnerNode4BuildDataGPU splitData = { 0 };
-		splitData.box = AABB();
-		for (int j = 0; j < BU_PARTITIONS; j++)
-		{
-			splitData.nextMin[j] =  FLT_MAX;
-			splitData.nextMax[j] = -FLT_MAX;
-		}
-		innerNodeBuildData[i] = splitData;
-	}
-	*/
-
-	// Initialize the root
 	InnerNode4BuildDataGPU rootSplitData = { 0 };
 	rootSplitData.box = centroidBox;
 	rootSplitData.fitCounterTarget = numPrimitives;
@@ -5958,6 +5945,48 @@ static bool DirectBVH4Classify(
 	return done;
 }
 
+static void DirectBVH4EmitInnerNode(
+	int scratchParentNodeIndex,
+	int slot,
+	int scratchNewNodeIndex,
+	int bufferParentNodeIndex,
+	int bufferNewNodeIndex,
+	bool computeSplits,
+	int nextDim, // Only used if computeSplits == true
+	InnerNode4BuildDataGPU* innerNodeBuildData,
+	AABB box,
+	BVHNode* buffer)
+{
+	InnerNode4BuildDataGPU& innerNodeBD = innerNodeBuildData[scratchParentNodeIndex];
+
+	// Connect this inner node to the new one:
+	innerNodeBD.childScratchOffsets[slot] = scratchNewNodeIndex;
+	innerNodeBuildData[scratchParentNodeIndex].numChildren++;
+
+	BVHNode newNode;
+	newNode.parent = scratchParentNodeIndex;
+	newNode.ref = -1;
+	newNode.numChildren = 0;
+	for (int j = 0; j < 4; j++)
+		newNode.children[j] = -1;
+	buffer[bufferNewNodeIndex] = newNode;
+
+	// Connect the current inner node to the new one
+	//int nextChild = buffer[i].numChildren;
+	buffer[bufferParentNodeIndex].children[slot] = bufferNewNodeIndex;
+	buffer[bufferParentNodeIndex].numChildren++;
+
+	// Enable the new inner node
+	InnerNode4BuildDataGPU newInnerNode = { 0 };
+	newInnerNode.box = box;
+	newInnerNode.fitCounterTarget = innerNodeBD.counts[slot];
+	if (computeSplits)
+		ComputeSplits4(newInnerNode, nextDim);
+	else
+		newInnerNode.skipClassify = true;
+	innerNodeBuildData[scratchNewNodeIndex] = newInnerNode;
+}
+
 static void DirectBVH4EmitInnerNodes(
 	int iteration,
 	const int numPrimitives,
@@ -6030,28 +6059,7 @@ static void DirectBVH4EmitInnerNodes(
 				// we can fit all the children in this slot under the new inner node.
 				int newNodeIndex = g_directBuilderNextNode;
 				g_directBuilderNextNode++; // ATOMIC
-				//const int newNodeIndex = innerNodeBD.childOffsets[k];
-				// Connect this inner node to the new one:
-				innerNodeBD.childScratchOffsets[k] = newNodeIndex;
-
-				BVHNode newNode;
-				newNode.parent = i;
-				newNode.ref = -1;
-				newNode.numChildren = 0;
-				for (int j = 0; j < 4; j++)
-					newNode.children[j] = -1;
-				buffer[newNodeIndex] = newNode;
-
-				// Connect the current inner node to the new one
-				buffer[i].children[k] = newNodeIndex;
-				buffer[i].numChildren++;
-				innerNodeBuildData[i].numChildren++;
-
-				// Enable the new inner node
-				InnerNode4BuildDataGPU newInnerNode = { 0 };
-				newInnerNode.skipClassify = true;
-				newInnerNode.fitCounterTarget = innerNodeBD.counts[k];
-				innerNodeBuildData[newNodeIndex] = newInnerNode;
+				DirectBVH4EmitInnerNode(i, k, newNodeIndex, i, newNodeIndex, false, -1, innerNodeBuildData, AABB(), buffer);
 
 #ifdef DEBUG_BU
 				log_debug("[DBG] [BVH] QBVHIdx: (I) %d --> slot[%d]:%d, SKIP, fitCounterTarget: %d",
@@ -6060,6 +6068,7 @@ static void DirectBVH4EmitInnerNodes(
 			}
 			else if (innerNodeBD.counts[k] > BU_PARTITIONS)
 			{
+				// Emit a new inner node and split again
 				int   dimk   = k < 2 ? innerNodeBD.dims[1]   : innerNodeBD.dims[2];
 				float splitk = k < 2 ? innerNodeBD.splits[1] : innerNodeBD.splits[2];
 
@@ -6094,31 +6103,7 @@ static void DirectBVH4EmitInnerNodes(
 				// Emit a new inner node for this slot and split the subrange again
 				int newNodeIndex = g_directBuilderNextNode;
 				g_directBuilderNextNode++; // ATOMIC
-				//const int newNodeIndex = innerNodeBD.childOffsets[k];
-				// Connect this inner node to the new one:
-				innerNodeBD.childScratchOffsets[k] = newNodeIndex;
-
-				BVHNode newNode;
-				newNode.parent = i;
-				newNode.ref = -1;
-				newNode.numChildren = 0;
-				for (int j = 0; j < 4; j++)
-					newNode.children[j] = -1;
-				buffer[newNodeIndex] = newNode;
-
-				// Connect the current inner node to the new one
-				//int nextChild = buffer[i].numChildren;
-				buffer[i].children[k] = newNodeIndex;
-				buffer[i].numChildren++;
-				innerNodeBuildData[i].numChildren++;
-
-				// Split this subrange again and enable the new inner node
-				InnerNode4BuildDataGPU newInnerNode = { 0 };
-				newInnerNode.box = box;
-				newInnerNode.fitCounterTarget = innerNodeBD.counts[k];
-				ComputeSplits4(newInnerNode, nextDim);
-				innerNodeBuildData[newNodeIndex] = newInnerNode;
-
+				DirectBVH4EmitInnerNode(i, k, newNodeIndex, i, newNodeIndex, true, nextDim, innerNodeBuildData, box, buffer);
 #ifdef DEBUG_BU
 				log_debug("[DBG] [BVH] QBVHIdx: (I) %d --> %d, fitCounterTarget: %d",
 					newNodeIndex, i, newInnerNode.fitCounterTarget);

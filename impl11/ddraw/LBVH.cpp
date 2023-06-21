@@ -1411,7 +1411,8 @@ int EncodeLeafNode(BVHNode* buffer, const std::vector<LeafItem>& leafItems, int 
 		v2 = vertices[indices[idx + 2]];
 	}
 	// Encode the current primitive into the QBVH buffer, in the leaf section
-	ubuffer[EncodeOfs++] = TriID;
+	//ubuffer[EncodeOfs++] = TriID;
+	ubuffer[EncodeOfs++] = leafIdx;
 	ubuffer[EncodeOfs++] = -1; // parent
 	ubuffer[EncodeOfs++] =  0;
 	ubuffer[EncodeOfs++] =  0;
@@ -4811,6 +4812,7 @@ struct InnerNode4BuildDataGPU
 	float nextMin[BU_PARTITIONS];
 	float nextMax[BU_PARTITIONS];
 
+	int   parentIndex;
 	// Index into the inner node array. This is different from the
 	// encode index because the QBVH may interleave leaves and inner
 	// nodes whereas the inner node array only contains inner nodes.
@@ -4882,8 +4884,8 @@ static void Refit(int innerNodeIndex, InnerNode* innerNodes, InnerNodeBuildDataG
 }
 
 static void Refit4(
-	const int innerNodeIndex,
-	const int numInnerNodes,
+	const int scratchInnerNodeIndex,
+	const int bufferInnerNodeIndex,
 	BVHNode* buffer,
 	InnerNode4BuildDataGPU* innerNodeBuildData,
 	std::vector<LeafItem>& leafItems)
@@ -4892,18 +4894,20 @@ static void Refit4(
 	int tabLevel = 1;
 #endif
 	const int rootIndex = 0;
-	int curInnerNodeIndex = innerNodeIndex;
+	int curScratchInnerNodeIndex = scratchInnerNodeIndex;
+	int curBufferInnerNodeIndex = bufferInnerNodeIndex;
 
-	while (curInnerNodeIndex >= rootIndex)
+	while (curScratchInnerNodeIndex >= rootIndex)
 	{
 		// There's nothing to do if this node doesn't have enough data to
 		// compute the fit
-		const int fitCounterTarget = innerNodeBuildData[curInnerNodeIndex].fitCounterTarget;
-		if (innerNodeBuildData[curInnerNodeIndex].fitCounter < fitCounterTarget)
+		const int fitCounterTarget = innerNodeBuildData[curScratchInnerNodeIndex].fitCounterTarget;
+		if (innerNodeBuildData[curScratchInnerNodeIndex].fitCounter < fitCounterTarget)
 			return;
 
-		BVHNode& node = buffer[curInnerNodeIndex];
-		const int parentIndex = node.parent;
+		BVHNode& node = buffer[curBufferInnerNodeIndex];
+		const int bufferParentIndex = node.parent;
+		const int scratchParentIndex = innerNodeBuildData[curScratchInnerNodeIndex].parentIndex;
 //#ifdef DEBUG_BU
 //		log_debug("[DBG] [BVH] curNode: %d, parent: %d, numChildren: %d, fitCounter: %d",
 //			curInnerNodeIndex, parentIndex,
@@ -4926,7 +4930,7 @@ static void Refit4(
 		for (int k = 0; k < node.numChildren; k++)
 		{
 			const int  child = node.children[k];
-			const bool isLeaf = (child >= numInnerNodes);
+			const bool isLeaf = (buffer[child].numChildren == 0);
 
 //#ifdef DEBUG_BU
 //			log_debug("[DBG] [BVH] child: %d, isLeaf: %d, final idx: %d",
@@ -4936,7 +4940,7 @@ static void Refit4(
 			AABB box;
 			if (isLeaf)
 			{
-				box = leafItems[child - numInnerNodes].aabb;
+				box = leafItems[buffer[child].ref].aabb;
 			}
 			else
 			{
@@ -4954,15 +4958,15 @@ static void Refit4(
 		// Write the new box to the inner node
 		for (int i = 0; i < 3; i++)
 		{
-			buffer[curInnerNodeIndex].min[i] = nodeBox.min[i];
-			buffer[curInnerNodeIndex].max[i] = nodeBox.max[i];
+			buffer[curBufferInnerNodeIndex].min[i] = nodeBox.min[i];
+			buffer[curBufferInnerNodeIndex].max[i] = nodeBox.max[i];
 		}
-		buffer[curInnerNodeIndex].min[3] = 1.0f;
-		buffer[curInnerNodeIndex].max[3] = 1.0f;
+		buffer[curBufferInnerNodeIndex].min[3] = 1.0f;
+		buffer[curBufferInnerNodeIndex].max[3] = 1.0f;
 
-		if (parentIndex >= rootIndex)
+		if (scratchParentIndex >= rootIndex)
 		{
-			innerNodeBuildData[parentIndex].fitCounter += fitCounterTarget;
+			innerNodeBuildData[scratchParentIndex].fitCounter += fitCounterTarget;
 		}
 
 #ifdef DEBUG_BU
@@ -4976,7 +4980,8 @@ static void Refit4(
 #endif
 
 		// Continue refitting the parents if possible
-		curInnerNodeIndex = parentIndex;
+		curScratchInnerNodeIndex = scratchParentIndex;
+		curBufferInnerNodeIndex = bufferParentIndex;
 	}
 }
 
@@ -5809,6 +5814,7 @@ static void DirectBVH4Init(
 	InnerNode4BuildDataGPU rootSplitData = { 0 };
 	rootSplitData.box = centroidBox;
 	rootSplitData.fitCounterTarget = numPrimitives;
+	rootSplitData.parentIndex = -1;
 	innerNodeBuildData[root_out] = rootSplitData;
 	ComputeSplits4(innerNodeBuildData[root_out]);
 
@@ -5979,6 +5985,7 @@ static void DirectBVH4EmitInnerNode(
 	// Enable the new inner node
 	InnerNode4BuildDataGPU newInnerNode = { 0 };
 	newInnerNode.box = box;
+	newInnerNode.parentIndex = scratchParentNodeIndex;
 	newInnerNode.fitCounterTarget = innerNodeBD.counts[slot];
 	if (computeSplits)
 		ComputeSplits4(newInnerNode, nextDim);
@@ -6116,24 +6123,25 @@ static void DirectBVH4EmitInnerNodes(
 }
 
 static void DirectBVH4EmitLeaf(
-	const int numInnerNodes,
 	const int slot,
 	const int primIndex,
-	const int parentIndex,
+	const int scratchParentIndex,
+	const int bufferParentIndex,
+	const int bufferLeafIndex,
 	BuilderItem* leafParents,
 	std::vector<LeafItem>& leafItems,
 	InnerNode4BuildDataGPU* innerNodeBuildData,
 	BVHNode* buffer,
 	const XwaVector3* vertices, const int* indices)
 {
-	const int newNodeIndex = primIndex + numInnerNodes;
+	//const int newNodeIndex = primIndex + numInnerNodes;
 	//const int newNodeIndex = innerNodeBuildData[parentIndex].childOffsets[slot];
 
-	buffer[parentIndex].children[slot] = newNodeIndex;
-	buffer[parentIndex].numChildren++;
+	buffer[bufferParentIndex].children[slot] = bufferLeafIndex;
+	buffer[bufferParentIndex].numChildren++;
 
-	innerNodeBuildData[parentIndex].numChildren++;
-	innerNodeBuildData[parentIndex].fitCounter++;
+	innerNodeBuildData[scratchParentIndex].numChildren++;
+	innerNodeBuildData[scratchParentIndex].fitCounter++;
 	// Deactivate this primitive for the next iteration
 	leafParents[primIndex].parentIndex = -1;
 
@@ -6150,14 +6158,14 @@ static void DirectBVH4EmitLeaf(
 			primIndex, parentIndex, innerNodeBuildData[parentIndex].fitCounter);
 #endif
 
-	const int numChildren = innerNodeBuildData[parentIndex].numChildren;
-	if (innerNodeBuildData[parentIndex].fitCounter == innerNodeBuildData[parentIndex].fitCounterTarget)
+	const int numChildren = innerNodeBuildData[scratchParentIndex].numChildren;
+	if (innerNodeBuildData[scratchParentIndex].fitCounter == innerNodeBuildData[scratchParentIndex].fitCounterTarget)
 	{
 		// The parent node can be refit now
 #ifdef DEBUG_BU
 		log_debug("[DBG] [BVH] REFITTING inner node: %d", parentIndex);
 #endif
-		Refit4(parentIndex, numInnerNodes, buffer, innerNodeBuildData, leafItems);
+		Refit4(scratchParentIndex, bufferParentIndex, buffer, innerNodeBuildData, leafItems);
 	}
 }
 
@@ -6192,7 +6200,7 @@ static void DirectBVH4InitNextIteration(
 		{
 			//const int encodeIndex = innerNodeBD.childBufOffsets[slot];
 			// This node is a leaf of parentIndex at the current slot
-			DirectBVH4EmitLeaf(numInnerNodes, slot, primIdx, parentIndex,
+			DirectBVH4EmitLeaf(slot, primIdx, parentIndex, parentIndex, numInnerNodes + primIdx,
 				leafParents, leafItems, innerNodeBuildData, buffer, vertices, indices);
 		}
 		else // if (innerNodeBD.counts[slot] > 1)

@@ -4806,13 +4806,10 @@ struct InnerNode4BuildDataGPU
 	int   fitCounter;
 	int   fitCounterTarget;
 	int   parentIndex;
-	bool  isLeaf;
 
 	int   nextDim[BU_PARTITIONS];
 	float nextMin[BU_PARTITIONS];
 	float nextMax[BU_PARTITIONS];
-
-	int   childScratchOffsets[BU_PARTITIONS];
 };
 
 constexpr float BVH_NORM_FACTOR = 1048576.0f; // 2^20, same precision we use for 64-bit Morton Codes
@@ -5951,10 +5948,8 @@ static void DirectBVH4EmitInnerNode(
 	AABB box,
 	BVHNode* buffer)
 {
-	InnerNode4BuildDataGPU& innerNodeBD = innerNodeBuildData[parentNodeIndex];
-
 	// Connect this inner node to the new one:
-	innerNodeBD.childScratchOffsets[slot] = newNodeIndex;
+	buffer[parentNodeIndex].children[slot] = newNodeIndex;
 
 	BVHNode newNode = { 0 };
 	newNode.parent = parentNodeIndex;
@@ -5971,7 +5966,7 @@ static void DirectBVH4EmitInnerNode(
 	InnerNode4BuildDataGPU newInnerNode = { 0 };
 	newInnerNode.box = box;
 	newInnerNode.parentIndex = parentNodeIndex;
-	newInnerNode.fitCounterTarget = innerNodeBD.counts[slot];
+	newInnerNode.fitCounterTarget = innerNodeBuildData[parentNodeIndex].counts[slot];
 	if (computeSplits)
 		ComputeSplits4(newInnerNode, nextDim);
 	else
@@ -6004,7 +5999,7 @@ static void DirectBVH4EmitInnerNodes(
 		InnerNode4BuildDataGPU& innerNodeBD = innerNodeBuildData[i];
 
 		// Leaves and inner nodes can be interleaved now, so we need to be careful and skip the leaves
-		if (innerNodeBD.isLeaf)
+		if (buffer[i].ref != -1)
 			continue;
 
 		// If skipClassify is set, then we temporarily used the numChildren field to place the
@@ -6135,8 +6130,6 @@ static void DirectBVH4EmitLeaf(
 	innerNodeBuildData[parentIndex].fitCounter++;
 	// Deactivate this primitive for the next iteration
 	leafParents[primIndex].parentIndex = -1;
-	// Mark this "inner node" as a leaf
-	innerNodeBuildData[leafIndex].isLeaf = true;
 
 	// Encode the leaf proper at offset newNodeIndex
 	EncodeLeafNode(buffer, leafItems, primIndex, leafIndex, vertices, indices);
@@ -6203,9 +6196,7 @@ static void DirectBVH4InitNextIteration(
 		else // if (innerNodeBD.counts[slot] > 1)
 		{
 			// The parent of this leaf emitted a new node.
-			//const int newParentIndex = buffer[parentIndex].children[slot];
-			const int newParentIndex = innerNodeBD.childScratchOffsets[slot];
-			//const int newParentIndex = innerNodeBD.childOffsets[slot];
+			const int newParentIndex = buffer[parentIndex].children[slot];
 			leafParents[primIdx].parentIndex = newParentIndex;
 			// The parent of this leaf has too many children, loop again.
 			leafParents[primIdx].side = BU_NONE;

@@ -5993,9 +5993,10 @@ static void DirectBVH4EmitInnerNodes(
 	for (int i = g_directBuilderFirstActiveInnerNode; i < lastActiveInnerNode; i++)
 	{
 		InnerNode4BuildDataGPU& innerNodeBD = innerNodeBuildData[i];
+		BVHNode& node = buffer[i];
 
 		// Leaves and inner nodes can be interleaved now, so we need to be careful and skip the leaves
-		if (buffer[i].ref != -1)
+		if (node.ref != -1)
 			continue;
 
 		// If skipClassify is set, then we temporarily used the numChildren field to place the
@@ -6003,7 +6004,7 @@ static void DirectBVH4EmitInnerNodes(
 		// ... or maybe we can just reset numChildren here anyway since the Emit operation is going
 		// to take care of that for us anyway.
 		if (innerNodeBD.skipClassify)
-			buffer[i].numChildren = 0;
+			node.numChildren = 0;
 
 		AABB  innerNodeBox = innerNodeBD.box; // this is the centroidBox used in the previous cut
 		const int   dim0   = innerNodeBD.dims[0];
@@ -6022,7 +6023,6 @@ static void DirectBVH4EmitInnerNodes(
 		for (int k = 0; k < BU_PARTITIONS; k++)
 			numChildren += (innerNodeBD.counts[k] > 0) ? 1 : 0;
 
-		/*
 		int startOffset = g_directBuilderNextNode;
 		g_directBuilderNextNode += numChildren; // ATOMIC: Reserve all the nodes we'll need in one go
 		// Assign node offsets for each slot
@@ -6030,7 +6030,7 @@ static void DirectBVH4EmitInnerNodes(
 		{
 			if (innerNodeBD.counts[k] > 0)
 			{
-				innerNodeBD.childOffsets[k] = startOffset++;
+				node.children[k] = startOffset++;
 #ifdef DEBUG_BU
 				log_debug("[DBG] [BVH] node slot[%d]:%d, childOffset: %d",
 					k, i, innerNodeBD.childOffsets[k]);
@@ -6038,7 +6038,6 @@ static void DirectBVH4EmitInnerNodes(
 			}
 		}
 		// Our children offsets are now contiguous and must be used for encoding on the QBVH buffer
-		*/
 
 		for (int k = 0; k < BU_PARTITIONS; k++)
 		{
@@ -6046,13 +6045,15 @@ static void DirectBVH4EmitInnerNodes(
 			// If we have between 2 and 4 children, we can emit one new inner node and put
 			// all those children there right away. The single-children case is handled separately
 			// but maybe later that case can be factored too.
+			const int newNodeIndex = node.children[k];
+
 			if (1 < innerNodeBD.counts[k] && innerNodeBD.counts[k] <= BU_PARTITIONS)
 			{
 				// Skip Classify path.
 				// Emit a new inner node for this slot but don't split the subrange anymore since
 				// we can fit all the children in this slot under the new inner node.
-				int newNodeIndex = g_directBuilderNextNode;
-				g_directBuilderNextNode++; // ATOMIC
+				//int newNodeIndex = g_directBuilderNextNode;
+				//g_directBuilderNextNode++; // ATOMIC
 				DirectBVH4EmitInnerNode(i, k, newNodeIndex, false, -1, innerNodeBuildData, AABB(), buffer);
 
 #ifdef DEBUG_BU
@@ -6095,8 +6096,8 @@ static void DirectBVH4EmitInnerNodes(
 #endif
 
 				// Emit a new inner node for this slot and split the subrange again
-				int newNodeIndex = g_directBuilderNextNode;
-				g_directBuilderNextNode++; // ATOMIC
+				//int newNodeIndex = g_directBuilderNextNode;
+				//g_directBuilderNextNode++; // ATOMIC
 				DirectBVH4EmitInnerNode(i, k, newNodeIndex, true, nextDim, innerNodeBuildData, box, buffer);
 #ifdef DEBUG_BU
 				log_debug("[DBG] [BVH] QBVHIdx: (I) %d --> %d, fitCounterTarget: %d",
@@ -6178,14 +6179,10 @@ static void DirectBVH4InitNextIteration(
 
 		// Emit leaves if applicable or update parent pointers
 		InnerNode4BuildDataGPU& innerNodeBD = innerNodeBuildData[parentIndex];
-
 		if (innerNodeBD.counts[slot] == 1)
 		{
-			//const int encodeIndex = innerNodeBD.childBufOffsets[slot];
-			const int leafEncodeIdx = g_directBuilderNextNode;
-			g_directBuilderNextNode++; // ATOMIC
-
 			// This node is a leaf of parentIndex at the current slot, connect it
+			const int leafEncodeIdx = buffer[parentIndex].children[slot];
 			DirectBVH4EmitLeaf(slot, primIdx, parentIndex, leafEncodeIdx,
 				leafParents, leafItems, innerNodeBuildData, buffer, vertices, indices);
 		}

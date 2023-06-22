@@ -4805,7 +4805,6 @@ struct InnerNode4BuildDataGPU
 	bool  skipClassify;
 	int   fitCounter;
 	int   fitCounterTarget;
-	int   parentIndex;
 
 	int   nextDim[BU_PARTITIONS];
 	float nextMin[BU_PARTITIONS];
@@ -4895,8 +4894,7 @@ static void Refit4(
 			return;
 
 		BVHNode& node = buffer[curInnerNodeIndex];
-		const int bufferParentIndex = node.parent;
-		const int scratchParentIndex = innerNodeBuildData[curInnerNodeIndex].parentIndex;
+		const int parentIndex = node.parent;
 //#ifdef DEBUG_BU
 //		log_debug("[DBG] [BVH] curNode: %d, parent: %d, numChildren: %d, fitCounter: %d",
 //			curInnerNodeIndex, parentIndex,
@@ -4953,9 +4951,9 @@ static void Refit4(
 		buffer[curInnerNodeIndex].min[3] = 1.0f;
 		buffer[curInnerNodeIndex].max[3] = 1.0f;
 
-		if (scratchParentIndex >= rootIndex)
+		if (parentIndex >= rootIndex)
 		{
-			innerNodeBuildData[scratchParentIndex].fitCounter += fitCounterTarget;
+			innerNodeBuildData[parentIndex].fitCounter += fitCounterTarget;
 		}
 
 #ifdef DEBUG_BU
@@ -4969,7 +4967,7 @@ static void Refit4(
 #endif
 
 		// Continue refitting the parents if possible
-		curInnerNodeIndex = scratchParentIndex;
+		curInnerNodeIndex = parentIndex;
 	}
 }
 
@@ -5801,7 +5799,6 @@ static void DirectBVH4Init(
 	InnerNode4BuildDataGPU rootSplitData = { 0 };
 	rootSplitData.box = centroidBox;
 	rootSplitData.fitCounterTarget = numPrimitives;
-	rootSplitData.parentIndex = -1;
 	innerNodeBuildData[root_out] = rootSplitData;
 	ComputeSplits4(innerNodeBuildData[root_out]);
 
@@ -5965,7 +5962,6 @@ static void DirectBVH4EmitInnerNode(
 	// Enable the new inner node
 	InnerNode4BuildDataGPU newInnerNode = { 0 };
 	newInnerNode.box = box;
-	newInnerNode.parentIndex = parentNodeIndex;
 	newInnerNode.fitCounterTarget = innerNodeBuildData[parentNodeIndex].counts[slot];
 	if (computeSplits)
 		ComputeSplits4(newInnerNode, nextDim);

@@ -78,8 +78,8 @@ inline unsigned int convertColorB5G6R5toB8G8R8A8(unsigned short color16)
 	return g_colorConverterTables.B5G6R5toB8G8R8A8[color16];
 }
 
-void saveSurface(std::wstring name, char* buffer, DWORD width, DWORD height, DWORD bpp);
-void saveScreenshot(std::wstring filename, char* buffer, DWORD width, DWORD height, DWORD bpp);
+void saveScreenshot(const std::wstring& filename, char* buffer, DWORD width, DWORD height, DWORD bpp);
+void saveSurface(const std::wstring& name, char* buffer, DWORD width, DWORD height, DWORD bpp);
 
 void log_debug(const char *format, ...);
 void log_file(const char *format, ...);

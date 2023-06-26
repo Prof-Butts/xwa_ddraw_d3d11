@@ -27,7 +27,7 @@ int g_directBuilderFirstActiveInnerNode = 0;
 int g_directBuilderNextNode = 0;
 int g_maxDirectBVHIteration = -1;
 // Inner Node Index Map
-int g_directBuilderNextInnerNode = 1;
+LONG g_directBuilderNextInnerNode = 1;
 
 static HMODULE hEmbree = NULL;
 static bool g_bEmbreeLoaded = false;
@@ -4886,8 +4886,9 @@ inline static int AddInnerNodeIndex(BVHNode *buffer, int encodeIndex)
 	// Inner BVHNodes have an unused field: rootIdx (it's only used for the node at offset 0). So
 	// we can co-opt it to store the scratch inner node offset, thus saving us the additional
 	// encode-to-inner-index map.
-	const int newInnerIndex = g_directBuilderNextInnerNode;
-	g_directBuilderNextInnerNode++; // ATOMIC
+	//const int newInnerIndex = g_directBuilderNextInnerNode;
+	//g_directBuilderNextInnerNode++; // ATOMIC
+	int newInnerIndex = InterlockedAdd(&g_directBuilderNextInnerNode, 1);
 	buffer[encodeIndex].rootIdx = newInnerIndex;
 	return newInnerIndex;
 }
@@ -6367,6 +6368,57 @@ BVHNode* DirectBVH4BuilderGPU(AABB centroidBox, std::vector<LeafItem>& leafItems
 	delete[] innerNodeBuildData;
 
 	return QBVHBuffer;
+}
+
+constexpr int BVH_THREADGROUP_SIZE = 4;
+HANDLE g_Threads[BVH_THREADGROUP_SIZE];
+HANDLE g_Events[BVH_THREADGROUP_SIZE];
+HANDLE g_MasterEvent;
+std::map<int, int> g_HandleToIdMap;
+int g_maxThreads;
+
+DWORD WINAPI BuilderThread(void *parameter)
+{
+	int localId = g_HandleToIdMap[(int)GetCurrentThreadId()];
+	int globalId = localId;
+
+	// Wait for the signal to go
+	WaitForSingleObject(g_MasterEvent, INFINITE);
+
+	while (globalId < g_maxThreads)
+	{
+		log_debug("[DBG] [BVH] globalId: %d, processing...", globalId);
+		globalId += BVH_THREADGROUP_SIZE;
+	}
+
+	SetEvent(g_Events[localId]);
+	//log_debug("[DBG] [BVH] thread %d has set its event, now waiting...", localId);
+
+	WaitForMultipleObjects(BVH_THREADGROUP_SIZE, g_Events, true, INFINITE);
+	//log_debug("[DBG] [BVH] thread %d has finished waiting", localId);
+
+	ResetEvent(g_Events[localId]);
+	log_debug("[DBG] [BVH] Thread %d has ended", localId);
+	return 0;
+}
+
+void TestDirectBVH4Threaded()
+{
+	g_MasterEvent = CreateEvent(nullptr, true, false, nullptr);
+	for (int i = 0; i < BVH_THREADGROUP_SIZE; i++)
+	{
+		g_Events[i] = CreateEvent(nullptr, /* manualreset */ true, /* initialstate */ false, /* name */nullptr);
+		g_Threads[i] = CreateThread(nullptr, 0, BuilderThread, nullptr, CREATE_SUSPENDED, nullptr);
+		g_HandleToIdMap[GetThreadId(g_Threads[i])] = i;
+	}
+	g_maxThreads = 15;
+
+	for (int i = 0; i < BVH_THREADGROUP_SIZE; i++)
+	{
+		ResumeThread(g_Threads[i]);
+	}
+	// Let all threads go
+	SetEvent(g_MasterEvent);
 }
 
 BVHNode* AVLBuilder(std::vector<LeafItem>& leafItems, int &numNodes, const XwaVector3* vertices, const int* indices)

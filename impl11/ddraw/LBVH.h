@@ -67,6 +67,15 @@ struct MinMax {
 
 #pragma pack(pop)
 
+enum BVH_ROT
+{
+	L_TO_RL = 0,
+	L_TO_RR,
+	R_TO_LR,
+	R_TO_LL,
+	MAX
+};
+
 // NodeIndex, IsLeaf, QBVHEncodeOfs
 using EncodeItem = std::tuple<int, bool, int>;
 
@@ -339,6 +348,8 @@ public:
 
 class TreeNode : public IGenericTreeNode
 {
+	using pTreeNode = TreeNode*;
+
 public:
 	int TriID, numNodes;
 	TreeNode *left, *right, *parent;
@@ -348,6 +359,7 @@ public:
 	Matrix4 m; // Used for TLAS leaves to represent OOBBs.
 	bool red;  // Used in the Red-Black tree implementation.
 	int bal;   // Used in the AVL tree BVH implementation.
+	int depth;
 
 	void InitNode()
 	{
@@ -359,6 +371,7 @@ public:
 		// All new nodes are red by default
 		red = true;
 		bal = 0;
+		depth = 1;
 		// Invalid centroid:
 		centroid.x = NAN;
 		centroid.y = NAN;
@@ -510,6 +523,25 @@ public:
 	virtual int GetNumNodes()
 	{
 		return this->numNodes;
+	}
+
+	TreeNode *operator[](const int index)
+	{
+		return (left + index);
+	}
+
+	pTreeNode& Desc(const int index)
+	{
+		//return (left + index);
+		switch (index)
+		{
+		case 0:
+			return left;
+		case 1:
+			return right;
+		default:
+			return left;
+		}
 	}
 };
 
@@ -768,7 +800,7 @@ public:
 	// Build & Encode using the DirectBVH4 approach (no Morton codes). GPU-Friendly version.
 	static LBVH* BuildDirectBVH4GPU(const XwaVector3* vertices, const int numVertices, const int* indices, const int numIndices);
 	// Online build, powered by the AVL algorithm (experimental)
-	static LBVH* BuildAVL(const XwaVector3* vertices, const int numVertices, const int* indices, const int numIndices);
+	static LBVH* BuildOnline(const XwaVector3* vertices, const int numVertices, const int* indices, const int numIndices);
 
 	void PrintTree(std::string level, int curnode);
 	void DumpToOBJ(char *sFileName, bool isTLAS=false, bool useMetricScale=true);

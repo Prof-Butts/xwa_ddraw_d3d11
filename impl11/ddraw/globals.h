@@ -235,7 +235,7 @@ enum BVHBuilderType
 	//BVHBuilderType_Embree,
 	//BVHBuilderType_DirectBVH2CPU,
 	BVHBuilderType_DirectBVH4GPU,
-	//BVHBuilderType_AVL,
+	BVHBuilderType_Online,
 	BVHBuilderType_PLOC,
 	BVHBuilderType_MAX,
 };

@@ -45,7 +45,7 @@ void PrintTreeBuffer(std::string level, BVHNode* buffer, int curNode);
 InnerNode* DirectBVH2BuilderGPU(AABB sceneAABB, std::vector<LeafItem>& leafItems, int& root_out);
 InnerNode* DirectBVH2BuilderCPU(AABB sceneAABB, AABB centroidBox, std::vector<LeafItem>& leafItems, int& root_out);
 BVHNode* DirectBVH4BuilderGPU(AABB centroidBox, std::vector<LeafItem>& leafItems, int& numNodes, const XwaVector3* vertices, const int* indices);
-BVHNode* AVLBuilder(std::vector<LeafItem>& leafItems, int& numNodes, const XwaVector3* vertices, const int* indices);
+BVHNode* OnlineBuilder(std::vector<LeafItem>& leafItems, int& numNodes, const XwaVector3* vertices, const int* indices);
 
 // Load a BVH2, deprecated since the BVH4 are more better
 #ifdef DISABLED
@@ -3092,8 +3092,213 @@ void Refit(TreeNode* T)
 	T->box.Expand(T->right->box);
 }
 
-// AVL-based BVH.
-TreeNode* InsertAVL(TreeNode* T, int TriID, const XwaVector3& centroid, const AABB &box)
+inline void ReDepth(TreeNode* T)
+{
+	T->depth = max(T->left->depth, T->right->depth) + 1;
+}
+
+inline void MinBound(TreeNode *T) // func(bvol* BVol)
+{
+	if (T->depth > 0)
+	{
+		T->box = T->Desc(0)->box;
+		T->box.Expand(T->Desc(1)->box);
+	}
+}
+
+// Basic 4-way BVH rebalancing
+TreeNode* Rebalance(TreeNode* T)
+{
+	if (T == nullptr)
+		return nullptr;
+
+	if (T->IsLeaf())
+		return T;
+
+	// We need grandchildren to attempt the rebalance
+	TreeNode* L = T->left;
+	TreeNode* R = T->right;
+	float AL = L->box.GetArea();
+	float AR = R->box.GetArea();
+
+	TreeNode* LL = L->left;
+	TreeNode* LR = L->right;
+
+	TreeNode* RL = R->left;
+	TreeNode* RR = R->right;
+
+	float deltas[BVH_ROT::MAX] = { -1.0f };
+	bool areaValid[BVH_ROT::MAX] = { false };
+	for (int i = 0; i < BVH_ROT::MAX; i++)
+	{
+		AABB box;
+		// If a rotation decreases the area, then the diff will be positive.
+		switch (i)
+		{
+			case BVH_ROT::L_TO_RL:
+				if (RL != nullptr && RR != nullptr)
+				{
+					box.Expand(L->box);
+					box.Expand(RR->box);
+					//log_debug("[DBG] [BVH] (1) AR: %0.3f, box.Area: %0.3f", AR, box.GetArea());
+					deltas[i] = AR - box.GetArea();
+					areaValid[i] = true;
+				}
+				break;
+			case BVH_ROT::L_TO_RR:
+				if (RL != nullptr && RR != nullptr)
+				{
+					box.Expand(L->box);
+					box.Expand(RL->box);
+					//log_debug("[DBG] [BVH] (2) AR: %0.3f, box.Area: %0.3f", AR, box.GetArea());
+					deltas[i] = AR - box.GetArea();
+					areaValid[i] = true;
+				}
+				break;
+
+			case BVH_ROT::R_TO_LR:
+				if (LL != nullptr && LR != nullptr)
+				{
+					box.Expand(R->box);
+					box.Expand(LL->box);
+					//log_debug("[DBG] [BVH] (3) AL: %0.3f, box.Area: %0.3f", AL, box.GetArea());
+					deltas[i] = AL - box.GetArea();
+					areaValid[i] = true;
+				}
+				break;
+			case BVH_ROT::R_TO_LL:
+				if (LL != nullptr && LR != nullptr)
+				{
+					box.Expand(R->box);
+					box.Expand(LR->box);
+					//log_debug("[DBG] [BVH] (4) AL: %0.3f, box.Area: %0.3f", AL, box.GetArea());
+					deltas[i] = AL - box.GetArea();
+					areaValid[i] = true;
+				}
+				break;
+		}
+	}
+
+	float bestArea = -FLT_MAX;
+	int bestRotIdx = -1;
+	for (int i = 0; i < BVH_ROT::MAX; i++)
+	{
+		//log_debug("[DBG] [BVH]    deltas[%d]: %0.3f", i, deltas[i]);
+		if (areaValid[i] && deltas[i] > bestArea)
+		{
+			bestArea = deltas[i];
+			bestRotIdx = i;
+		}
+	}
+
+	if (bestRotIdx != -1 && bestArea > 0.0001f)
+	{
+		//log_debug("[DBG] [BVH] Applying rotation %d", bestRotIdx);
+		switch (bestRotIdx) {
+			case BVH_ROT::L_TO_RL:
+				R->left  = L;
+				R->right = RR;
+
+				T->left  = RL;
+				T->right = R;
+				// Refit
+				R->box = L->box;
+				R->box.Expand(RR->box);
+				break;
+			case BVH_ROT::L_TO_RR:
+				R->left  = RL;
+				R->right = L;
+
+				T->left  = RR;
+				T->right = R;
+				// Refit
+				R->box = L->box;
+				R->box.Expand(RL->box);
+				break;
+
+			case BVH_ROT::R_TO_LR:
+				L->left  = LL;
+				L->right = R;
+
+				T->left  = L;
+				T->right = LR;
+				// Refit
+				L->box = R->box;
+				L->box.Expand(LL->box);
+				break;
+			case BVH_ROT::R_TO_LL:
+				L->left  = R;
+				L->right = LR;
+
+				T->left  = L;
+				T->right = LL;
+				// Refit
+				L->box = R->box;
+				L->box.Expand(LR->box);
+				break;
+		}
+	}
+	return T;
+}
+
+void swapCheck(TreeNode* first, TreeNode* second, int secIndex)
+{
+	MinBound(first);
+	MinBound(second);
+	float minScore = first->box.GetArea() + second->box.GetArea();
+	int minIndex = -1;
+
+	for (int index = 0; index < 2; index++)
+	{
+		std::swap(first->Desc(index), second->Desc(secIndex));
+
+		// Ensure that swap did not unbalance second.
+		if (fabs(second->Desc(0)->depth - second->Desc(1)->depth) < 2)
+		{
+			// Score first then second, since first may be a child of second.
+			MinBound(first);
+			MinBound(second);
+			const float score = first->box.GetArea() + second->box.GetArea();
+			if (score < minScore)
+			{
+				// Update the children with the best split
+				minScore = score;
+				minIndex = index;
+			}
+		}
+	}
+
+	if (minIndex < 1)
+	{
+		std::swap(first->Desc(minIndex + 1), second->Desc(secIndex));
+
+		// Recalculate bounding volume
+		MinBound(first);
+		MinBound(second);
+	}
+
+	// Recalculate depth
+	ReDepth(first);
+	ReDepth(second);
+}
+
+// Rebalances the children of a given volume.
+void ReDistribute(TreeNode *bvol)
+{
+	if (bvol->Desc(1)->depth > bvol->Desc(0)->depth) {
+		swapCheck(bvol->Desc(1), bvol, 0);
+	}
+	else if (bvol->Desc(1)->depth < bvol->Desc(0)->depth) {
+		swapCheck(bvol->Desc(0), bvol, 1);
+	}
+	else if (bvol->Desc(1)->depth > 0) {
+		swapCheck(bvol->Desc(0), bvol->Desc(1), 1);
+	}
+	ReDepth(bvol);
+}
+
+// Online BVH builder with rebalancing.
+TreeNode* InsertOnline(TreeNode* T, int TriID, const XwaVector3& centroid, const AABB &box)
 {
 	if (T == nullptr)
 	{
@@ -3105,80 +3310,40 @@ TreeNode* InsertAVL(TreeNode* T, int TriID, const XwaVector3& centroid, const AA
 		// We have reached a leaf, create a new inner node
 		AABB newBox = box;
 		newBox.Expand(T->box);
-		const int dim = newBox.GetLargestDimension();
-		const float split = 0.5f * (newBox.min[dim] + newBox.max[dim]);
-		const bool goLeft = centroid[dim] <= split;
 
 		TreeNode* newNode = new TreeNode(-1);
 		TreeNode* newLeaf = new TreeNode(TriID, centroid, box);
 
 		newNode->box = newBox;
 		newNode->numNodes = 3;
-		if (goLeft)
-		{
-			newNode->left = newLeaf;
-			newNode->right = T;
-		}
-		else
-		{
-			newNode->left = T;
-			newNode->right = newLeaf;
-		}
+		newNode->left  = newLeaf;
+		newNode->right = T;
+		newNode->depth = 2;
 		return newNode;
 	}
 
-	AABB &innerBox = T->box;
-	const int dim = innerBox.GetLargestDimension();
-	const float split = 0.5f * (innerBox.min[dim] + innerBox.max[dim]);
-#ifdef DEBUG_AVL
-	log_debug("[DBG] [BVH] centroid[%d]:%0.3f, split: %0.3f, %s",
-		dim,
-		centroid[dim],
-		split,
-		innerBox.ToString().c_str());
-#endif
-	if (centroid[dim] <= split)
+	// Select the side with the smallest increase in area after the insertion:
+	int bestIndex = -1;
+	float bestArea = FLT_MAX;
+	for (int i = 0; i < 2; i++)
 	{
-		T->left = InsertAVL(T->left, TriID, centroid, box);
-		T->numNodes += 2;
-		T->bal--;
-
-		if (T->bal == -2)
+		AABB tempBox = box;
+		tempBox.Expand(T->Desc(i)->box);
+		const float area = tempBox.GetArea();
+		if (area < bestArea)
 		{
-			if (T->left->bal > 0)
-				T->left = RotLeft(T->left);
-			T = RotRight(T);
-			T->bal = 0;
-			T->left->bal = 0;
-			T->right->bal = 0;
+			bestArea = area;
+			bestIndex = i;
 		}
-
-		// Refit
-		//T->box = T->left->box;
-		//T->box.Expand(T->right->box);
 	}
-	else
-	{
-		T->right = InsertAVL(T->right, TriID, centroid, box);
-		T->numNodes += 2;
-		T->bal++;
 
-		if (T->bal == 2)
-		{
-			if (T->right->bal < 0)
-				T->right = RotRight(T->right);
-			T = RotLeft(T);
-			T->bal = 0;
-			T->left->bal = 0;
-			T->right->bal = 0;
-		}
+	T->Desc(bestIndex) = InsertOnline(T->Desc(bestIndex), TriID, centroid, box);
+	//Refit(T);
+	T->box.Expand(box); // Only the current node needs to be refit
+	ReDepth(T);
 
-		// Refit
-		//T->box = T->left->box;
-		//T->box.Expand(T->right->box);
-	}
-	Refit(T);
-
+	T = Rebalance(T);
+	//ReDistribute(T);
 	return T;
 }
 
@@ -3229,11 +3394,11 @@ TreeNode* InsertTree(TreeNode* T, int TriID, const XwaVector3& centroid, const A
 #endif
 	if (centroid[dim] <= split)
 	{
-		T->left = InsertAVL(T->left, TriID, centroid, box);
+		T->left = InsertOnline(T->left, TriID, centroid, box);
 	}
 	else
 	{
-		T->right = InsertAVL(T->right, TriID, centroid, box);
+		T->right = InsertOnline(T->right, TriID, centroid, box);
 	}
 	// Refit
 	T->box.Expand(box);
@@ -3892,7 +4057,7 @@ LBVH* LBVH::BuildDirectBVH4GPU(const XwaVector3* vertices, const int numVertices
 	return lbvh;
 }
 
-LBVH* LBVH::BuildAVL(const XwaVector3* vertices, const int numVertices, const int* indices, const int numIndices)
+LBVH* LBVH::BuildOnline(const XwaVector3* vertices, const int numVertices, const int* indices, const int numIndices)
 {
 	const int numPrimitives = numIndices / 3;
 
@@ -3910,8 +4075,8 @@ LBVH* LBVH::BuildAVL(const XwaVector3* vertices, const int numVertices, const in
 	}
 
 	int numNodes = 0;
-	BVHNode* buffer = AVLBuilder(leafItems, numNodes, vertices, indices);
-	log_debug("[DBG] [BVH] AVLBuilder succeeded. numPrims: %d, numNodes: %d",
+	BVHNode* buffer = OnlineBuilder(leafItems, numNodes, vertices, indices);
+	log_debug("[DBG] [BVH] Online Builder succeeded. numPrims: %d, numNodes: %d",
 		leafItems.size(), numNodes);
 
 	LBVH* lbvh = new LBVH();
@@ -6421,7 +6586,7 @@ void TestDirectBVH4Threaded()
 	SetEvent(g_MasterEvent);
 }
 
-BVHNode* AVLBuilder(std::vector<LeafItem>& leafItems, int &numNodes, const XwaVector3* vertices, const int* indices)
+BVHNode* OnlineBuilder(std::vector<LeafItem>& leafItems, int &numNodes, const XwaVector3* vertices, const int* indices)
 {
 	const int numPrimitives = leafItems.size();
 	BVHNode* QBVHBuffer = nullptr;
@@ -6433,7 +6598,7 @@ BVHNode* AVLBuilder(std::vector<LeafItem>& leafItems, int &numNodes, const XwaVe
 	for (LeafItem& leaf : leafItems)
 	{
 		XwaVector3 centroid(leaf.centroid);
-		T = InsertAVL(T, leaf.PrimID, centroid, leaf.aabb);
+		T = InsertOnline(T, leaf.PrimID, centroid, leaf.aabb);
 	}
 
 	//log_debug("[DBG] [BVH] T->box: %s", T->box.ToString().c_str());
@@ -7009,43 +7174,43 @@ void TestAVLBuilder()
 	{
 		// 1.0
 		aabb.min = Vector3(0.0f, 0.0f, 0.0f);
-		aabb.max = Vector3(2.0f, 0.0f, 0.0f);
+		aabb.max = Vector3(2.0f, 1.0f, 1.0f);
 		leafItems.push_back({ 0, aabb.GetCentroidVector3(), aabb, 1 });
 		sceneAABB.Expand(aabb);
 
 		// 2.0
 		aabb.min = Vector3(1.0f, 0.0f, 0.0f);
-		aabb.max = Vector3(3.0f, 0.0f, 0.0f);
+		aabb.max = Vector3(3.0f, 1.0f, 1.0f);
 		leafItems.push_back({ 0, aabb.GetCentroidVector3(), aabb, 6 });
 		sceneAABB.Expand(aabb);
 
 		// 3.0
 		aabb.min = Vector3(2.0f, 0.0f, 0.0f);
-		aabb.max = Vector3(4.0f, 0.0f, 0.0f);
+		aabb.max = Vector3(4.0f, 1.0f, 1.0f);
 		leafItems.push_back({ 0, aabb.GetCentroidVector3(), aabb, 0 });
 		sceneAABB.Expand(aabb);
 
-		// 3.0
-		aabb.min = Vector3(2.0f, 0.0f, 0.0f); // Repeated element!
-		aabb.max = Vector3(4.0f, 0.0f, 0.0f);
-		leafItems.push_back({ 0, aabb.GetCentroidVector3(), aabb, 2 });
-		sceneAABB.Expand(aabb);
+		//// 3.0
+		//aabb.min = Vector3(2.0f, 0.0f, 0.0f); // Repeated element!
+		//aabb.max = Vector3(4.0f, 1.0f, 1.0f);
+		//leafItems.push_back({ 0, aabb.GetCentroidVector3(), aabb, 2 });
+		//sceneAABB.Expand(aabb);
 
 		// 4.0
 		aabb.min = Vector3(3.0f, 0.0f, 0.0f);
-		aabb.max = Vector3(5.0f, 0.0f, 0.0f);
+		aabb.max = Vector3(5.0f, 1.0f, 1.0f);
 		leafItems.push_back({ 0, aabb.GetCentroidVector3(), aabb, 5 });
 		sceneAABB.Expand(aabb);
 
 		// 5.0
 		aabb.min = Vector3(4.0f, 0.0f, 0.0f);
-		aabb.max = Vector3(6.0f, 0.0f, 0.0f);
+		aabb.max = Vector3(6.0f, 1.0f, 1.0f);
 		leafItems.push_back({ 0, aabb.GetCentroidVector3(), aabb, 3 });
 		sceneAABB.Expand(aabb);
 
 		// 7.0
 		aabb.min = Vector3(6.0f, 0.0f, 0.0f);
-		aabb.max = Vector3(8.0f, 0.0f, 0.0f);
+		aabb.max = Vector3(8.0f, 1.0f, 1.0f);
 		leafItems.push_back({ 0, aabb.GetCentroidVector3(), aabb, 4 });
 		sceneAABB.Expand(aabb);
 	}
@@ -7071,7 +7236,7 @@ void TestAVLBuilder()
 	{
 		XwaVector3 centroid(leaf.centroid);
 		log_debug("[DBG] [BVH] Inserting: %0.3f", centroid[0]);
-		T = InsertAVL(T, leaf.PrimID, centroid, leaf.aabb);
+		T = InsertOnline(T, leaf.PrimID, centroid, leaf.aabb);
 		PrintTreeNode("", T);
 		log_debug("[DBG] [BVH] ---------------------------------------------");
 	}

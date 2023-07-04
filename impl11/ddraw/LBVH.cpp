@@ -2937,6 +2937,72 @@ void ComputeTreeStats(IGenericTreeNode* root)
 		max_depth, Occupancy, TotalNodes, OccupancyPerc);
 }
 
+AABB GetBVHNodeAABB(BVHNode* buffer, int curNode)
+{
+	AABB box;
+	box.min.x = buffer[curNode].min[0];
+	box.min.y = buffer[curNode].min[1];
+	box.min.z = buffer[curNode].min[2];
+
+	box.max.x = buffer[curNode].max[0];
+	box.max.y = buffer[curNode].max[1];
+	box.max.z = buffer[curNode].max[2];
+	return box;
+}
+
+static double CalcTotalTreeSAH(BVHNode* buffer, float rootArea, int rootNode, int curNode)
+{
+	if (buffer[curNode].ref != -1)
+	{
+		// This is a leaf, they don't count
+		return 0.0;
+	}
+
+	const double curBoxArea = GetBVHNodeAABB(buffer, curNode).GetArea();
+	double subArea = 0.0;
+	for (int i = 0; i < 4; i++)
+	{
+		int childNode = buffer[curNode].children[i];
+		if (childNode == -1)
+			break;
+		subArea += CalcTotalTreeSAH(buffer, rootArea, rootNode, childNode);
+	}
+
+	// Compute overlap area between the siblings at this level
+	double overlapArea = 0.0;
+	for (int i = 0; i < 3; i++)
+	{
+		int childA = buffer[curNode].children[i];
+		if (childA == -1)
+			continue;
+
+		for (int j = i + 1; j < 4; j++)
+		{
+			int childB = buffer[curNode].children[j];
+			if (childB == -1)
+				continue;
+			AABB boxA = GetBVHNodeAABB(buffer, childA);
+			AABB boxB = GetBVHNodeAABB(buffer, childB);
+			overlapArea += boxA.GetOverlapArea(boxB);
+		}
+	}
+
+	double curArea = curNode != rootNode ? curBoxArea : 0.0f;
+	//return (curArea + overlapArea) / rootArea + subArea;
+	return curArea + overlapArea + subArea;
+}
+
+/// <summary>
+/// Compute the total area of the inner nodes of a tree. The root and leaves are excluded.
+/// </summary>
+double CalcTotalTreeSAH(BVHNode* buffer)
+{
+	int rootIdx = buffer[0].rootIdx;
+	AABB box = GetBVHNodeAABB(buffer, rootIdx);
+	const double rootArea = box.GetArea();
+	return CalcTotalTreeSAH(buffer, (float)rootArea, rootIdx, rootIdx) / rootArea;
+}
+
 TreeNode* RotLeft(TreeNode* T)
 {
 	if (T == nullptr) return nullptr;
@@ -3155,6 +3221,19 @@ TreeNode* Rebalance(TreeNode* T)
 					areaValid[i] = true;
 				}
 				break;
+			case BVH_ROT::LL_TO_RL:
+				if (LL != nullptr && RL != nullptr)
+				{
+					AABB boxL, boxR;
+					// The left side will look like this after the rotation:
+					boxL.Expand(RL->box);
+					boxL.Expand(LR->box);
+					// The right side will look like this after the rotation:
+					boxR.Expand(LL->box);
+					boxR.Expand(RR->box);
+					deltas[i] = (AL - boxL.GetArea()) + (AR - boxR.GetArea());
+				}
+				break;
 
 			case BVH_ROT::R_TO_LR:
 				if (LL != nullptr && LR != nullptr)
@@ -3174,6 +3253,19 @@ TreeNode* Rebalance(TreeNode* T)
 					//log_debug("[DBG] [BVH] (4) AL: %0.3f, box.Area: %0.3f", AL, box.GetArea());
 					deltas[i] = AL - box.GetArea();
 					areaValid[i] = true;
+				}
+				break;
+			case BVH_ROT::LL_TO_RR:
+				if (LL != nullptr && RR != nullptr)
+				{
+					AABB boxL, boxR;
+					// The left side will look like this after the rotation:
+					boxL.Expand(RR->box);
+					boxL.Expand(LR->box);
+					// The right side will look like this after the rotation:
+					boxR.Expand(RL->box);
+					boxR.Expand(LL->box);
+					deltas[i] = (AL - boxL.GetArea()) + (AR - boxR.GetArea());
 				}
 				break;
 		}
@@ -3215,6 +3307,18 @@ TreeNode* Rebalance(TreeNode* T)
 				R->box = L->box;
 				R->box.Expand(RL->box);
 				break;
+			case BVH_ROT::LL_TO_RL:
+				L->left = RL;
+				L->right = LR;
+
+				R->left = LL;
+				R->right = RR;
+				// Refit
+				L->box = RL->box;
+				L->box.Expand(LR->box);
+				R->box = LL->box;
+				R->box.Expand(RR->box);
+				break;
 
 			case BVH_ROT::R_TO_LR:
 				L->left  = LL;
@@ -3235,6 +3339,18 @@ TreeNode* Rebalance(TreeNode* T)
 				// Refit
 				L->box = R->box;
 				L->box.Expand(LR->box);
+				break;
+			case BVH_ROT::LL_TO_RR:
+				L->left = RR;
+				L->right = LR;
+
+				R->left = RL;
+				R->right = LL;
+				// Refit
+				L->box = RR->box;
+				L->box.Expand(LR->box);
+				R->box = RL->box;
+				R->box.Expand(LL->box);
 				break;
 		}
 	}
@@ -3329,7 +3445,9 @@ TreeNode* InsertOnline(TreeNode* T, int TriID, const XwaVector3& centroid, const
 	{
 		AABB tempBox = box;
 		tempBox.Expand(T->Desc(i)->box);
-		const float area = tempBox.GetArea();
+		float area = tempBox.GetArea();
+		// Add the overlap area between siblings too:
+		area += T->Desc(1 ^ i)->box.GetOverlapArea(tempBox);
 		if (area < bestArea)
 		{
 			bestArea = area;
@@ -3340,10 +3458,8 @@ TreeNode* InsertOnline(TreeNode* T, int TriID, const XwaVector3& centroid, const
 	T->Desc(bestIndex) = InsertOnline(T->Desc(bestIndex), TriID, centroid, box);
 	//Refit(T);
 	T->box.Expand(box); // Only the current node needs to be refit
-	ReDepth(T);
 
 	T = Rebalance(T);
-	//ReDistribute(T);
 	return T;
 }
 
@@ -6607,7 +6723,7 @@ BVHNode* OnlineBuilder(std::vector<LeafItem>& leafItems, int &numNodes, const Xw
 	//log_debug("[DBG] [BVH] Q->box: %s", Q->box.ToString().c_str());
 
 	BVHNode* result = (BVHNode *)EncodeNodes(Q, vertices, indices);
-	numNodes = Q->GetNumNodes();
+	numNodes = Q->GetNumNodes(); // This is needed to allocate memory for the SRV
 	result[0].rootIdx = 0;
 	//log_debug("[DBG] [BVH] buffer min: %0.3f, %0.3f, %0.3f",
 	//	result[0].min[0], result[0].min[1], result[0].min[2]);

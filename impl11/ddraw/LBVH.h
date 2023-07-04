@@ -14,10 +14,10 @@ struct Vector4;
 
 // QBVH inner node
 struct BVHNode {
-	int ref;    // TriID: -1 for internal nodes, Triangle index for leaves
-	int parent; // Not used at this point
-	int rootIdx;
-	int numChildren;
+	int ref;     // TriID: -1 for internal nodes, Triangle index for leaves
+	int parent;  // Not used at this point
+	int rootIdx; // Only used for buffer[0] to store the actual index of the root.
+	int numChildren; // This field is not used during traversal (loop breaks as soon as a child index is -1)
 	// 16 bytes
 	float min[4];
 	// 32 bytes
@@ -73,6 +73,8 @@ enum BVH_ROT
 	L_TO_RR,
 	R_TO_LR,
 	R_TO_LL,
+	LL_TO_RL,
+	LL_TO_RR,
 	MAX
 };
 
@@ -238,7 +240,28 @@ public:
 	{
 		Vector3 range = GetRange();
 		// Area of a parallelepiped: 2ab + 2bc + 2ac
-		return 2.0f * (range.x * range.y + range.y * range.z * range.x * range.z);
+		//return 2.0f * (range.x * range.y + range.y * range.z * range.x * range.z);
+		// Formally we should multiply by 2, but eh...
+		//return range.x * range.y + range.y * range.z * range.x * range.z;
+		// Quick approximation to the SA, works for degenarate boxes
+		return range.x + range.y + range.z;
+	}
+
+	float GetOverlapArea(const AABB &other)
+	{
+		AABB inters;
+		for (int i = 0; i < 3; i++)
+		{
+			// No intersection if the following holds for any axis:
+			if (this->max[i] < other.min[i] || other.max[i] < this->min[i])
+			{
+				// The overlap area becomes negative if we don't break here
+				return 0.0f;
+			}
+			inters.min[i] = max(this->min[i], other.min[i]);
+			inters.max[i] = min(this->max[i], other.max[i]);
+		}
+		return inters.GetArea();
 	}
 
 	std::string ToString()
@@ -826,10 +849,9 @@ void DeleteTree(QTreeNode* Q);
 uint8_t* EncodeNodes(IGenericTreeNode* root, const XwaVector3* Vertices, const int* Indices);
 uint8_t* TLASEncodeNodes(IGenericTreeNode* root, std::vector<TLASLeafItem>& leafItems);
 int TLASEncodeLeafNode(BVHNode* buffer, std::vector<TLASLeafItem>& leafItems, int leafIdx, int EncodeNodeIdx);
-
-void DeleteBufferTree(BufferTreeNode *node);
-
 void TLASSingleStepFastLQBVH(BVHNode* buffer, int numQBVHInnerNodes, std::vector<TLASLeafItem>& leafItems, int& root_out);
+
+double CalcTotalTreeSAH(BVHNode* buffer);
 
 // Embree definitions for dynamic DLL loading.
 typedef RTCDevice (*rtcNewDeviceFun)(const char* config);

@@ -1698,9 +1698,11 @@ void EffectsRenderer::BuildSingleBLASFromCurrentBVHMap()
 #endif
 
 	int root = _lbvh->nodes[0].rootIdx;
-	log_debug("[DBG] [BVH] Builder: %s:%s, %s, total nodes: %d, actual nodes: %d",
+	float totalArea = (float)CalcTotalTreeSAH(_lbvh->nodes);
+	log_debug("[DBG] [BVH] Builder: %s:%s, %s, Total SA: %0.6f, total nodes: %d, actual nodes: %d",
 		g_sBVHBuilderTypeNames[g_BVHBuilderType], g_bEnableQBVHwSAH ? "SAH" : "Non-SAH",
-		g_curOPTLoaded, _lbvh->numNodes, _lbvh->numNodes - root);
+		g_curOPTLoaded, totalArea,
+		_lbvh->numNodes, _lbvh->numNodes - root);
 
 	// These lines are for testing only. They get some stats for the BVH that has been just built
 	{

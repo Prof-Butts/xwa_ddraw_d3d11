@@ -236,6 +236,7 @@ enum BVHBuilderType
 	//BVHBuilderType_DirectBVH2CPU,
 	BVHBuilderType_DirectBVH4GPU,
 	BVHBuilderType_Online,
+	BVHBuilderType_PQ,
 	BVHBuilderType_PLOC,
 	BVHBuilderType_MAX,
 };

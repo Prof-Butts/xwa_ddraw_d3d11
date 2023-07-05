@@ -46,6 +46,7 @@ InnerNode* DirectBVH2BuilderGPU(AABB sceneAABB, std::vector<LeafItem>& leafItems
 InnerNode* DirectBVH2BuilderCPU(AABB sceneAABB, AABB centroidBox, std::vector<LeafItem>& leafItems, int& root_out);
 BVHNode* DirectBVH4BuilderGPU(AABB centroidBox, std::vector<LeafItem>& leafItems, int& numNodes, const XwaVector3* vertices, const int* indices);
 BVHNode* OnlineBuilder(std::vector<LeafItem>& leafItems, int& numNodes, const XwaVector3* vertices, const int* indices);
+BVHNode* OnlinePQBuilder(std::vector<LeafItem>& leafItems, int& numNodes, const XwaVector3* vertices, const int* indices);
 
 // Load a BVH2, deprecated since the BVH4 are more better
 #ifdef DISABLED
@@ -3148,7 +3149,10 @@ void Refit(TreeNode* T)
 		return;
 
 	if (T->IsLeaf())
+	{
+		T->numNodes = 1;
 		return;
+	}
 
 	Refit(T->left);
 	Refit(T->right);
@@ -3156,6 +3160,7 @@ void Refit(TreeNode* T)
 	T->box.SetInfinity();
 	T->box.Expand(T->left->box);
 	T->box.Expand(T->right->box);
+	T->numNodes = T->left->numNodes + T->right->numNodes + 1;
 }
 
 inline void ReDepth(TreeNode* T)
@@ -3414,7 +3419,7 @@ void ReDistribute(TreeNode *bvol)
 }
 
 // Online BVH builder with rebalancing.
-TreeNode* InsertOnline(TreeNode* T, int TriID, const XwaVector3& centroid, const AABB &box)
+TreeNode* InsertOnline(TreeNode* T, int TriID, const XwaVector3& centroid, const AABB& box)
 {
 	if (T == nullptr)
 	{
@@ -3432,7 +3437,7 @@ TreeNode* InsertOnline(TreeNode* T, int TriID, const XwaVector3& centroid, const
 
 		newNode->box = newBox;
 		newNode->numNodes = 3;
-		newNode->left  = newLeaf;
+		newNode->left = newLeaf;
 		newNode->right = T;
 		newNode->depth = 2;
 		return newNode;
@@ -3455,71 +3460,192 @@ TreeNode* InsertOnline(TreeNode* T, int TriID, const XwaVector3& centroid, const
 		}
 	}
 
-	T->Desc(bestIndex) = InsertOnline(T->Desc(bestIndex), TriID, centroid, box);
-	//Refit(T);
-	T->box.Expand(box); // Only the current node needs to be refit
-
-	T = Rebalance(T);
-	return T;
-}
-
-// Regular Binary Tree insertion. Let's pre-sort the primitives, aye?
-TreeNode* InsertTree(TreeNode* T, int TriID, const XwaVector3& centroid, const AABB& box)
-{
-	if (T == nullptr)
+	// Consider adding a new node at this level too
+	/*
 	{
-		return new TreeNode(TriID, centroid, box);
-	}
-
-	if (T->TriID != -1)
-	{
-		// We have reached a leaf, create a new inner node
-		AABB newBox = box;
-		newBox.Expand(T->box);
-		const int dim = newBox.GetLargestDimension();
-		const float split = 0.5f * (newBox.min[dim] + newBox.max[dim]);
-		const bool goLeft = centroid[dim] <= split;
-
-		TreeNode* newNode = new TreeNode(-1);
-		TreeNode* newLeaf = new TreeNode(TriID, centroid, box);
-
-		newNode->box = newBox;
-		newNode->numNodes = 3;
-		if (goLeft)
+		AABB newBox = T->box;
+		newBox.Expand(box);
+		float area = newBox.GetArea();
+		area += T->box.GetOverlapArea(box);
+		if (area < bestArea)
 		{
-			newNode->left = newLeaf;
-			newNode->right = T;
+			bestArea = area;
+			bestIndex = 2;
 		}
-		else
-		{
-			newNode->left = T;
-			newNode->right = newLeaf;
-		}
-		return newNode;
 	}
+	*/
 
-	AABB& innerBox = T->box;
-	const int dim = innerBox.GetLargestDimension();
-	const float split = 0.5f * (innerBox.min[dim] + innerBox.max[dim]);
-#ifdef DEBUG_AVL
-	log_debug("[DBG] [BVH] centroid[%d]:%0.3f, split: %0.3f, %s",
-		dim,
-		centroid[dim],
-		split,
-		innerBox.ToString().c_str());
-#endif
-	if (centroid[dim] <= split)
+	//if (bestIndex < 2)
 	{
-		T->left = InsertOnline(T->left, TriID, centroid, box);
+		T->Desc(bestIndex) = InsertOnline(T->Desc(bestIndex), TriID, centroid, box);
+		//Refit(T);
+		T->box.Expand(box); // Only the current node needs to be refit
+		T = Rebalance(T);
+		return T;
 	}
+	/*
 	else
 	{
-		T->right = InsertOnline(T->right, TriID, centroid, box);
+		TreeNode* newNode = new TreeNode(-1);
+		TreeNode* newLeaf = new TreeNode(TriID, centroid, box);
+		newNode->left = T;
+		newNode->right = newLeaf;
+		newNode->box = box;
+		newNode->box.Expand(T->box);
+		ReDepth(newNode);
+		Rebalance(newNode);
+		return newNode;
 	}
-	// Refit
-	T->box.Expand(box);
+	*/
+}
 
-	return T;
+struct PQItem
+{
+	TreeNode* T;
+	float C;
+	float deltaParents;
+
+	PQItem(TreeNode* T, float C, float deltaParents)
+	{
+		this->T = T;
+		this->C = C;
+		this->deltaParents = deltaParents;
+	}
+};
+
+bool operator<(const PQItem& a, const PQItem& b)
+{
+	// PQs place the biggest element on the top of the queue by default.
+	// By using negative numbers the queue will be reverted (smallest elem on top).
+	return -a.C < -b.C;
+}
+
+/*
+void TestPQ()
+{
+	float data[] = { 3,1,3,7,5,2,4 };
+	std::priority_queue<PQItem> pq;
+	int y = 0;
+	for (float x : data)
+	{
+		pq.push(PQItem(x, y++));
+	}
+
+	while (!pq.empty())
+	{
+		PQItem item = pq.top();
+		log_debug("[DBG] [BVH] (%0.3f, %d)", item.x, item.id);
+		pq.pop();
+	}
+}
+*/
+
+TreeNode* InsertPQ(TreeNode* T, int TriID, const XwaVector3& centroid, AABB &box)
+{
+	TreeNode* newLeaf = new TreeNode(TriID, centroid, box);
+
+	if (T == nullptr)
+	{
+		return newLeaf;
+	}
+
+	TreeNode* Tbest;
+	AABB tmpBox;
+	const float boxArea = box.GetArea();
+	std::priority_queue<PQItem> pq;
+
+	// Initialization
+	Tbest = T;
+	tmpBox = box;
+	tmpBox.Expand(T->box);
+	float Cbest = tmpBox.GetArea();
+	pq.push(PQItem(T, Cbest, 0.0f));
+
+	// Find the best sibling to insert the new leaf into
+	while (!pq.empty())
+	{
+		PQItem item = pq.top();
+		pq.pop();
+		// Let's consider item.T as the current sibling
+		// Direct cost: box U item.T.box
+		tmpBox = box;
+		tmpBox.Expand(item.T->box);
+		float Cunion = tmpBox.GetArea();
+		// Inherited cost:
+		float Ccur = Cunion + item.deltaParents;
+
+		// Update the best sibling:
+		if (Ccur < Cbest)
+		{
+			Cbest = Ccur;
+			Tbest = item.T;
+		}
+
+		// Consider pushing the children of item.T into the queue
+		if (!T->IsLeaf())
+		{
+			float newDeltaParents = (Cunion - item.T->box.GetArea()) + item.deltaParents;
+			float Clow = boxArea + newDeltaParents;
+			// Add the children of item.T if the lower bounds look promising
+			if (Clow < Cbest)
+			{
+				// Using Clow or Ccur doesn't seem to matter much for tree quality, but it
+				// probably matters for build times?
+				//if (item.T->left != nullptr) pq.push(PQItem(item.T->left, Clow, newDeltaParents));
+				//if (item.T->right != nullptr) pq.push(PQItem(item.T->right, Clow , newDeltaParents));
+				if (item.T->left != nullptr) pq.push(PQItem(item.T->left, Ccur, newDeltaParents));
+				if (item.T->right != nullptr) pq.push(PQItem(item.T->right, Ccur, newDeltaParents));
+			}
+		}
+	}
+
+	// The new node should be added as a sibling of Tbest
+	TreeNode* newNode = new TreeNode(-1);
+	newLeaf->parent = newNode;
+
+	AABB newBox = box;
+	newBox.Expand(Tbest->box);
+
+	newNode->box = newBox;
+	newNode->left = newLeaf;
+	newNode->right = Tbest;
+	newNode->numNodes = newNode->left->numNodes + newNode->right->numNodes + 1;
+
+	// Connect to the previous tree
+	TreeNode* parent = Tbest->parent;
+	newNode->parent = parent;
+	Tbest->parent = newNode;
+
+	if (parent == nullptr)
+		return newNode;
+
+	if (parent->left == Tbest)
+		parent->left = newNode;
+	else
+		parent->right = newNode;
+
+	//TreeNode* anchor = parent;
+
+	// Refit
+	while (parent != nullptr)
+	{
+		parent->box = parent->left->box;
+		parent->box.Expand(parent->right->box);
+		parent->numNodes = parent->left->numNodes + parent->right->numNodes + 1;
+		if (parent->parent == nullptr)
+			return parent;
+		parent = parent->parent;
+	}
+
+	// TODO: Rebalancing doesn't seem to matter much?
+	/*
+	while (anchor != nullptr)
+	{
+		anchor = Rebalance(anchor);
+		if (anchor->parent == nullptr)
+			return anchor;
+		anchor = anchor->parent;
+	}*/
 }
 
 void InOrder(TreeNode* T, std::vector<LeafItem> &result)
@@ -4194,6 +4320,41 @@ LBVH* LBVH::BuildOnline(const XwaVector3* vertices, const int numVertices, const
 	BVHNode* buffer = OnlineBuilder(leafItems, numNodes, vertices, indices);
 	log_debug("[DBG] [BVH] Online Builder succeeded. numPrims: %d, numNodes: %d",
 		leafItems.size(), numNodes);
+
+	LBVH* lbvh = new LBVH();
+	lbvh->nodes = (BVHNode*)buffer;
+	lbvh->numVertices = numVertices;
+	lbvh->numIndices = numIndices;
+	lbvh->numNodes = numNodes;
+	lbvh->scale = 1.0f;
+	lbvh->scaleComputed = true;
+
+	//lbvh->DumpToOBJ(".\\test.obj");
+
+	return lbvh;
+}
+
+LBVH* LBVH::BuildPQ(const XwaVector3* vertices, const int numVertices, const int* indices, const int numIndices)
+{
+	const int numPrimitives = numIndices / 3;
+
+	// Get the centroid and AABB for each triangle.
+	std::vector<LeafItem> leafItems;
+	AABB centroidBox;
+	for (int i = 0, TriID = 0; i < numIndices; i += 3, TriID++) {
+		AABB aabb;
+		aabb.Expand(vertices[indices[i + 0]]);
+		aabb.Expand(vertices[indices[i + 1]]);
+		aabb.Expand(vertices[indices[i + 2]]);
+
+		Vector3 centroid = aabb.GetCentroidVector3();
+		leafItems.push_back({ 0, centroid, aabb, TriID });
+	}
+
+	int numNodes = 0;
+	BVHNode* buffer = OnlinePQBuilder(leafItems, numNodes, vertices, indices);
+	//log_debug("[DBG] [BVH] Online PQ Builder succeeded. numPrims: %d, numNodes: %d",
+	//	leafItems.size(), numNodes);
 
 	LBVH* lbvh = new LBVH();
 	lbvh->nodes = (BVHNode*)buffer;
@@ -6739,6 +6900,27 @@ BVHNode* OnlineBuilder(std::vector<LeafItem>& leafItems, int &numNodes, const Xw
 	return result;
 }
 
+BVHNode* OnlinePQBuilder(std::vector<LeafItem>& leafItems, int& numNodes, const XwaVector3* vertices, const int* indices)
+{
+	const int numPrimitives = leafItems.size();
+	BVHNode* QBVHBuffer = nullptr;
+
+	TreeNode* T = nullptr;
+	for (LeafItem& leaf : leafItems)
+	{
+		XwaVector3 centroid(leaf.centroid);
+		T = InsertPQ(T, leaf.PrimID, centroid, leaf.aabb);
+	}
+
+	QTreeNode* Q = BinTreeToQTree(T);
+	DeleteTree(T);
+
+	BVHNode* result = (BVHNode*)EncodeNodes(Q, vertices, indices);
+	numNodes = Q->GetNumNodes(); // This is needed to allocate memory for the SRV
+	result[0].rootIdx = 0;
+	return result;
+}
+
 void TestFastLBVH()
 {
 	log_debug("[DBG] [BVH] ****************************************************************");
@@ -7466,4 +7648,70 @@ void TestPLOC()
 	log_debug("[DBG] [BVH] Printing QTree");
 	PrintTree("", Q);
 	DeleteTree(Q);*/
+}
+
+void TestPQBuilder()
+{
+	log_debug("[DBG] [BVH] ****************************************************************");
+	log_debug("[DBG] [BVH] TestAVLBuilder() START");
+	// using LeafItem = std::tuple<MortonCode_t, AABB, int>;
+	std::vector<LeafItem> leafItems;
+
+	AABB aabb, sceneAABB;
+	// Init the leaves
+	{
+		// 1.0
+		aabb.min = Vector3(0.0f, 0.0f, 0.0f);
+		aabb.max = Vector3(2.0f, 1.0f, 1.0f);
+		leafItems.push_back({ 0, aabb.GetCentroidVector3(), aabb, 1 });
+		sceneAABB.Expand(aabb);
+
+		// 2.0
+		aabb.min = Vector3(1.0f, 0.0f, 0.0f);
+		aabb.max = Vector3(3.0f, 1.0f, 1.0f);
+		leafItems.push_back({ 0, aabb.GetCentroidVector3(), aabb, 6 });
+		sceneAABB.Expand(aabb);
+
+		// 3.0
+		aabb.min = Vector3(2.0f, 0.0f, 0.0f);
+		aabb.max = Vector3(4.0f, 1.0f, 1.0f);
+		leafItems.push_back({ 0, aabb.GetCentroidVector3(), aabb, 0 });
+		sceneAABB.Expand(aabb);
+
+		//// 3.0
+		aabb.min = Vector3(2.0f, 0.0f, 0.0f); // Repeated element!
+		aabb.max = Vector3(4.0f, 1.0f, 1.0f);
+		leafItems.push_back({ 0, aabb.GetCentroidVector3(), aabb, 2 });
+		sceneAABB.Expand(aabb);
+
+		// 4.0
+		aabb.min = Vector3(3.0f, 0.0f, 0.0f);
+		aabb.max = Vector3(5.0f, 1.0f, 1.0f);
+		leafItems.push_back({ 0, aabb.GetCentroidVector3(), aabb, 5 });
+		sceneAABB.Expand(aabb);
+
+		// 5.0
+		aabb.min = Vector3(4.0f, 0.0f, 0.0f);
+		aabb.max = Vector3(6.0f, 1.0f, 1.0f);
+		leafItems.push_back({ 0, aabb.GetCentroidVector3(), aabb, 3 });
+		sceneAABB.Expand(aabb);
+
+		// 7.0
+		aabb.min = Vector3(6.0f, 0.0f, 0.0f);
+		aabb.max = Vector3(8.0f, 1.0f, 1.0f);
+		leafItems.push_back({ 0, aabb.GetCentroidVector3(), aabb, 4 });
+		sceneAABB.Expand(aabb);
+	}
+
+	const int numPrimitives = leafItems.size();
+
+	TreeNode* T = nullptr;
+	for (LeafItem& leaf : leafItems)
+	{
+		XwaVector3 centroid(leaf.centroid);
+		log_debug("[DBG] [BVH] Inserting: %0.3f", centroid[0]);
+		T = InsertPQ(T, leaf.PrimID, centroid, leaf.aabb);
+		PrintTreeNode("", T);
+		log_debug("[DBG] [BVH] ---------------------------------------------");
+	}
 }

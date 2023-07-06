@@ -3589,12 +3589,12 @@ TreeNode* InsertPQ(TreeNode* T, int TriID, const XwaVector3& centroid, AABB &box
 			// Add the children of item.T if the lower bounds look promising
 			if (Clow < Cbest)
 			{
-				// Using Clow or Ccur doesn't seem to matter much for tree quality, but it
-				// probably matters for build times?
-				//if (item.T->left != nullptr) pq.push(PQItem(item.T->left, Clow, newDeltaParents));
-				//if (item.T->right != nullptr) pq.push(PQItem(item.T->right, Clow , newDeltaParents));
-				if (item.T->left != nullptr) pq.push(PQItem(item.T->left, Ccur, newDeltaParents));
-				if (item.T->right != nullptr) pq.push(PQItem(item.T->right, Ccur, newDeltaParents));
+				// Using Clow or Ccur doesn't seem to matter much for tree quality, but Ccur makes
+				// the algorithm faster (~30% faster)
+				if (item.T->left != nullptr) pq.push(PQItem(item.T->left, Clow, newDeltaParents));
+				if (item.T->right != nullptr) pq.push(PQItem(item.T->right, Clow , newDeltaParents));
+				//if (item.T->left != nullptr) pq.push(PQItem(item.T->left, Ccur, newDeltaParents));
+				//if (item.T->right != nullptr) pq.push(PQItem(item.T->right, Ccur, newDeltaParents));
 			}
 		}
 	}

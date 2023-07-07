@@ -827,6 +827,52 @@ void BuildTLAS()
 	}
 }
 
+void BuildTLASDBVH4()
+{
+	g_iRTMeshesInThisFrame = tlasLeaves.size();
+	const uint32_t numLeaves = g_iRTMeshesInThisFrame;
+	if (numLeaves == 0)
+	{
+		//log_debug("[DBG] [BVH] BuildTLAS: numLeaves 0. Early exit.");
+		return;
+	}
+
+	// Get the Centroid Box
+	AABB centroidBox;
+	for (uint32_t i = 0; i < numLeaves; i++)
+	{
+		auto& leaf = tlasLeaves[i];
+		Vector3 centroid = TLASGetCentroid(leaf);
+		centroidBox.Expand(centroid);
+	}
+
+	const int numInnerNodes = CalcNumInnerQBVHNodes(numLeaves);
+	const int numNodes = numInnerNodes + numLeaves;
+	BVHNode* QBVHBuffer = new BVHNode[numNodes];
+
+	// Encode the TLAS leaves (the matrixSlot and BLASBaseNodeOffset are encoded here)
+	// ...
+
+	TLASDirectBVH4BuilderGPU(centroidBox, tlasLeaves, QBVHBuffer);
+	if (g_bDumpSSAOBuffers)
+		log_debug("[DBG] [BVH] TLAS root: 0");
+	// delete[] QBVHBuffer;
+
+	// The previous TLAS tree should be deleted at the beginning of each frame.
+	g_TLASTree = new LBVH();
+	g_TLASTree->nodes = QBVHBuffer;
+	g_TLASTree->numNodes = numNodes;
+	g_TLASTree->scale = 1.0f;
+	g_TLASTree->scaleComputed = true;
+
+	if (g_bDumpSSAOBuffers && bD3DDumpOBJEnabled)
+	{
+		// The single-node tree's AABB matches the global AABB and also contains the OBB
+		//g_TLASTree->DumpToOBJ(".\\TLASTree.obj", true /* isTLAS */, true /* Metric Scale? */);
+		DumpTLASTree(".\\TLASTree.obj", true /* Metric Scale? */);
+	}
+}
+
 // https://github.com/embree/embree/blob/master/tutorials/bvh_builder/bvh_builder_device.cpp
 struct BuildDataTLAS
 {

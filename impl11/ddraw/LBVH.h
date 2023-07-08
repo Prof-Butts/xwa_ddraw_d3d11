@@ -14,10 +14,15 @@ struct Vector4;
 
 // QBVH inner node
 struct BVHNode {
-	int ref;     // TriID: -1 for internal nodes, Triangle index for leaves
-	int parent;  // Not used at this point
-	int rootIdx; // Only used for buffer[0] to store the actual index of the root.
+	int ref;         // TriID: -1 for internal nodes, Triangle index for leaves
+                     // TLAS: leaf index (used to be the BlasID)
+	int parent;      // Used for DBVH construction, not used during traversal.
+	                 // TLAS: Set to -1 on the leaves.
+	int rootIdx;     // buffer[0] stores the actual index of the root here.
+	                 // DBVH4: Stores the inner node index here. Used to translate encode indices to inner node indices.
+	                 // TLAS: The leaves store the matrix slot here.
 	int numChildren; // This field is not used during traversal (loop breaks as soon as a child index is -1)
+	                 // TLAS: The leaves store BLASBaseNodeOffset here.
 	// 16 bytes
 	float min[4];
 	// 32 bytes
@@ -833,7 +838,7 @@ public:
 
 using NodeChildKey = std::tuple<uint32_t, int>;
 
-int CalcNumInnerQBVHNodes(int numPrimitives);
+int CalcNumInnerQBVHNodes(int numPrimitives, bool isTopLevelBuild);
 
 void Normalize(Vector3& A, const AABB& sceneBox, const XwaVector3& range);
 

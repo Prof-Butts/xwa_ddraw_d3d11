@@ -16,23 +16,31 @@ extern bool g_bEnableQBVHwSAH;
 //BVHBuilderType g_BVHBuilderType = BVHBuilderType_QBVH;
 //BVHBuilderType g_BVHBuilderType = BVHBuilderType_FastQBVH;
 //BVHBuilderType g_BVHBuilderType = BVHBuilderType_Embree;
-BVHBuilderType g_BVHBuilderType = DEFAULT_BVH_BUILDER;
+BLASBuilderType g_BLASBuilderType = DEFAULT_BLAS_BUILDER;
+TLASBuilderType g_TLASBuilderType = DEFAULT_TLAS_BUILDER;
+// DEBUG
+extern LONG g_directBuilderNextInnerNode;
 
 bool g_bUseCentroids = true;
 
 RTCDevice g_rtcDevice = nullptr;
 RTCScene g_rtcScene = nullptr;
 
-char* g_sBVHBuilderTypeNames[BVHBuilderType_MAX] = {
+char* g_sBLASBuilderTypeNames[(int)BLASBuilderType::MAX] = {
 	"      BVH2",
 	"      QBVH",
 	"  FastQBVH",
 	//"    Embree",
 	//"DirectBVH2CPU",
-	"DirectBVH4GPU",
+	"DirectBVH4",
 	"    Online",
 	"  OnlinePQ",
 	"      PLOC",
+};
+
+extern char* g_sTLASBuilderTypeNames[(int)TLASBuilderType::MAX] = {
+	"  FastQBVH",
+	"DirectBVH4"
 };
 
 bool g_bRTEnabledInTechRoom = true;
@@ -787,7 +795,7 @@ void BuildTLAS()
 
 	// Encode the sorted leaves
 	// TODO: Encode the leaves before sorting, and use TriID as the sort index.
-	const int numQBVHInnerNodes = CalcNumInnerQBVHNodes(numLeaves);
+	const int numQBVHInnerNodes = CalcNumInnerQBVHNodes(numLeaves, true);
 	const int numQBVHNodes = numQBVHInnerNodes + numLeaves;
 
 	// We can reserve the buffer for the QBVH now.
@@ -846,7 +854,7 @@ void BuildTLASDBVH4()
 		centroidBox.Expand(centroid);
 	}
 
-	const int numInnerNodes = CalcNumInnerQBVHNodes(numLeaves);
+	const int numInnerNodes = CalcNumInnerQBVHNodes(numLeaves, true);
 	const int numNodes = numInnerNodes + numLeaves;
 	BVHNode* QBVHBuffer = new BVHNode[numNodes];
 
@@ -857,6 +865,18 @@ void BuildTLASDBVH4()
 	if (g_bDumpSSAOBuffers)
 		log_debug("[DBG] [BVH] TLAS root: 0");
 	// delete[] QBVHBuffer;
+
+	// DEBUG
+	{
+		static float maxRatio = 0.0f;
+		float ratio = (float)g_directBuilderNextInnerNode / (float)numLeaves;
+		if (ratio > maxRatio)
+		{
+			maxRatio = ratio;
+			log_debug("[DBG] [BVH] numInnerNodes: %d, numLeaves: %d, maxRatio: %0.4f",
+				g_directBuilderNextInnerNode, numLeaves, maxRatio);
+		}
+	}
 
 	// The previous TLAS tree should be deleted at the beginning of each frame.
 	g_TLASTree = new LBVH();
@@ -1580,17 +1600,17 @@ void EffectsRenderer::SceneBegin(DeviceResources* deviceResources)
 LBVH* EffectsRenderer::BuildBVH(const std::vector<XwaVector3>& vertices, const std::vector<int>& indices)
 {
 	// All the data for this FaceGroup is ready, let's build the BLAS BVH
-	switch (g_BVHBuilderType)
+	switch (g_BLASBuilderType)
 	{
-	case BVHBuilderType_BVH2:
+	case BLASBuilderType::BVH2:
 		// 3-step LBVH build: BVH2, QBVH conversion, Encoding.
 		return LBVH::Build(vertices.data(), vertices.size(), indices.data(), indices.size());
 
-	case BVHBuilderType_QBVH:
+	case BLASBuilderType::QBVH:
 		// 2-step LBVH build: QBVH, Encoding.
 		return LBVH::BuildQBVH(vertices.data(), vertices.size(), indices.data(), indices.size());
 
-	case BVHBuilderType_FastQBVH:
+	case BLASBuilderType::FastQBVH:
 		// 1-step LBVH build: QBVH is built and encoded in one step.
 		return LBVH::BuildFastQBVH(vertices.data(), vertices.size(), indices.data(), indices.size());
 
@@ -1600,16 +1620,16 @@ LBVH* EffectsRenderer::BuildBVH(const std::vector<XwaVector3>& vertices, const s
 	/*case BVHBuilderType_DirectBVH2CPU:
 		return LBVH::BuildDirectBVH2CPU(vertices.data(), vertices.size(), indices.data(), indices.size());*/
 
-	case BVHBuilderType_DirectBVH4GPU:
+	case BLASBuilderType::DirectBVH4GPU:
 		return LBVH::BuildDirectBVH4GPU(vertices.data(), vertices.size(), indices.data(), indices.size());
 
-	case BVHBuilderType_Online:
+	case BLASBuilderType::Online:
 		return LBVH::BuildOnline(vertices.data(), vertices.size(), indices.data(), indices.size());
 
-	case BVHBuilderType_PQ:
+	case BLASBuilderType::PQ:
 		return LBVH::BuildPQ(vertices.data(), vertices.size(), indices.data(), indices.size());
 
-	case BVHBuilderType_PLOC:
+	case BLASBuilderType::PLOC:
 		return LBVH::BuildPLOC(vertices.data(), vertices.size(), indices.data(), indices.size());
 	}
 	return nullptr;
@@ -1750,7 +1770,7 @@ void EffectsRenderer::BuildSingleBLASFromCurrentBVHMap()
 	int root = _lbvh->nodes[0].rootIdx;
 	float totalArea = (float)CalcTotalTreeSAH(_lbvh->nodes);
 	log_debug("[DBG] [BVH] Builder: %s:%s, %s, Total SA: %0.6f, total nodes: %d, actual nodes: %d",
-		g_sBVHBuilderTypeNames[g_BVHBuilderType], g_bEnableQBVHwSAH ? "SAH" : "Non-SAH",
+		g_sBLASBuilderTypeNames[(int)g_BLASBuilderType], g_bEnableQBVHwSAH ? "SAH" : "Non-SAH",
 		g_curOPTLoaded, totalArea,
 		_lbvh->numNodes, _lbvh->numNodes - root);
 
@@ -1866,7 +1886,7 @@ void EffectsRenderer::BuildMultipleBLASFromCurrentBLASMap()
 
 	g_bRTReAllocateBvhBuffer = (g_iRTTotalBLASNodesInFrame > g_iRTMaxBLASNodesSoFar);
 	log_debug("[DBG] [BVH] MultiBuilder: %s, g_iRTTotalNumNodesInFrame: %d, g_iRTMaxNumNodesSoFar: %d, Reallocate? %d",
-		g_sBVHBuilderTypeNames[g_BVHBuilderType], g_iRTTotalBLASNodesInFrame, g_iRTMaxBLASNodesSoFar, g_bRTReAllocateBvhBuffer);
+		g_sBLASBuilderTypeNames[(int)g_BLASBuilderType], g_iRTTotalBLASNodesInFrame, g_iRTMaxBLASNodesSoFar, g_bRTReAllocateBvhBuffer);
 	g_iRTMaxBLASNodesSoFar = max(g_iRTTotalBLASNodesInFrame, g_iRTMaxBLASNodesSoFar);
 }
 
@@ -2251,7 +2271,17 @@ void EffectsRenderer::SceneEnd()
 			if (g_bRTEnableEmbree)
 				BuildTLASEmbree();
 			else
-				BuildTLAS();
+			{
+				switch (g_TLASBuilderType)
+				{
+				case TLASBuilderType::FastQBVH:
+					BuildTLAS();
+					break;
+				case TLASBuilderType::DirectBVH4GPU:
+					BuildTLASDBVH4();
+					break;
+				}
+			}
 			//log_debug("[DBG] [BVH] TLAS Built");
 			ReAllocateAndPopulateMatrixBuffer();
 			//log_debug("[DBG] [BVH] Matrices Realloc'ed");

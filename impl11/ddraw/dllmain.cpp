@@ -833,9 +833,12 @@ LRESULT CALLBACK MyWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam
 				g_bShadowMapEnable = !g_bShadowMapEnable;
 				DisplayTimedMessage(3, 0, g_bShadowMapEnable ? "Shadow Mapping Enabled" : "Shadow Mapping Disabled");
 #elif BENCHMARK_MODE == 1
-				g_BVHBuilderType = (BVHBuilderType)(((int)g_BVHBuilderType + 1) % BVHBuilderType_MAX);
+				g_BVHBuilderType = (BVHBuilderType)(((int)g_BVHBuilderType + 1) % (int)BVHBuilderType::MAX);
 				log_debug("[DBG] [BVH] Builder type set to: %s", g_sBVHBuilderTypeNames[g_BVHBuilderType]);
 #elif BENCHMARK_MODE == 2
+				g_TLASBuilderType = (TLASBuilderType)(((int)g_TLASBuilderType + 1) % (int)TLASBuilderType::MAX);
+				log_debug("[DBG] [BVH] TLAS Builder type set to: %s", g_sTLASBuilderTypeNames[(int)g_TLASBuilderType]);
+#elif BENCHMARK_MODE == 3
 				g_bUseCentroids = !g_bUseCentroids;
 				if (g_bUseCentroids)
 				{
@@ -1435,7 +1438,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
 		//}
 		{
 			g_bRTEnableEmbree = false;
-			g_BVHBuilderType = DEFAULT_BVH_BUILDER;
+			g_BLASBuilderType = DEFAULT_BLAS_BUILDER;
 			log_debug("[DBG] [BVH] [EMB] Embree was not loaded. Using DEFAULT_BVH_BUILDER instead");
 		}
 

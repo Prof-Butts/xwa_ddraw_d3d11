@@ -227,22 +227,33 @@ constexpr float OPT_TO_METERS = 1.0f / 40.96f;
 constexpr float METERS_TO_OPT = 40.96f;
 
 // Raytracing
-enum BVHBuilderType
+enum class BLASBuilderType
 {
-	BVHBuilderType_BVH2,
-	BVHBuilderType_QBVH,
-	BVHBuilderType_FastQBVH,
-	//BVHBuilderType_Embree,
-	//BVHBuilderType_DirectBVH2CPU,
-	BVHBuilderType_DirectBVH4GPU,
-	BVHBuilderType_Online,
-	BVHBuilderType_PQ,
-	BVHBuilderType_PLOC,
-	BVHBuilderType_MAX,
+	BVH2,
+	QBVH,
+	FastQBVH,
+	//Embree,
+	//DirectBVH2CPU,
+	DirectBVH4GPU,
+	Online,
+	PQ,
+	PLOC,
+	MAX,
 };
-constexpr BVHBuilderType DEFAULT_BVH_BUILDER = BVHBuilderType_FastQBVH;
-extern BVHBuilderType g_BVHBuilderType;
-extern char* g_sBVHBuilderTypeNames[BVHBuilderType_MAX];
+
+enum class TLASBuilderType
+{
+	FastQBVH,
+	DirectBVH4GPU,
+	MAX
+};
+
+constexpr BLASBuilderType DEFAULT_BLAS_BUILDER = BLASBuilderType::FastQBVH;
+constexpr TLASBuilderType DEFAULT_TLAS_BUILDER = TLASBuilderType::FastQBVH;
+extern BLASBuilderType g_BLASBuilderType;
+extern TLASBuilderType g_TLASBuilderType;
+extern char* g_sBLASBuilderTypeNames[(int)BLASBuilderType::MAX];
+extern char* g_sTLASBuilderTypeNames[(int)TLASBuilderType::MAX];
 
 extern bool g_bRTEnabledInTechRoom;
 extern bool g_bRTEnabled;

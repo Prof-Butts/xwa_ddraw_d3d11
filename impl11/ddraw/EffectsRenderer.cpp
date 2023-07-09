@@ -69,6 +69,7 @@ int g_iRTNextBLASId = 0;
 bool g_bRTReAllocateBvhBuffer = false;
 AABB g_CameraAABB; // AABB built from the camera's frustrum
 AABB g_GlobalAABB; // AABB built after all the meshes have been seen in the current frame
+AABB g_GlobalCentroidAABB; // The DirectBVH4 builder needs this AABB to compute the splits.
 XwaVector3 g_CameraRange;
 XwaVector3 g_GlobalRange;
 LBVH* g_TLASTree = nullptr;
@@ -845,23 +846,11 @@ void BuildTLASDBVH4()
 		return;
 	}
 
-	// Get the Centroid Box
-	AABB centroidBox;
-	for (uint32_t i = 0; i < numLeaves; i++)
-	{
-		auto& leaf = tlasLeaves[i];
-		Vector3 centroid = TLASGetCentroid(leaf);
-		centroidBox.Expand(centroid);
-	}
-
 	const int numInnerNodes = CalcNumInnerQBVHNodes(numLeaves, true);
 	const int numNodes = numInnerNodes + numLeaves;
 	BVHNode* QBVHBuffer = new BVHNode[numNodes];
 
-	// Encode the TLAS leaves (the matrixSlot and BLASBaseNodeOffset are encoded here)
-	// ...
-
-	TLASDirectBVH4BuilderGPU(centroidBox, tlasLeaves, QBVHBuffer);
+	TLASDirectBVH4BuilderGPU(g_GlobalCentroidAABB, tlasLeaves, QBVHBuffer);
 	if (g_bDumpSSAOBuffers)
 		log_debug("[DBG] [BVH] TLAS root: 0");
 	// delete[] QBVHBuffer;
@@ -1549,6 +1538,7 @@ void EffectsRenderer::SceneBegin(DeviceResources* deviceResources)
 		// Restart the TLAS for the frame that is about to begin
 		g_iRTMeshesInThisFrame = 0;
 		g_GlobalAABB.SetInfinity();
+		g_GlobalCentroidAABB.SetInfinity();
 		tlasLeaves.clear();
 		g_TLASMap.clear();
 		RTResetMatrixSlotCounter();
@@ -3861,6 +3851,7 @@ void EffectsRenderer::UpdateBVHMaps(const SceneCompData* scene, int LOD)
 				// Add a new entry to tlasLeaves and update the global centroid
 				//AddAABBToTLAS(W, meshKey, obb, centroid, matrixSlot);
 				g_GlobalAABB.Expand(aabb);
+				g_GlobalCentroidAABB.Expand(centroid);
 				tlasLeaves.push_back({ 0, centroid, aabb, blasID, matrixSlot, obb });
 			}
 			else

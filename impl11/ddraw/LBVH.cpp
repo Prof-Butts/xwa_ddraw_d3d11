@@ -218,6 +218,14 @@ void LBVH::PrintTree(std::string level, int curnode)
 }
 #endif
 
+std::string Vector3ToString(const Vector3& P)
+{
+	return "(" +
+		std::to_string(P.x) + ", " +
+		std::to_string(P.y) + ", " +
+		std::to_string(P.z) + ")";
+}
+
 int CalcNumInnerQBVHNodes(int numPrimitives, bool isTopLevelBuild)
 {
 	if (isTopLevelBuild)
@@ -2890,6 +2898,128 @@ BVHNode* EncodeNodesAsQBVHwSAH(int root, InnerNode* innerNodes, const std::vecto
 	return result;
 }
 
+// This method can compact a BVH4 stored in a BVHNode buffer. It's WIP, but it appears to work.
+// Only call this function for inner nodes.
+std::vector<EncodeItem> PullUpChildren(BVHNode* buffer, int curNode)
+{
+	std::vector<EncodeItem> items;
+	BVHNode& node = buffer[curNode];
+	const int numChildren = node.numChildren;
+
+	if (numChildren == 2 || numChildren == 3)
+	{
+		int curCapacity = numChildren;
+		// Find a subchild with exactly 2 nodes
+		for (int i = 0; i < numChildren; i++)
+		{
+			const int childIdx = node.children[i];
+			const bool childIsLeaf = buffer[childIdx].ref != -1;
+			if (curCapacity < 4 && !childIsLeaf && buffer[childIdx].numChildren == 2)
+			{
+				//log_debug("[DBG] [BVH] Compacting node: %d-%d, numChildren: %d", curNode, i, numChildren);
+				for (int j = 0; j < 2; j++)
+				{
+					const int subChildIdx = buffer[childIdx].children[j];
+					const bool subChildIsLeaf = (buffer[subChildIdx].ref != -1);
+					// Pull these sub-children up
+					items.push_back(EncodeItem(subChildIdx, subChildIsLeaf, 0));
+				}
+				curCapacity += 1;
+			}
+			else
+			{
+				items.push_back(EncodeItem(childIdx, childIsLeaf, 0));
+			}
+		}
+
+		return items;
+	}
+	
+	for (int i = 0; i < 4; i++)
+	{
+		const int childIdx = node.children[i];
+		if (childIdx == -1)
+			break;
+		const bool isLeaf = (buffer[childIdx].ref != -1);
+
+		if (isLeaf)
+		{
+			items.push_back(EncodeItem(childIdx, isLeaf, 0));
+		}
+		else
+		{
+			items.push_back(EncodeItem(childIdx, isLeaf, 0));
+		}
+	}
+
+	return items;
+}
+
+BVHNode* CompactBVHBuffer(BVHNode *buffer, int numPrimitives, int& numQBVHNodes_out, int &numInnerNodes_out)
+{
+	int rootIdx = buffer[0].rootIdx;
+	BVHNode* result = nullptr;
+	//numQBVHNodes_out = numPrimitives + max(1, (int)ceil(0.667f * numPrimitives));
+	numQBVHNodes_out = numPrimitives + max(1, (int)ceil(0.70f * numPrimitives));
+	numInnerNodes_out = 0;
+	result = new BVHNode[numQBVHNodes_out];
+	// Initialize the root
+	result[0].rootIdx = 0;
+
+	// A breadth-first traversal will ensure that each level of the tree is encoded to the
+	// buffer before advancing to the next level. We can thus keep track of the offset in
+	// the buffer where the next node will appear.
+	std::queue<EncodeItem> Q;
+
+	// Initialize the queue and the offsets.
+	Q.push(EncodeItem(rootIdx, (buffer[rootIdx].ref != -1), 0));
+	// Since we're going to put this data in an array, it's easier to specify the children
+	// offsets as indices into this array.
+	int nextNode = 1;
+	int EncodeIdx = 0;
+
+	while (Q.size() != 0)
+	{
+		EncodeItem curItem = Q.front();
+		int curNode = std::get<0>(curItem);
+		bool isLeaf = std::get<1>(curItem);
+		Q.pop();
+		BVHNode node;
+		int nextchild = 0;
+
+		if (isLeaf)
+		{
+			// Encode a leaf node
+			result[EncodeIdx++] = buffer[curNode];
+		}
+		else
+		{
+			// Initialize the node
+			node = buffer[curNode];
+
+			// Initialize the children pointers
+			for (int i = 0; i < 4; i++)
+				node.children[i] = -1;
+
+			// Pull up the grandchildren if possible
+			std::vector<EncodeItem> items;
+			items = PullUpChildren(buffer, curNode);
+
+			for (const auto& item : items)
+			{
+				node.children[nextchild++] = nextNode++;
+				Q.push(item);
+			}
+
+			// Encode the inner node
+			result[EncodeIdx++] = node;
+			numInnerNodes_out++;
+		}
+	}
+
+	return result;
+}
+
 void CheckTree(InnerNode4* innerNodes, int curNode)
 {
 	if (innerNodes[curNode].numChildren < 0 || innerNodes[curNode].numChildren > 4) {
@@ -4279,13 +4409,17 @@ LBVH* LBVH::BuildDirectBVH4GPU(const XwaVector3* vertices, const int numVertices
 	// Build the tree
 	int root = -1;
 	const int numNodes = numInnerNodes + numPrimitives;
-	BVHNode* buffer = new BVHNode[numNodes];
-	DirectBVH4BuilderGPU(centroidBox, leafItems, vertices, indices, buffer);
-	if (buffer == nullptr)
+	BVHNode* tmpBuffer = new BVHNode[numNodes];
+	DirectBVH4BuilderGPU(centroidBox, leafItems, vertices, indices, tmpBuffer);
+	if (tmpBuffer == nullptr)
 	{
 		log_debug("[DBG] [BVH] DirectBVH4BuilderGPU failed");
 		return nullptr;
 	}
+	int finalNodes, finalInnerNodes;
+	BVHNode* buffer = CompactBVHBuffer(tmpBuffer, numPrimitives, finalNodes, finalInnerNodes);
+	delete[] tmpBuffer;
+	log_debug("[DBG] [BVH] CompactBVHBuffer");
 
 	// DEBUG
 	/*log_debug("[DBG] [BVH] sceneBox: %s", sceneBox.ToString().c_str());
@@ -4301,7 +4435,8 @@ LBVH* LBVH::BuildDirectBVH4GPU(const XwaVector3* vertices, const int numVertices
 	lbvh->nodes = (BVHNode*)buffer;
 	lbvh->numVertices = numVertices;
 	lbvh->numIndices = numIndices;
-	lbvh->numNodes = numNodes;
+	//lbvh->numNodes = numNodes;
+	lbvh->numNodes = finalNodes;
 	lbvh->scale = 1.0f;
 	lbvh->scaleComputed = true;
 	// DEBUG
@@ -7734,4 +7869,93 @@ void TestPQBuilder()
 		PrintTreeNode("", T);
 		log_debug("[DBG] [BVH] ---------------------------------------------");
 	}
+}
+
+AABB ReadAABB(FILE* file)
+{
+	float x1, y1, z1;
+	float x2, y2, z2;
+	fscanf_s(file, "(%f, %f, %f)-(%f, %f, %f)\n",
+			 &x1, &y1, &z1,
+			 &x2, &y2, &z2);
+	AABB box(x1, y1, z1, x2, y2, z2);
+	return box;
+}
+
+void ReadTlasLeafLine(FILE* file, int *PrimID, Vector3 *centroid, AABB *aabb)
+{
+	float x, y, z;
+	float x1, y1, z1;
+	float x2, y2, z2;
+
+	fscanf_s(file, "%d, (%f, %f, %f), (%f, %f, %f)-(%f, %f, %f)\n",
+		     PrimID,
+		     &x, &y, &z,
+		     &x1, &y1, &z1,
+		     &x2, &y2, &z2);
+
+	centroid->x = x;
+	centroid->y = y;
+	centroid->z = z;
+
+	aabb->min.x = x1;
+	aabb->min.y = y1;
+	aabb->min.z = z1;
+
+	aabb->max.x = x2;
+	aabb->max.y = y2;
+	aabb->max.z = z2;
+}
+
+void TestDBVH4(char *fileName)
+{
+	// Don't forget to enable the nullptr check in EncodeLeafNode. We don't have any vertices or indices in this test!
+	log_debug("[DBG] [BVH] ****************************************************************");
+	log_debug("[DBG] [BVH] TestDBVH4() START");
+	// using LeafItem = std::tuple<MortonCode_t, AABB, int>;
+	std::vector<LeafItem> leafItems;
+
+	FILE* file = nullptr;
+	fopen_s(&file, fileName, "rt");
+	if (file == nullptr)
+	{
+		log_debug("[DBG] [BVH] file == nullptr. No can do!");
+		return;
+	}
+
+	int numLeaves;
+	AABB centroidBox = ReadAABB(file);
+	fscanf_s(file, "%d\n", &numLeaves);
+	for (int i = 0; i < numLeaves; i++)
+	{
+		int PrimID;
+		Vector3 centroid;
+		AABB aabb;
+		ReadTlasLeafLine(file, &PrimID, &centroid, &aabb);
+		leafItems.push_back({ 0, centroid, aabb, PrimID });
+	}
+	fclose(file);
+	log_debug("[DBG] [BVH] centroidBox: %s", centroidBox.ToString().c_str());
+	log_debug("[DBG] [BVH] numLeaves: %d", (int)leafItems.size());
+
+	int root = -1;
+	const int numPrimitives = (int)leafItems.size();
+	const int numInnerNodes = CalcNumInnerQBVHNodes(numPrimitives, true);
+	BVHNode* tmpBuffer = new BVHNode[numInnerNodes + numPrimitives];
+	DirectBVH4BuilderGPU(centroidBox, leafItems, nullptr, nullptr, tmpBuffer);
+	// Compact the BVH
+	int finalNumNodes = 0, finalInnerNodes = 0;
+	BVHNode* QBVHBuffer = CompactBVHBuffer(tmpBuffer, numPrimitives, finalNumNodes, finalInnerNodes);
+	delete[] tmpBuffer;
+
+	float ratio = (float)g_directBuilderNextInnerNode / (float)numPrimitives;
+	log_debug("[DBG] [BVH] numInnerNodes: %d, numLeaves: %d, ratio: %0.4f",
+		g_directBuilderNextInnerNode, numLeaves, ratio);
+
+	ratio = (float)finalInnerNodes / (float)numPrimitives;
+	log_debug("[DBG] [BVH] final numInnerNodes: %d, numLeaves: %d, ratio: %0.4f",
+		finalInnerNodes, numPrimitives, ratio);
+
+	PrintTreeBuffer("", QBVHBuffer, 0);
+	delete[] QBVHBuffer;
 }

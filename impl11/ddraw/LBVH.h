@@ -72,6 +72,8 @@ struct MinMax {
 
 #pragma pack(pop)
 
+std::string Vector3ToString(const Vector3& P);
+
 enum BVH_ROT
 {
 	L_TO_RL = 0,
@@ -97,6 +99,18 @@ public:
 
 	AABB() {
 		SetInfinity();
+	}
+
+	AABB(float x1, float y1, float z1,
+		 float x2, float y2, float z2)
+	{
+		min.x = x1;
+		min.y = y1;
+		min.z = z1;
+
+		max.x = x2;
+		max.y = y2;
+		max.z = z2;
 	}
 
 	inline void SetInfinity() {
@@ -291,8 +305,7 @@ using MortonCode_t = uint32_t;
 #else
 using MortonCode_t = uint64_t;
 #endif
-// 0: Morton Code, 1: Bounding Box, 2: TriID
-//using LeafItem = std::tuple<MortonCode_t, AABB, int>;
+
 // 0: Morton Code, 1: aabbFromOBB, 2: BlasID, 3: Centroid, 4: MatrixSlot, 5: Oriented Bounding Box
 //using TLASLeafItem = std::tuple<MortonCode_t, AABB, int, XwaVector3, int, AABB>;
 // Used in the DirectBVH algorithms
@@ -302,7 +315,16 @@ struct LeafItem
 	Vector3 centroid;
 	AABB aabb;
 	int PrimID;
+
+
+	std::string ToString()
+	{
+		return std::to_string(PrimID) + ", " +
+			   Vector3ToString(centroid) + ", " +
+			   aabb.ToString();
+	}
 };
+
 // Used in the DirectBVH algorithms
 struct TLASLeafItem : LeafItem
 {

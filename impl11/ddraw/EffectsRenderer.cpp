@@ -864,6 +864,28 @@ void BuildTLASDBVH4()
 			maxRatio = ratio;
 			log_debug("[DBG] [BVH] numInnerNodes: %d, numLeaves: %d, maxRatio: %0.4f",
 				g_directBuilderNextInnerNode, numLeaves, maxRatio);
+
+			// Dump the data needed to build the TLAS tree for debugging purposes
+			/*
+			if (maxRatio > 0.667f)
+			{
+				static int fileCounter = 0;
+				char fileName[80];
+				sprintf_s(fileName, 80, "tlasLeaves-%d.txt", fileCounter++);
+
+				FILE* file = nullptr;
+				fopen_s(&file, fileName, "wt");
+				if (file != nullptr)
+				{
+					fprintf(file, "%s\n", g_GlobalCentroidAABB.ToString().c_str());
+					fprintf(file, "%d\n", (int)tlasLeaves.size());
+					for (int i = 0; i < (int)tlasLeaves.size(); i++)
+						fprintf(file, "%s\n", tlasLeaves[i].ToString().c_str());
+					fclose(file);
+					log_debug("[DBG] [BVH] Dumped %s for debugging", fileName);
+				}
+			}
+			*/
 		}
 	}
 

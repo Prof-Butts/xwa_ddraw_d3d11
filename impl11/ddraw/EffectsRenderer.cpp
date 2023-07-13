@@ -796,7 +796,7 @@ void BuildTLAS()
 
 	// Encode the sorted leaves
 	// TODO: Encode the leaves before sorting, and use TriID as the sort index.
-	const int numQBVHInnerNodes = CalcNumInnerQBVHNodes(numLeaves, true);
+	const int numQBVHInnerNodes = CalcNumInnerQBVHNodes(numLeaves);
 	const int numQBVHNodes = numQBVHInnerNodes + numLeaves;
 
 	// We can reserve the buffer for the QBVH now.
@@ -846,11 +846,12 @@ void BuildTLASDBVH4()
 		return;
 	}
 
-	const int numInnerNodes = CalcNumInnerQBVHNodes(numLeaves, true);
+	const int numInnerNodes = CalcNumInnerQBVHNodes(numLeaves);
 	const int numNodes = numInnerNodes + numLeaves;
 	BVHNode* QBVHBuffer = new BVHNode[numNodes];
 
-	TLASDirectBVH4BuilderGPU(g_GlobalCentroidAABB, tlasLeaves, QBVHBuffer);
+	int finalInnerNodes;
+	TLASDirectBVH4BuilderGPU(g_GlobalCentroidAABB, tlasLeaves, QBVHBuffer, finalInnerNodes);
 	if (g_bDumpSSAOBuffers)
 		log_debug("[DBG] [BVH] TLAS root: 0");
 	// delete[] QBVHBuffer;
@@ -862,8 +863,8 @@ void BuildTLASDBVH4()
 		if (ratio > maxRatio)
 		{
 			maxRatio = ratio;
-			log_debug("[DBG] [BVH] numInnerNodes: %d, numLeaves: %d, maxRatio: %0.4f",
-				g_directBuilderNextInnerNode, numLeaves, maxRatio);
+			log_debug("[DBG] [BVH] numInnerNodes: %d, numLeaves: %d, maxRatio: %0.4f, finalRatio: %0.4f",
+				g_directBuilderNextInnerNode, numLeaves, maxRatio, (float)finalInnerNodes / (float)numLeaves);
 
 			// Dump the data needed to build the TLAS tree for debugging purposes
 			/*

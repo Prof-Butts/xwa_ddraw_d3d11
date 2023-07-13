@@ -860,7 +860,7 @@ public:
 
 using NodeChildKey = std::tuple<uint32_t, int>;
 
-int CalcNumInnerQBVHNodes(int numPrimitives, bool isTopLevelBuild);
+int CalcNumInnerQBVHNodes(int numPrimitives);
 
 void Normalize(Vector3& A, const AABB& sceneBox, const XwaVector3& range);
 
@@ -879,9 +879,10 @@ uint8_t* EncodeNodes(IGenericTreeNode* root, const XwaVector3* Vertices, const i
 uint8_t* TLASEncodeNodes(IGenericTreeNode* root, std::vector<TLASLeafItem>& leafItems);
 int TLASEncodeLeafNode(BVHNode* buffer, std::vector<TLASLeafItem>& leafItems, int leafIdx, int EncodeNodeIdx);
 void TLASSingleStepFastLQBVH(BVHNode* buffer, int numQBVHInnerNodes, std::vector<TLASLeafItem>& leafItems, int& root_out);
-void TLASDirectBVH4BuilderGPU(AABB centroidBox, std::vector<TLASLeafItem>& leafItems, BVHNode* buffer);
+void TLASDirectBVH4BuilderGPU(AABB centroidBox, std::vector<TLASLeafItem>& leafItems, BVHNode* buffer, int &finalNumInnerNodes);
 
 double CalcTotalTreeSAH(BVHNode* buffer);
+void CompactBVHBuffer(BVHNode* buffer, int numPrimitives, BVHNode* result, int& numQBVHNodes_out, int& numInnerNodes_out);
 
 // Embree definitions for dynamic DLL loading.
 typedef RTCDevice (*rtcNewDeviceFun)(const char* config);

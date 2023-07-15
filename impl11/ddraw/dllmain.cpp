@@ -833,8 +833,8 @@ LRESULT CALLBACK MyWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam
 				g_bShadowMapEnable = !g_bShadowMapEnable;
 				DisplayTimedMessage(3, 0, g_bShadowMapEnable ? "Shadow Mapping Enabled" : "Shadow Mapping Disabled");
 #elif BENCHMARK_MODE == 1
-				g_BVHBuilderType = (BVHBuilderType)(((int)g_BVHBuilderType + 1) % (int)BVHBuilderType::MAX);
-				log_debug("[DBG] [BVH] Builder type set to: %s", g_sBVHBuilderTypeNames[g_BVHBuilderType]);
+				g_BLASBuilderType = (BLASBuilderType)(((int)g_BLASBuilderType + 1) % (int)BLASBuilderType::MAX);
+				log_debug("[DBG] [BVH] Builder type set to: %s", g_sBLASBuilderTypeNames[(int)g_BLASBuilderType]);
 #elif BENCHMARK_MODE == 2
 				g_TLASBuilderType = (TLASBuilderType)(((int)g_TLASBuilderType + 1) % (int)TLASBuilderType::MAX);
 				log_debug("[DBG] [BVH] TLAS Builder type set to: %s", g_sTLASBuilderTypeNames[(int)g_TLASBuilderType]);

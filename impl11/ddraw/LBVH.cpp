@@ -24,6 +24,11 @@ bool g_bEnableQBVHwSAH = false; // The FastLQBVH builder still has some problems
 #undef DEBUG_BU
 #undef COMPACT_BVH
 #define BVH_REPROCESS_SPLITS 1
+// I really don't get this, but *not* doing full compaction is actually
+// better: there's less total nodes, less inner nodes, lower innernodes/prims ratio
+// and the SA is lower too. Go figure!
+//#define BVH_FULL_COMPACTION 1
+#undef BVH_FULL_COMPACTION
 
 int g_directBuilderFirstActiveInnerNode = 0;
 int g_directBuilderNextNode = 0;
@@ -2893,9 +2898,121 @@ BVHNode* EncodeNodesAsQBVHwSAH(int root, InnerNode* innerNodes, const std::vecto
 	return result;
 }
 
+
+void CheckTree(InnerNode4* innerNodes, int curNode)
+{
+	if (innerNodes[curNode].numChildren < 0 || innerNodes[curNode].numChildren > 4) {
+		log_debug("[DBG] [BVH] ERROR. node: %d, has numChildren: %d", curNode, innerNodes[curNode].numChildren);
+		return;
+	}
+	for (int i = 0; i < 4; i++) {
+		if (!(innerNodes[curNode].isLeaf[i]))
+			CheckTree(innerNodes, innerNodes[curNode].children[i]);
+	}
+}
+
+int CalcMaxDepth(IGenericTreeNode* node)
+{
+	if (node->IsLeaf())
+	{
+		return 1;
+	}
+
+	std::vector<IGenericTreeNode*>children = node->GetChildren();
+	int max_depth = 0;
+	for (const auto& child : children) {
+		int depth = CalcMaxDepth(child);
+		max_depth = max(1 + depth, max_depth);
+	}
+	return max_depth;
+}
+
+int CalcMaxDepth(BVHNode* buffer, int curNode, int &totalNodes)
+{
+	if (buffer[curNode].ref != -1)
+	{
+		totalNodes = 1;
+		return 1;
+	}
+
+	int maxDepth = 0; // Count this node
+	totalNodes = 0;
+	for (int i = 0; i < 4; i++)
+	{
+		int subNodes = 0;
+		if (buffer[curNode].children[i] == -1)
+			break;
+		int subDepth = CalcMaxDepth(buffer, buffer[curNode].children[i], subNodes);
+		maxDepth = max(maxDepth, subDepth);
+		totalNodes += subNodes;
+	}
+	totalNodes++; // Count this node
+	return 1 + maxDepth;
+}
+
+void CalcOccupancy(IGenericTreeNode* node, int& OccupiedNodes_out, int& TotalNodes_out)
+{
+	if (node->IsLeaf())
+	{
+		OccupiedNodes_out = 0; TotalNodes_out = 0;
+		return;
+	}
+
+	std::vector<IGenericTreeNode*>children = node->GetChildren();
+	TotalNodes_out = 4;
+	OccupiedNodes_out = children.size();
+	for (const auto& child : children) {
+		int Occupancy, TotalNodes;
+		CalcOccupancy(child, Occupancy, TotalNodes);
+		OccupiedNodes_out += Occupancy;
+		TotalNodes_out += TotalNodes;
+	}
+}
+
+int CountNodes(IGenericTreeNode* node)
+{
+	if (node->IsLeaf())
+	{
+		return 1;
+	}
+
+	std::vector<IGenericTreeNode*>children = node->GetChildren();
+	int temp = 1; // Count this node
+	for (const auto& child : children) {
+		temp += CountNodes(child);
+	}
+	return temp;
+}
+
+void ComputeTreeStats(IGenericTreeNode* root)
+{
+	// Get the maximum depth of the tree
+	int max_depth = CalcMaxDepth(root);
+	int TotalNodes = 0, Occupancy = 0;
+	CalcOccupancy(root, Occupancy, TotalNodes);
+	float OccupancyPerc = (float)Occupancy / (float)TotalNodes * 100.0f;
+	log_debug("[DBG] [BVH] max_depth: %d, Occupancy: %d, TotalNodes: %d, OccupancyPerc: %0.3f",
+		max_depth, Occupancy, TotalNodes, OccupancyPerc);
+}
+
+int CountInnerNodes(BVHNode* buffer, int curNode)
+{
+	if (buffer[curNode].ref != -1)
+		return 0;
+
+	int numInnerNodes = 0;
+	for (int i = 0; i < 4; i++)
+	{
+		if (buffer[curNode].children[i] == -1)
+			break;
+		numInnerNodes += CountInnerNodes(buffer, buffer[curNode].children[i]);
+	}
+	return numInnerNodes + 1;
+}
+
 // This method can compact a BVH4 stored in a BVHNode buffer. It's WIP, but it appears to work.
 // Only call this function for inner nodes.
-std::vector<EncodeItem> PullUpChildren(BVHNode* buffer, int curNode)
+std::vector<EncodeItem> PullUpChildrenAndCompact(BVHNode* buffer, int curNode)
 {
 	std::vector<EncodeItem> items;
 	BVHNode& node = buffer[curNode];
@@ -2904,22 +3021,64 @@ std::vector<EncodeItem> PullUpChildren(BVHNode* buffer, int curNode)
 	if (numChildren == 2 || numChildren == 3)
 	{
 		int curCapacity = numChildren;
-		// Find a subchild with exactly 2 nodes
 		for (int i = 0; i < numChildren; i++)
 		{
 			const int childIdx = node.children[i];
 			const bool childIsLeaf = buffer[childIdx].ref != -1;
-			if (curCapacity < 4 && !childIsLeaf && buffer[childIdx].numChildren == 2)
+
+			if (!childIsLeaf)
 			{
-				//log_debug("[DBG] [BVH] Compacting node: %d-%d, numChildren: %d", curNode, i, numChildren);
-				for (int j = 0; j < 2; j++)
+				if (curCapacity < 4 && buffer[childIdx].numChildren == 2)
 				{
+					//log_debug("[DBG] [BVH] Compacting node: %d-%d, numChildren: %d", curNode, i, numChildren);
+					for (int j = 0; j < 2; j++)
+					{
+						const int subChildIdx = buffer[childIdx].children[j];
+						const bool subChildIsLeaf = (buffer[subChildIdx].ref != -1);
+						// Pull these sub-children up
+						items.push_back(EncodeItem(subChildIdx, subChildIsLeaf, 0));
+					}
+					curCapacity++;
+				}
+#ifdef BVH_FULL_COMPACTION
+				else if (curCapacity < 4 && buffer[childIdx].numChildren == 3)
+				{
+					// Keep this child
+					items.push_back(EncodeItem(childIdx, childIsLeaf, 0));
+
+					// Pull up one grandchild, compact and keep this node
+					int j = 2; // TODO: Use SAH to select j instead...
 					const int subChildIdx = buffer[childIdx].children[j];
 					const bool subChildIsLeaf = (buffer[subChildIdx].ref != -1);
-					// Pull these sub-children up
 					items.push_back(EncodeItem(subChildIdx, subChildIsLeaf, 0));
+					// Compact the child
+					buffer[childIdx].children[j] = -1;
+					buffer[childIdx].numChildren--;
+
+					curCapacity++;
 				}
-				curCapacity += 1;
+				else if (curCapacity < 3 && buffer[childIdx].numChildren == 4)
+				{
+					// Keep this child
+					items.push_back(EncodeItem(childIdx, childIsLeaf, 0));
+
+					// TODO: Select 2 granchildren according to the SAH
+					for (int j = 3; j >= 2; j--)
+					{
+						const int subChildIdx = buffer[childIdx].children[j];
+						const bool subChildIsLeaf = (buffer[subChildIdx].ref != -1);
+						// Pull these sub-children up
+						items.push_back(EncodeItem(subChildIdx, subChildIsLeaf, 0));
+						buffer[childIdx].children[j] = -1;
+						buffer[childIdx].numChildren--;
+					}
+					curCapacity += 2;
+				}
+#endif
+				else
+				{
+					items.push_back(EncodeItem(childIdx, childIsLeaf, 0));
+				}
 			}
 			else
 			{
@@ -2936,15 +3095,7 @@ std::vector<EncodeItem> PullUpChildren(BVHNode* buffer, int curNode)
 		if (childIdx == -1)
 			break;
 		const bool isLeaf = (buffer[childIdx].ref != -1);
-
-		if (isLeaf)
-		{
-			items.push_back(EncodeItem(childIdx, isLeaf, 0));
-		}
-		else
-		{
-			items.push_back(EncodeItem(childIdx, isLeaf, 0));
-		}
+		items.push_back(EncodeItem(childIdx, isLeaf, 0));
 	}
 
 	return items;
@@ -2953,6 +3104,8 @@ std::vector<EncodeItem> PullUpChildren(BVHNode* buffer, int curNode)
 void CompactBVHBuffer(BVHNode *buffer, int numPrimitives, BVHNode *result, int& numQBVHNodes_out, int &numInnerNodes_out)
 {
 	int rootIdx = buffer[0].rootIdx;
+	//int prevTotalNodes = 0;
+	//const int prevMaxDepth = CalcMaxDepth(buffer, rootIdx, prevTotalNodes);
 	//BVHNode* result = nullptr;
 	numQBVHNodes_out = numPrimitives + CalcNumInnerQBVHNodes(numPrimitives);
 	//numQBVHNodes_out = numPrimitives + max(1, (int)ceil(0.70f * numPrimitives));
@@ -2998,7 +3151,7 @@ void CompactBVHBuffer(BVHNode *buffer, int numPrimitives, BVHNode *result, int& 
 
 			// Pull up the grandchildren if possible
 			std::vector<EncodeItem> items;
-			items = PullUpChildren(buffer, curNode);
+			items = PullUpChildrenAndCompact(buffer, curNode);
 
 			for (const auto& item : items)
 			{
@@ -3011,79 +3164,19 @@ void CompactBVHBuffer(BVHNode *buffer, int numPrimitives, BVHNode *result, int& 
 			numInnerNodes_out++;
 		}
 	}
-}
 
-void CheckTree(InnerNode4* innerNodes, int curNode)
-{
-	if (innerNodes[curNode].numChildren < 0 || innerNodes[curNode].numChildren > 4) {
-		log_debug("[DBG] [BVH] ERROR. node: %d, has numChildren: %d", curNode, innerNodes[curNode].numChildren);
-		return;
-	}
-	for (int i = 0; i < 4; i++) {
-		if (!(innerNodes[curNode].isLeaf[i]))
-			CheckTree(innerNodes, innerNodes[curNode].children[i]);
-	}
-}
-
-int CalcMaxDepth(IGenericTreeNode* node)
-{
-	if (node->IsLeaf())
-	{
-		return 1;
-	}
-
-	std::vector<IGenericTreeNode*>children = node->GetChildren();
-	int max_depth = 0;
-	for (const auto &child : children) {
-		int depth = CalcMaxDepth(child);
-		max_depth = max(1 + depth, max_depth);
-	}
-	return max_depth;
-}
-
-void CalcOccupancy(IGenericTreeNode* node, int &OccupiedNodes_out, int &TotalNodes_out)
-{
-	if (node->IsLeaf())
-	{
-		OccupiedNodes_out = 0; TotalNodes_out = 0;
-		return;
-	}
-
-	std::vector<IGenericTreeNode*>children = node->GetChildren();
-	TotalNodes_out = 4;
-	OccupiedNodes_out = children.size();
-	for (const auto& child : children) {
-		int Occupancy, TotalNodes;
-		CalcOccupancy(child, Occupancy, TotalNodes);
-		OccupiedNodes_out += Occupancy;
-		TotalNodes_out += TotalNodes;
-	}
-}
-
-int CountNodes(IGenericTreeNode* node)
-{
-	if (node->IsLeaf())
-	{
-		return 1;
-	}
-
-	std::vector<IGenericTreeNode*>children = node->GetChildren();
-	int temp = 1; // Count this node
-	for (const auto& child : children) {
-		temp += CountNodes(child);
-	}
-	return temp;
-}
-
-void ComputeTreeStats(IGenericTreeNode* root)
-{
-	// Get the maximum depth of the tree
-	int max_depth = CalcMaxDepth(root);
-	int TotalNodes = 0, Occupancy = 0;
-	CalcOccupancy(root, Occupancy, TotalNodes);
-	float OccupancyPerc = (float)Occupancy / (float)TotalNodes * 100.0f;
-	log_debug("[DBG] [BVH] max_depth: %d, Occupancy: %d, TotalNodes: %d, OccupancyPerc: %0.3f",
-		max_depth, Occupancy, TotalNodes, OccupancyPerc);
+	/*
+	int newTotalNodes = 0;
+	int newMaxDepth = CalcMaxDepth(result, 0, newTotalNodes);
+	int prevInnerNodes = prevTotalNodes - numPrimitives;
+	int newInnerNodes = newTotalNodes - numPrimitives;
+	float prevRatio = (float)prevInnerNodes / (float)numPrimitives;
+	float newRatio = (float)newInnerNodes / (float)numPrimitives;
+	log_debug("[DBG] [BVH] Prev max Depth: %d, total nodes: %d, inner: %d, ratio: %0.4f",
+		prevMaxDepth, prevTotalNodes, prevInnerNodes, prevRatio);
+	log_debug("[DBG] [BVH]  New max Depth: %d, total nodes: %d, inner: %d, ratio: %0.4f",
+		newMaxDepth, newTotalNodes, newInnerNodes, newRatio);
+	*/
 }
 
 AABB GetBVHNodeAABB(BVHNode* buffer, int curNode)
@@ -4402,8 +4495,8 @@ LBVH* LBVH::BuildDirectBVH4GPU(const XwaVector3* vertices, const int numVertices
 
 	// Build the tree
 	int root = -1;
-#ifdef COMPACT_BVH
-	const int numNodes = numInnerNodes + numPrimitives;
+//#ifdef COMPACT_BVH
+	int numNodes = numInnerNodes + numPrimitives;
 	BVHNode* tmpBuffer = new BVHNode[numNodes];
 	BVHNode* buffer = new BVHNode[numPrimitives + CalcNumInnerQBVHNodes(numPrimitives)];
 	DirectBVH4BuilderGPU(centroidBox, leafItems, vertices, indices, tmpBuffer);
@@ -4414,8 +4507,9 @@ LBVH* LBVH::BuildDirectBVH4GPU(const XwaVector3* vertices, const int numVertices
 	}
 	int finalNodes, finalInnerNodes;
 	CompactBVHBuffer(tmpBuffer, numPrimitives, buffer, finalNodes, finalInnerNodes);
+	numNodes = finalNodes;
 	delete[] tmpBuffer;
-#else
+/*#else
 	const int numNodes = numInnerNodes + numPrimitives;
 	BVHNode* buffer = new BVHNode[numNodes];
 	DirectBVH4BuilderGPU(centroidBox, leafItems, vertices, indices, buffer);
@@ -4424,7 +4518,7 @@ LBVH* LBVH::BuildDirectBVH4GPU(const XwaVector3* vertices, const int numVertices
 		log_debug("[DBG] [BVH] DirectBVH4BuilderGPU failed");
 		return nullptr;
 	}
-#endif
+#endif*/
 
 	// DEBUG
 	/*log_debug("[DBG] [BVH] sceneBox: %s", sceneBox.ToString().c_str());
@@ -8071,21 +8165,20 @@ void TestDBVH4(char *fileName)
 	PrintTreeBuffer("", tmpBuffer, 0);
 
 	// Compact the BVH
-	/*
 	int finalNumNodes = 0, finalInnerNodes = 0;
 	BVHNode* QBVHBuffer = new BVHNode[numPrimitives + CalcNumInnerQBVHNodes(numPrimitives)];
 	CompactBVHBuffer(tmpBuffer, numPrimitives, QBVHBuffer, finalNumNodes, finalInnerNodes);
-	*/
+
 	delete[] tmpBuffer;
 
 	float ratio = (float)g_directBuilderNextInnerNode / (float)numPrimitives;
 	log_debug("[DBG] [BVH] numInnerNodes: %d, numLeaves: %d, ratio: %0.4f",
 		g_directBuilderNextInnerNode, numLeaves, ratio);
 
-	/*ratio = (float)finalInnerNodes / (float)numPrimitives;
+	ratio = (float)finalInnerNodes / (float)numPrimitives;
 	log_debug("[DBG] [BVH] final numInnerNodes: %d, numLeaves: %d, ratio: %0.4f",
 		finalInnerNodes, numPrimitives, ratio);
 
 	PrintTreeBuffer("", QBVHBuffer, 0);
-	delete[] QBVHBuffer;*/
+	delete[] QBVHBuffer;
 }

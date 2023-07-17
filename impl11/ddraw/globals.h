@@ -305,6 +305,9 @@ extern float g_fMouseDecelRate_s;
 // OPT Debugging
 extern bool g_bDumpOptNodes;
 
+// ZIP variables
+extern bool g_bCleanupZIPDirs;
+
 // *****************************************************
 // Global functions
 // *****************************************************

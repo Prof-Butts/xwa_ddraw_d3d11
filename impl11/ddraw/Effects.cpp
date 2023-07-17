@@ -216,13 +216,14 @@ GetDATGroupImageListFun		GetDATGroupImageList = nullptr;
 // **************************
 // ZIPReader global vars and function pointers
 HMODULE g_hZIPReader = nullptr;
+bool g_bCleanupZIPDirs = true;
 
-SetZIPVerbosityFun				SetZIPVerbosity = nullptr;
-LoadZIPFileFun					LoadZIPFile = nullptr;
-GetZIPGroupImageCountFun			GetZIPGroupImageCount = nullptr;
-GetZIPGroupImageListFun			GetZIPGroupImageList = nullptr;
-DeleteAllTempZIPDirectoriesFun	DeleteAllTempZIPDirectories = nullptr;
-GetZIPImageMetadataFun			GetZIPImageMetadata = nullptr;
+SetZIPVerbosityFun             SetZIPVerbosity = nullptr;
+LoadZIPFileFun                 LoadZIPFile = nullptr;
+GetZIPGroupImageCountFun       GetZIPGroupImageCount = nullptr;
+GetZIPGroupImageListFun        GetZIPGroupImageList = nullptr;
+DeleteAllTempZIPDirectoriesFun DeleteAllTempZIPDirectories = nullptr;
+GetZIPImageMetadataFun         GetZIPImageMetadata = nullptr;
 // **************************
 
 void SmallestK::insert(Vector3 P, Vector3 col, Vector3 dir, float falloff, float angle) {

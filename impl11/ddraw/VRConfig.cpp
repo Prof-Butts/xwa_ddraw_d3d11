@@ -2619,6 +2619,12 @@ bool LoadSSAOParams() {
 			if (_stricmp(param, "force_alt_explosion") == 0) {
 				g_iForceAltExplosion = (int)fValue;
 			}
+			// Set this to false to prevent the cleanup of temporary ZIP files.
+			// This makes loading missions a little bit faster after the first
+			// time, since files will remain uncompressed on disk.
+			if (_stricmp(param, "cleanup_temp_zip_files") == 0) {
+				g_bCleanupZIPDirs = (bool)fValue;
+			}
 
 			if (_stricmp(param, "enable_levels_shader") == 0) {
 				g_bEnableLevelsShader = (bool)fValue;

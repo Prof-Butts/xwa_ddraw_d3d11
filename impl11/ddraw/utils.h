@@ -3,6 +3,8 @@
 
 #pragma once
 #include "common.h"
+#include "Vectors.h"
+#include "Matrices.h"
 
 void toupper(char *string);
 
@@ -85,3 +87,13 @@ void log_debug(const char *format, ...);
 void log_file(const char *format, ...);
 char* stristr(const char* str1, const char* str2);
 void DisplayTimedMessageV(uint32_t seconds, int row, const char *format, ...);
+
+void ShowMatrix3(const Matrix3& mat, char* name);
+
+int EigenVals(float3x3& A, Vector3& w);
+int EigenVals(Matrix3& A, Vector3& w);
+
+int EigenVectors(float3x3& A, float3x3& Q, Vector3& w);
+int EigenVectors(Matrix3& A, Matrix3& Q, Vector3& w);
+
+int EigenSys(Matrix3& A, Matrix3& V, Vector3& w);

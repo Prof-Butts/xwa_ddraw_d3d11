@@ -70,10 +70,7 @@ protected:
 
 private:
     float m[4];
-
 };
-
-
 
 ///////////////////////////////////////////////////////////////////////////
 // 3x3 matrix
@@ -81,6 +78,47 @@ private:
 class Matrix3
 {
 public:
+    class float3x3
+    {
+    public:
+        float3x3()
+        {
+            for (int i = 0; i < 3; i++)
+                for (int j = 0; j < 3; j++)
+                    m[i][j] = 0.0f;
+        }
+
+        float3x3(const Matrix3& X)
+        {
+            const float* data = X.get();
+
+            m[0][0] = data[0];
+            m[1][0] = data[1];
+            m[2][0] = data[2];
+
+            m[0][1] = data[3];
+            m[1][1] = data[4];
+            m[2][1] = data[5];
+
+            m[0][2] = data[6];
+            m[1][2] = data[7];
+            m[2][2] = data[8];
+        }
+
+        inline const float* operator[](int i) const
+        {
+            return m[i];
+        }
+
+        inline float* operator[](int i)
+        {
+            return m[i];
+        }
+
+    private:
+        float m[3][3];
+    };
+
     // constructors
     Matrix3();  // init with identity
     Matrix3(const float src[9]);
@@ -92,6 +130,7 @@ public:
     void        set(float m0, float m1, float m2,   // 1st column
                     float m3, float m4, float m5,   // 2nd column
                     float m6, float m7, float m8);  // 3rd column
+    void        set(const float3x3& X);
     void        setRow(int index, const float row[3]);
     void        setRow(int index, const Vector3& v);
     void        setColumn(int index, const float col[3]);
@@ -129,7 +168,7 @@ private:
 
 };
 
-
+using float3x3 = Matrix3::float3x3;
 
 ///////////////////////////////////////////////////////////////////////////
 // 4x4 matrix
@@ -599,7 +638,20 @@ inline float& Matrix3::operator[](int index)
     return m[index];
 }
 
+inline void Matrix3::set(const float3x3& X)
+{
+    m[0] = X[0][0];
+    m[1] = X[1][0];
+    m[2] = X[2][0];
 
+    m[3] = X[0][1];
+    m[4] = X[1][1];
+    m[5] = X[2][1];
+
+    m[6] = X[0][2];
+    m[7] = X[1][2];
+    m[8] = X[2][2];
+}
 
 inline Matrix3 operator-(const Matrix3& rhs)
 {

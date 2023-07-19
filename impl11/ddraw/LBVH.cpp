@@ -36,6 +36,29 @@ int g_maxDirectBVHIteration = -1;
 // Inner Node Index Map
 LONG g_directBuilderNextInnerNode = 1;
 
+// From:
+// https://play.google.com/books/reader?id=ujfOBQAAQBAJ&pg=GBS.PA5&hl=en_US
+// Vector basis for the DiTO algorithm.
+Vector3 KdopBasis[13] = {
+	Vector3(1, 0, 0),
+	Vector3(0, 1, 0),
+	Vector3(0, 0, 1),
+
+	Vector3(1,  1,  1),
+	Vector3(1,  1, -1),
+	Vector3(1, -1,  1),
+
+	Vector3(1, -1, -1),
+	Vector3(1,  1,  0),
+	Vector3(1, -1,  0),
+
+	Vector3(1,  0,  1),
+	Vector3(1,  0, -1),
+	Vector3(0,  1,  1),
+
+	Vector3(0,  1, -1),
+};
+
 static HMODULE hEmbree = NULL;
 static bool g_bEmbreeLoaded = false;
 rtcNewDeviceFun g_rtcNewDevice = nullptr;

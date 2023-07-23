@@ -1900,8 +1900,11 @@ void EffectsRenderer::BuildMultipleBLASFromCurrentBLASMap()
 	}
 
 	g_bRTReAllocateBvhBuffer = (g_iRTTotalBLASNodesInFrame > g_iRTMaxBLASNodesSoFar);
-	log_debug("[DBG] [BVH] MultiBuilder: %s, g_iRTTotalNumNodesInFrame: %d, g_iRTMaxNumNodesSoFar: %d, Reallocate? %d",
-		g_sBLASBuilderTypeNames[(int)g_BLASBuilderType], g_iRTTotalBLASNodesInFrame, g_iRTMaxBLASNodesSoFar, g_bRTReAllocateBvhBuffer);
+	log_debug("[DBG] [BVH] MultiBuilder: %s:%s g_iRTTotalNumNodesInFrame: %d, g_iRTMaxNumNodesSoFar: %d, Reallocate? %d",
+		g_sTLASBuilderTypeNames[(int)g_TLASBuilderType],
+		g_sBLASBuilderTypeNames[(int)g_BLASBuilderType],
+		g_iRTTotalBLASNodesInFrame, g_iRTMaxBLASNodesSoFar, g_bRTReAllocateBvhBuffer);
+
 	g_iRTMaxBLASNodesSoFar = max(g_iRTTotalBLASNodesInFrame, g_iRTMaxBLASNodesSoFar);
 }
 

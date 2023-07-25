@@ -24,6 +24,8 @@ bool g_bEnableQBVHwSAH = false; // The FastLQBVH builder still has some problems
 #undef DEBUG_BU
 #undef COMPACT_BVH
 #define BVH_REPROCESS_SPLITS 1
+#define BVH_USE_FULL_BOXES 1
+
 // I really don't get this, but *not* doing full compaction is actually
 // better: there's less total nodes, less inner nodes, lower innernodes/prims ratio
 // and the SA is lower too. Go figure!
@@ -1926,7 +1928,7 @@ InnerNode* PLOC(const std::vector<LeafItem>& leafItems, int& root)
 	}
 
 	// Initialize the clusters
-	PLOCCluster* clusters[2];
+	PLOCCluster* clusters[2] = { nullptr, nullptr };
 	clusters[0] = new PLOCCluster[numLeaves];
 	clusters[1] = new PLOCCluster[numLeaves];
 	int clusterNums[2] = { numLeaves, 0 };
@@ -2675,7 +2677,7 @@ BVHNode* EncodeNodesAsQBVH(int root, InnerNode* innerNodes, const std::vector<Le
 		int curNode = curItem.first;
 		bool isLeaf = curItem.second;
 		Q.pop();
-		BVHNode node;
+		BVHNode node = { 0 };
 		int nextchild = 0;
 
 		if (!isLeaf)
@@ -2874,7 +2876,7 @@ BVHNode* EncodeNodesAsQBVHwSAH(int root, InnerNode* innerNodes, const std::vecto
 		int curNode = std::get<0>(curItem);
 		bool isLeaf = std::get<1>(curItem);
 		Q.pop();
-		BVHNode node;
+		BVHNode node = { 0 };
 		int nextchild = 0;
 
 		if (isLeaf)
@@ -5082,7 +5084,7 @@ LBVH* LBVH::BuildEmbree(const XwaVector3* vertices, const int numVertices, const
 		aabb.Expand(v1);
 		aabb.Expand(v2);
 
-		RTCBuildPrimitive prim;
+		RTCBuildPrimitive prim = { 0 };
 		prim.geomID = 0;
 		prim.primID = TriID;
 
@@ -5529,14 +5531,19 @@ struct InnerNode4BuildDataGPU
 	int   fitCounter;
 	int   fitCounterTarget;
 
+#ifndef BVH_USE_FULL_BOXES
 	int   nextDim[BU_PARTITIONS];
 	float nextMin[BU_PARTITIONS];
 	float nextMax[BU_PARTITIONS];
+#else
+	AABB  subBoxes[BU_PARTITIONS];
+#endif
 
 #ifdef BVH_REPROCESS_SPLITS
 	int   iterations;
 	bool  processed;
 #endif
+	int   mergeSlot[BU_PARTITIONS];
 };
 
 constexpr float BVH_NORM_FACTOR = 1048576.0f; // 2^20, same precision we use for 64-bit Morton Codes
@@ -5716,7 +5723,7 @@ static void Refit4(
 			curInnerNodeIndex,
 			nodeBox.ToString().c_str(),
 			parentIndex,
-			parentIndex >= rootIndex ? innerNodeBuildData[auxParentIndex].fitCounter : -1);
+			parentIndex >= rootIndex ? innerNodeBuildData[auxInnerNodeIndex].fitCounter : -1);
 		tabLevel++;
 #endif
 
@@ -6563,18 +6570,83 @@ static void ComputeSplits4(InnerNode4BuildDataGPU& splitData, int splitDim=-1)
 //		splitData.dims[2], split2, box.ToString().c_str());
 //#endif
 
+#ifndef BVH_USE_FULL_BOXES
 	for (int i = 0; i < BU_PARTITIONS; i++)
 	{
 		splitData.nextMin[i] = FLT_MAX;
 		splitData.nextMax[i] = -FLT_MAX;
+		splitData.mergeSlot[i] = -1;
 	}
+#else
+	for (int i = 0; i < BU_PARTITIONS; i++)
+	{
+		splitData.subBoxes[i].SetInfinity();
+		splitData.mergeSlot[i] = -1;
+	}
+#endif
+}
+
+static void ReprocessSplits4(InnerNode4BuildDataGPU& splitData, int splitDim=-1)
+{
+	AABB box;
+	// Compute the first split: this one should be unchanged from the previous split.
+	const int   dim0   = splitDim == -1 ? splitData.box.GetLargestDimension() : splitDim;
+	const float split0 = 0.5f * (splitData.box.max[dim0] + splitData.box.min[dim0]);
+
+	splitData.dims[0]   = dim0;
+	splitData.splits[0] = split0;
+	//#ifdef DEBUG_BU
+	//	log_debug("[DBG] [BVH] dim[0]: %d, split: %0.3f, box: %s",
+	//		splitData.dims[0], split0, splitData.box.ToString().c_str());
+	//#endif
+
+	// Look at the left sub box and compute the next dimension on that side
+	box = splitData.subBoxes[0].IsInvalid() ? splitData.subBoxes[1] : splitData.subBoxes[0];
+	if (box.IsInvalid())
+		log_debug("[DBG] [BVH] ERROR: Invalid box is being reprocessed");
+	const int   dim1    = box.GetLargestDimension();
+	const float split1  = 0.5f * (box.max[dim1] + box.min[dim1]);
+	splitData.dims[1]   = dim1;
+	splitData.splits[1] = split1;
+	//#ifdef DEBUG_BU
+	//	log_debug("[DBG] [BVH] dim[1]: %d, split: %0.3f, box: %s",
+	//		splitData.dims[1], split1, box.ToString().c_str());
+	//#endif
+
+	// Repeat for the right sub box
+	box = splitData.subBoxes[2].IsInvalid() ? splitData.subBoxes[3] : splitData.subBoxes[2];
+	if (box.IsInvalid())
+		log_debug("[DBG] [BVH] ERROR: Invalid box is being reprocessed");
+	const int   dim2    = box.GetLargestDimension();
+	const float split2  = 0.5f * (box.max[dim2] + box.min[dim2]);
+	splitData.dims[2]   = dim2;
+	splitData.splits[2] = split2;
+	//#ifdef DEBUG_BU
+	//	log_debug("[DBG] [BVH] dim[2]: %d, split: %0.3f, box: %s",
+	//		splitData.dims[2], split2, box.ToString().c_str());
+	//#endif
+
+#ifndef BVH_USE_FULL_BOXES
+	for (int i = 0; i < BU_PARTITIONS; i++)
+	{
+		splitData.nextMin[i] = FLT_MAX;
+		splitData.nextMax[i] = -FLT_MAX;
+		splitData.mergeSlot[i] = -1;
+	}
+#else
+	for (int i = 0; i < BU_PARTITIONS; i++)
+	{
+		splitData.subBoxes[i].SetInfinity();
+		splitData.mergeSlot[i] = -1;
+	}
+#endif
 }
 
 template<class T>
 static void DirectBVH4Init(DBVH4BuildData<T> &data)
 {
 #ifdef DEBUG_BU
-	log_debug("[DBG] [BVH] centroidBox: %s", centroidBox.ToString().c_str());
+	log_debug("[DBG] [BVH] centroidBox: %s", data.centroidBox.ToString().c_str());
 #endif
 	const int rootIdx = 0;
 
@@ -6691,6 +6763,11 @@ static bool DirectBVH4Classify(
 #endif
 			}
 
+//#ifdef DEBUG_BU
+//			log_debug("[DBG] [BVH] slot: %d, dim: %d, key: %0.4f, keySplit: %0.4f, LT: %d",
+//				k, dim, key, keySplit, (key < keySplit));
+//#endif
+
 			comps[k] = key < keySplit;
 //#ifdef DEBUG_BU
 //			log_debug("[DBG] [BVH] primIdx: %d, k: %d, key: %0.3f, keySplit: %0.3f, dim: %d",
@@ -6710,20 +6787,30 @@ static bool DirectBVH4Classify(
 			reduceDim = innerNodeBD.dims[2];
 			slot = comps[2] ? 2 : 3;
 		}
+#ifndef BVH_USE_FULL_BOXES
 		innerNodeBD.nextDim[slot] = reduceDim;
 		innerNodeBD.nextMin[slot] = min(innerNodeBD.nextMin[slot], leaf.centroid[reduceDim]); // ATOMIC
 		innerNodeBD.nextMax[slot] = max(innerNodeBD.nextMax[slot], leaf.centroid[reduceDim]); // ATOMIC
 		// Update the whole sub-box
-		//innerNodeBD.subBoxes[slot].Expand(leaf.centroid); // 6 ATOMICS
+#else
+		innerNodeBD.subBoxes[slot].Expand(leaf.centroid); // 6 ATOMICS
+#endif
 		innerNodeBD.counts[slot]++; // ATOMIC
 		data.leafParents[primIdx] = { parentNodeIndex, slot };
 
 #ifdef DEBUG_BU
+#ifndef BVH_USE_FULL_BOXES
 		log_debug("[DBG] [BVH] comp:%d,%d,%d, (%d, (%0.1f, %0.1f, %0.1f)) -> slot[%d]:%d, reduceDim:%d, nextMinMax: [%0.3f, %0.3f]",
 			comps[0], comps[1], comps[2],
 			primIdx, leaf.centroid[0], leaf.centroid[1], leaf.centroid[2],
 			slot, parentNodeIndex, reduceDim,
 			innerNodeBD.nextMin[slot], innerNodeBD.nextMax[slot]);
+#else
+		log_debug("[DBG] [BVH] comp:%d,%d,%d, (%d, (%0.1f, %0.1f, %0.1f)) -> slot[%d]:%d, reduceDim:%d",
+			comps[0], comps[1], comps[2],
+			primIdx, leaf.centroid[0], leaf.centroid[1], leaf.centroid[2],
+			slot, parentNodeIndex, reduceDim);
+#endif
 #endif
 	}
 
@@ -6741,8 +6828,6 @@ static void DirectBVH4EmitInnerNode(
 	DBVH4BuildData<T> &data)
 {
 	const int auxParentNodeIndex = EncodeIndexToInnerIndex(data.buffer, parentNodeIndex);
-	// Connect this inner node to the new one:
-	data.buffer[parentNodeIndex].children[slot] = newNodeIndex;
 
 	BVHNode newNode = { 0 };
 	newNode.parent = parentNodeIndex;
@@ -6759,22 +6844,29 @@ static void DirectBVH4EmitInnerNode(
 	InnerNode4BuildDataGPU newInnerNode = { 0 };
 	newInnerNode.box = box;
 	newInnerNode.fitCounterTarget = data.innerNodeBuildData[auxParentNodeIndex].counts[slot];
-	//for (int i = 0; i < BU_PARTITIONS; i++)
-	//	newInnerNode.subBoxes[i].SetInfinity();
 	if (computeSplits)
+#ifndef BVH_USE_FULL_BOXES
 		ComputeSplits4(newInnerNode, nextDim);
+#else
+		ComputeSplits4(newInnerNode, -1);
+#endif
 	else
 		newInnerNode.skipClassify = true;
+
 	//innerNodeBuildData[newNodeIndex] = newInnerNode;
 	// Reserve a new inner node aux item
-	const int newIndex = AddInnerNodeIndex(data.buffer, newNodeIndex);
-	if (newIndex >= data.numInnerNodes)
+	const int newInnerIndex = AddInnerNodeIndex(data.buffer, newNodeIndex);
+#ifdef DEBUG_BU
+	log_debug("[DBG] [BVH] NEW INNER NODE: buffer Index: %d --> newInnerIndex: %d",
+		newNodeIndex, newInnerIndex);
+#endif
+	if (newInnerIndex >= data.numInnerNodes)
 	{
-		log_debug("[DBG] [BVH] ERROR: Out-of-bounds write. newIndex: %d, numInnerNodes: %d, numPrimitives: %d",
-			newIndex, data.numInnerNodes, data.numPrimitives);
+		log_debug("[DBG] [BVH] ERROR: Out-of-bounds write. newInnerIndex: %d, numInnerNodes: %d, numPrimitives: %d",
+			newInnerIndex, data.numInnerNodes, data.numPrimitives);
 		DumpTLASInputData(data);
 	}
-	data.innerNodeBuildData[newIndex] = newInnerNode;
+	data.innerNodeBuildData[newInnerIndex] = newInnerNode;
 }
 
 template<class T>
@@ -6823,6 +6915,112 @@ static void DirectBVH4EmitInnerNodes(
 		const int   dim0   = innerNodeBD.dims[0];
 		const float split0 = innerNodeBD.splits[0];
 
+		int emptySlots = 0;
+		for (int k = 0; k < BU_PARTITIONS; k++)
+		{
+			if (innerNodeBD.counts[k] == 0)
+				emptySlots++;
+		}
+#ifdef DEBUG_BU
+		log_debug("[DBG] [BVH] node:%d, counts:[%d, %d, %d, %d], empty slots: %d",
+			auxIdx, innerNodeBD.counts[0], innerNodeBD.counts[1], innerNodeBD.counts[2], innerNodeBD.counts[3], emptySlots);
+#endif
+
+#ifdef BVH_REPROCESS_SPLITS
+		if (innerNodeBD.iterations == 1)
+		{
+#ifdef DEBUG_BU
+			log_debug("[DBG] [BVH] Inner node: %d has been reprocessed and now has %d empty slots, counts: [%d, %d, %d, %d]",
+				auxIdx, emptySlots,
+				innerNodeBD.counts[0], innerNodeBD.counts[1], innerNodeBD.counts[2], innerNodeBD.counts[3]);
+#endif
+			innerNodeBD.iterations++;
+		}
+
+		if (emptySlots > 1 && innerNodeBD.iterations == 0 && !innerNodeBD.skipClassify)
+		{
+#ifdef DEBUG_BU
+			log_debug("[DBG] [BVH] Too many empty slots (%d) for an inner node: %d, counts: [%d, %d, %d, %d]",
+				emptySlots, auxIdx,
+				innerNodeBD.counts[0], innerNodeBD.counts[1], innerNodeBD.counts[2], innerNodeBD.counts[3]);
+
+			// Redo this node, but update the split planes
+			log_debug("[DBG] [BVH]    Re-doing inner node: %d. prev splits:", auxIdx);
+			for (int i = 0; i < BU_PARTITIONS - 1; i++)
+				log_debug("[DBG] [BVH]       dim: %d, split:%0.4f", innerNodeBD.dims[i], innerNodeBD.splits[i]);
+#ifndef BVH_USE_FULL_BOXES
+			for (int i = 0; i < BU_PARTITIONS; i++)
+				log_debug("[DBG] [BVH]       range:[%0.4f, %0.4f]",
+					innerNodeBD.nextMin[i], innerNodeBD.nextMax[i]);
+#else
+			for (int i = 0; i < BU_PARTITIONS; i++)
+				log_debug("[DBG] [BVH]       range:%s",
+					innerNodeBD.subBoxes[i].ToString().c_str());
+#endif
+#endif
+
+#ifndef BVH_USE_FULL_BOXES
+			// splits[0] doesn't change because that one is guaranteed to split the primitives in two partitions.
+			if (innerNodeBD.nextMin[1] != FLT_MAX)
+				innerNodeBD.splits[1] = 0.5f * (innerNodeBD.nextMin[1] + innerNodeBD.nextMax[1]);
+			if (innerNodeBD.nextMin[2] != FLT_MAX)
+				innerNodeBD.splits[2] = 0.5f * (innerNodeBD.nextMin[2] + innerNodeBD.nextMax[2]);
+#else
+			// Recompute the split planes, but using the subBoxes instead of nextMin/Max
+			ReprocessSplits4(innerNodeBD);
+#endif
+			innerNodeBD.iterations++;
+			// Reset the counts
+			for (int i = 0; i < BU_PARTITIONS; i++)
+				innerNodeBD.counts[i] = 0;
+
+#ifdef DEBUG_BU
+#ifndef BVH_USE_FULL_BOXES
+			log_debug("[DBG] [BVH]    Re-doing inner node: %d. new splits:", auxIdx);
+			for (int i = 0; i < BU_PARTITIONS - 1; i++)
+				log_debug("[DBG] [BVH]       dim: %d, split:%0.4f", innerNodeBD.dims[i], innerNodeBD.splits[i]);
+			for (int i = 0; i < BU_PARTITIONS; i++)
+				log_debug("[DBG] [BVH]       range:[%0.4f, %0.4f]",
+					innerNodeBD.nextMin[i], innerNodeBD.nextMax[i]);
+#endif
+#endif
+
+			// At least one inner node must be re-processed, so we can't update the first inner node either
+			updateFirstNode = false;
+			continue;
+		}
+#endif
+
+		// Merge slots if possible.
+		// For instance, if a node has counts: [6, 2, 2, 6], we can merge slots 1 and 2 so that only one inner node
+		// is emitted below (which would also be marked as "skip"). Another example, counts of: [2, 2, 2, 2] can
+		// be merged in two nodes of: [4, 0, 4, 0]
+		// Slots with 1 element cannot be merged because those are leaves that are connected directly to this node,
+		// and for that same reason, slots with 3 elements cannot be merged either. So we'll only look for slots
+		// with exactly 2 children.
+		for (int k = 0; k < BU_PARTITIONS; k++)
+		{
+			if (innerNodeBD.counts[k] == 2)
+			{
+				for (int j = k + 1; j < BU_PARTITIONS; j++)
+				{
+					if (innerNodeBD.counts[j] == 2)
+					{
+						innerNodeBD.mergeSlot[j] = k;
+						innerNodeBD.counts[k] += innerNodeBD.counts[j];
+						innerNodeBD.counts[j] = 0;
+						innerNodeBD.subBoxes[k].Expand(innerNodeBD.subBoxes[j]);
+#ifdef DEBUG_BU
+						log_debug("[DBG] [BVH] >>>> Merged slot %d --> %d, counts: [%d, %d, %d, %d]",
+							j, k,
+							innerNodeBD.counts[0], innerNodeBD.counts[1], innerNodeBD.counts[2], innerNodeBD.counts[3]);
+#endif
+						break;
+					}
+				}
+			}
+		}
+
 		// Count all the children. If a slot has:
 		//
 		// 5..N children: emit 1 new inner node for this slot, classify on the next iteration.
@@ -6833,54 +7031,10 @@ static void DirectBVH4EmitInnerNodes(
 		// So, the total number of new nodes (either leaves or inner nodes) emitted by this node is equal
 		// to the number of nonzero slots, and this information is known when EmitInnerNodes() is running.
 		int numChildren = 0;
-		int emptySlots = 0;
 		for (int k = 0; k < BU_PARTITIONS; k++)
 		{
 			numChildren += (innerNodeBD.counts[k] > 0) ? 1 : 0;
-			if (innerNodeBD.counts[k] == 0)
-				emptySlots++;
 		}
-
-#ifdef BVH_REPROCESS_SPLITS
-		if (innerNodeBD.iterations == 1)
-		{
-			/*log_debug("[DBG] [BVH] Inner node: %d has been reprocessed and now has %d empty slots, counts: [%d, %d, %d, %d]",
-				auxIdx, emptySlots,
-				innerNodeBD.counts[0], innerNodeBD.counts[1], innerNodeBD.counts[2], innerNodeBD.counts[3]);*/
-			innerNodeBD.iterations++;
-		}
-
-		if (emptySlots > 1 && innerNodeBD.iterations == 0 && !innerNodeBD.skipClassify)
-		{
-			/*log_debug("[DBG] [BVH] Too many empty slots (%d) for an inner node: %d, counts: [%d, %d, %d, %d]",
-				emptySlots, auxIdx,
-				innerNodeBD.counts[0], innerNodeBD.counts[1], innerNodeBD.counts[2], innerNodeBD.counts[3]);*/
-
-			// Redo this node, but update the split planes
-			/*log_debug("[DBG] [BVH]    Re-doing inner node: %d. prev splits: %0.4f:[%0.4f, %0.4f], %0.4f:[%0.4f, %0.4f]",
-				auxIdx,
-				innerNodeBD.splits[1], innerNodeBD.nextMin[1], innerNodeBD.nextMax[1],
-				innerNodeBD.splits[2], innerNodeBD.nextMin[2], innerNodeBD.nextMax[2]);*/
-
-			if (innerNodeBD.nextMin[1] != FLT_MAX)
-				innerNodeBD.splits[1] = 0.5f * (innerNodeBD.nextMin[1] + innerNodeBD.nextMax[1]);
-			if (innerNodeBD.nextMin[2] != FLT_MAX)
-				innerNodeBD.splits[2] = 0.5f * (innerNodeBD.nextMin[2] + innerNodeBD.nextMax[2]);
-			innerNodeBD.iterations++;
-			// Reset the counts
-			for (int i = 0; i < BU_PARTITIONS; i++)
-				innerNodeBD.counts[i] = 0;
-
-			/*log_debug("[DBG] [BVH]    Re-doing inner node: %d.  new splits: %0.4f:[%0.4f, %0.4f], %0.4f:[%0.4f, %0.4f]",
-				auxIdx,
-				innerNodeBD.splits[1], innerNodeBD.nextMin[1], innerNodeBD.nextMax[1],
-				innerNodeBD.splits[2], innerNodeBD.nextMin[2], innerNodeBD.nextMax[2]);*/
-
-			// At least one inner node must be re-processed, so we can't update the first inner node either
-			updateFirstNode = false;
-			continue;
-		}
-#endif
 
 		int startOffset = g_directBuilderNextNode;
 		g_directBuilderNextNode += numChildren; // ATOMIC: Reserve all the nodes we'll need in one go
@@ -6890,10 +7044,6 @@ static void DirectBVH4EmitInnerNodes(
 			if (innerNodeBD.counts[k] > 0)
 			{
 				node.children[k] = startOffset++;
-#ifdef DEBUG_BU
-				log_debug("[DBG] [BVH] node slot[%d]:%d, childOffset: %d",
-					k, i, innerNodeBD.childOffsets[k]);
-#endif
 			}
 		}
 		// Our children offsets are now contiguous and must be used for encoding on the QBVH buffer
@@ -6920,12 +7070,13 @@ static void DirectBVH4EmitInnerNodes(
 				DirectBVH4EmitInnerNode(innerNodeIdx, k, newNodeIndex, false, -1, AABB(), data);
 
 #ifdef DEBUG_BU
-				log_debug("[DBG] [BVH] QBVHIdx: (I) %d --> slot[%d]:%d, SKIP, fitCounterTarget: %d",
-					newNodeIndex, k, i, newInnerNode.fitCounterTarget);
+				log_debug("[DBG] [BVH] QBVHIdx: (I) %d --> slot[%d]:%d, SKIP",
+					newNodeIndex, k, innerNodeIdx);
 #endif
 			}
 			else if (innerNodeBD.counts[k] > BU_PARTITIONS)
 			{
+#ifndef BVH_USE_FULL_BOXES
 				// Emit a new inner node and split again
 				int   dimk   = k < 2 ? innerNodeBD.dims[1]   : innerNodeBD.dims[2];
 				float splitk = k < 2 ? innerNodeBD.splits[1] : innerNodeBD.splits[2];
@@ -6933,14 +7084,18 @@ static void DirectBVH4EmitInnerNodes(
 				int   nextDim = innerNodeBD.nextDim[k];
 				float nextMin = innerNodeBD.nextMin[k];
 				float nextMax = innerNodeBD.nextMax[k];
+#endif
 
 #ifdef DEBUG_BU
+#ifndef BVH_USE_FULL_BOXES
 				log_debug("[DBG] [BVH] inner node %d, slot:%d, nextMinMax: [%0.3f, %0.3f]",
-					i, k, nextMin, nextMax);
+					innerNodeIdx, k, nextMin, nextMax);
+#endif
 #endif
 
 				// Prepare the boxes for the next split
 				AABB box = innerNodeBox;
+#ifndef BVH_USE_FULL_BOXES
 				if (k < 2) // Left side of the main split
 					box.max[dim0] = split0;
 				else // Right side of the main split
@@ -6953,20 +7108,26 @@ static void DirectBVH4EmitInnerNodes(
 				box.min[nextDim] = nextMin;
 				box.max[nextDim] = nextMax;
 				// Use the tight boxes
-				//box = innerNodeBD.subBoxes[k];
+#else
+				box = innerNodeBD.subBoxes[k];
+#endif
 
 #ifdef DEBUG_BU
 				log_debug("[DBG] [BVH] inner node %d, slot:%d, counts: %d, box: %s",
-					i, k, innerNodeBD.counts[k], box.ToString().c_str());
+					innerNodeIdx, k, innerNodeBD.counts[k], box.ToString().c_str());
 #endif
 
 				// Emit a new inner node for this slot and split the subrange again
 				//int newNodeIndex = g_directBuilderNextNode;
 				//g_directBuilderNextNode++; // ATOMIC
+#ifndef BVH_USE_FULL_BOXES
 				DirectBVH4EmitInnerNode(innerNodeIdx, k, newNodeIndex, true, nextDim, box, data);
+#else
+				DirectBVH4EmitInnerNode(innerNodeIdx, k, newNodeIndex, true, -1, box, data);
+#endif
 #ifdef DEBUG_BU
-				log_debug("[DBG] [BVH] QBVHIdx: (I) %d --> %d, fitCounterTarget: %d",
-					newNodeIndex, i, newInnerNode.fitCounterTarget);
+				log_debug("[DBG] [BVH] QBVHIdx: (I) %d --> %d",
+					newNodeIndex, innerNodeIdx);
 #endif
 			}
 		}
@@ -6992,7 +7153,7 @@ static void DirectBVH4EmitLeaf(
 	// Deactivate this primitive for the next iteration
 	data.leafParents[primIndex].parentIndex = -1;
 
-	// Encode the leaf proper at offset newNodeIndex
+	// Encode the leaf proper at offset leafIndex
 	if constexpr (std::is_same_v<T, LeafItem>)
 		EncodeLeafNode(data.buffer, data.leafItems, primIndex, leafIndex, data.vertices, data.indices);
 	else if constexpr (std::is_same_v<T, TLASLeafItem>)
@@ -7001,13 +7162,13 @@ static void DirectBVH4EmitLeaf(
 	data.buffer[leafIndex].parent = parentIndex;
 
 #ifdef DEBUG_BU
-	log_debug("[DBG] [BVH] QBVHIdx: (L) %d --> %d", newNodeIndex, parentIndex);
+	log_debug("[DBG] [BVH] QBVHIdx: (L) %d --> %d", parentIndex, parentIndex);
 	if (slot >= 0)
 		log_debug("[DBG] [BVH] prim %d still points to slot[%d]:%d and it's a leaf, deactivated. Parent fitCounter: %d",
-			primIndex, slot, parentIndex, innerNodeBuildData[auxParentNodeIndex].fitCounter);
+			primIndex, slot, parentIndex, data.innerNodeBuildData[auxParentNodeIndex].fitCounter);
 	else
 		log_debug("[DBG] [BVH] prim %d now points to %d and it's a leaf, deactivated. Parent fitCounter: %d",
-			primIndex, parentIndex, innerNodeBuildData[auxParentNodeIndex].fitCounter);
+			primIndex, parentIndex, data.innerNodeBuildData[auxParentNodeIndex].fitCounter);
 #endif
 
 	if (data.innerNodeBuildData[auxParentNodeIndex].fitCounter == data.innerNodeBuildData[auxParentNodeIndex].fitCounterTarget)
@@ -7033,7 +7194,7 @@ static void DirectBVH4InitNextIteration(
 	for (int primIdx = 0; primIdx < data.numPrimitives; primIdx++)
 	{
 		const int parentIndex = data.leafParents[primIdx].parentIndex;
-		const int slot = data.leafParents[primIdx].side;
+		int slot = data.leafParents[primIdx].side;
 
 		// Skip inactive primitives
 		if (parentIndex == -1)
@@ -7057,14 +7218,19 @@ static void DirectBVH4InitNextIteration(
 		}
 		else // if (innerNodeBD.counts[slot] > 1)
 		{
-			// The parent of this leaf emitted a new node.
+			// The parent of this leaf emitted a new node, let's update the parent of this
+			// leaf.
+			// ... but first let's check if the parent was merged into another slot:
+			const int mergeSlot = innerNodeBD.mergeSlot[slot];
+			if (mergeSlot != -1)
+				slot = mergeSlot;
 			const int newParentIndex = data.buffer[parentIndex].children[slot];
 			data.leafParents[primIdx].parentIndex = newParentIndex;
 			// The parent of this leaf has too many children, loop again.
 			data.leafParents[primIdx].side = BU_NONE;
 #ifdef DEBUG_BU
 			log_debug("[DBG] [BVH] prim %d now points to %d, prev parent: slot[%d]:%d",
-				primIdx, leafParents[primIdx].parentIndex, slot, parentIndex);
+				primIdx, data.leafParents[primIdx].parentIndex, slot, parentIndex);
 #endif
 		}
 	}

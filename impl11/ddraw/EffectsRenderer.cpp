@@ -857,7 +857,6 @@ void BuildTLASDBVH4()
 	// delete[] QBVHBuffer;
 
 	// DEBUG: Print the maxRatio so far and dump the TLAS input if the ratio is too big
-#ifdef DISABLED
 	{
 		static float maxRatio = 0.0f;
 		float ratio = (float)g_directBuilderNextInnerNode / (float)numLeaves;
@@ -890,7 +889,6 @@ void BuildTLASDBVH4()
 			*/
 		}
 	}
-#endif
 
 	// The previous TLAS tree should be deleted at the beginning of each frame.
 	g_TLASTree = new LBVH();

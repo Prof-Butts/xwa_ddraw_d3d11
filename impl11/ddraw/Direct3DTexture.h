@@ -148,9 +148,6 @@ public:
 	bool bHasMaterial;
 	Material material;
 
-	// **** Back-pointer to the light texture -- is this still used???
-	Direct3DTexture *lightTexture;
-
 	// **** Greebles
 	int GreebleTexIdx;
 

@@ -2245,7 +2245,7 @@ Material FindMaterial(int CraftIndex, char* _TexName, bool debug) {
 		strcpy_s(TexName, MAX_TEXNAME, _TexName);
 	}
 
-	// Slot should always be present and it should be the default craft material
+	// Slot 0 should always be present and it should be the default craft material
 	Material defMat = craftMats->MaterialList[0].material;
 	if (TexName == NULL || TexName[0] == 0)
 		return defMat;

@@ -951,10 +951,10 @@ struct Material {
  Glossiness = Z
 
 */
-typedef struct MaterialTexDefStruct {
+struct MaterialTexDef {
 	Material material;
 	char texname[MAX_TEXNAME];
-} MaterialTexDef;
+} ;
 
 /*
  Contains all the entries from a *.mat file for a single craft, along with the

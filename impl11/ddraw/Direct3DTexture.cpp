@@ -26,6 +26,26 @@ const char *TRIANGLE_PTR_RESNAME = "dat,13000,100,";
 const char *TARGETING_COMP_RESNAME = "dat,12000,1100,";
 
 std::map<std::string, ID3D11ShaderResourceView *> DATImageMap;
+std::map<std::string, int> g_TextureMap;
+
+void ClearGlobalTextureMap()
+{
+	g_TextureMap.clear();
+}
+
+void AddToGlobalTextureMap(std::string name, int index)
+{
+	if (index != -1)
+		g_TextureMap[name] = index;
+}
+
+int QueryGlobalTextureMap(std::string name)
+{
+	const auto& it = g_TextureMap.find(name);
+	if (it == g_TextureMap.end())
+		return -1;
+	return it->second;
+}
 
 #ifdef DBG_VR
 /*
@@ -457,7 +477,8 @@ void ClearCachedSRVs()
 	DATImageMap.clear();
 }
 
-void Direct3DTexture::LoadAnimatedTextures(int ATCIndex) {
+void Direct3DTexture::LoadAnimatedTextures(int ATCIndex)
+{
 	TextureSurface *surface = this->_surface;
 	auto &resources = this->_deviceResources;
 	AnimatedTexControl *atc = &(g_AnimatedMaterials[ATCIndex]);
@@ -519,6 +540,9 @@ void Direct3DTexture::LoadAnimatedTextures(int ATCIndex) {
 			//	this->material.LightMapSequence[i].ExtraTextureIndex);
 		}
 	}
+
+	// Mark this sequence as loaded to prevent re-loading it again later...
+	atc->SequenceLoaded = true;
 }
 
 int Direct3DTexture::LoadGreebleTexture(char *GreebleDATZIPGroupIdImageId, short *Width, short *Height)
@@ -527,6 +551,7 @@ int Direct3DTexture::LoadGreebleTexture(char *GreebleDATZIPGroupIdImageId, short
 	ID3D11ShaderResourceView *texSRV = nullptr;
 	int GroupId = -1, ImageId = -1;
 	HRESULT res = S_OK;
+
 	char *substr_dat = stristr(GreebleDATZIPGroupIdImageId, ".dat");
 	char *substr_zip = stristr(GreebleDATZIPGroupIdImageId, ".zip");
 	bool bIsDATFile = substr_dat != NULL;
@@ -745,6 +770,7 @@ HRESULT Direct3DTexture::LoadZIPImage(char *sZIPFileName, int GroupId, int Image
 void Direct3DTexture::TagTexture() {
 	TextureSurface *surface = this->_surface;
 	auto &resources = this->_deviceResources;
+	// This flag is still used in the Direct3DDevice::Execute() path.
 	this->is_Tagged = true;
 	const bool bIsDAT = (stristr(surface->_cname, "dat,") != NULL);
 
@@ -1168,47 +1194,6 @@ void Direct3DTexture::TagTexture() {
 		if (strstr(surface->_cname, ",color-transparent,") != NULL)
 			this->is_Transparent = true;
 
-		// Link light and color textures:
-		/*
-		{
-			if (!this->is_LightTexture) {
-				this->lightTexture = nullptr;
-				g_TextureVector.push_back(ColorLightPair(this));
-			}
-			else {
-				// Find the corresponding color texture and link it
-				// TODO: Do I need to worry about .DAT textures? Maybe not because they don't have "light"
-				//       textures? I didn't see a single DAT file using the following line:
-				//log_debug("[DBG] LIGHT: %s", this->_surface->_name);
-				for (int i = g_TextureVector.size() - 1; i >= 0; i--) {
-					char *light_name = this->_surface->_name;
-					char *color_name = g_TextureVector[i].color->_surface->_name;
-					char *light_start, *light_end, *color_start, *color_end;
-					int len = 0;
-
-					// Find the "TEX#####" token:
-					light_start = strstr(light_name, ".opt,");
-					if (light_start == NULL) break;
-					light_start += 5; // Skip the ".opt," part
-					light_end = strstr(light_start, ",");
-					if (light_end == NULL) break;
-					len = light_end - light_start;
-
-					color_start = color_name + (light_start - light_name);
-					color_end = color_name + (light_end - light_name);
-					if (_strnicmp(light_start, color_start, len) == 0)
-					{
-						//log_debug("[DBG] %d, %s maps to %s", i, light_start, color_start);
-						g_TextureVector[i].light = this;
-						g_TextureVector[i].color->lightTexture = this;
-						// After the color and light textures have been linked, g_TextureVector can be cleared
-						break;
-					}
-				}
-			}
-		}
-		*/
-
 		//if (strstr(surface->_name, "color-transparent") != NULL) {
 			//this->is_ColorTransparent = true;
 			//log_debug("[DBG] [DC] ColorTransp: [%s]", surface->_name);
@@ -1353,7 +1338,11 @@ void Direct3DTexture::TagTexture() {
 						// Go over each valid TextureATCIndex and load their associated animations
 						for (int i = 0; i < MAX_GAME_EVT; i++)
 							if (this->material.TextureATCIndices[ATCType][i] > -1)
-								LoadAnimatedTextures(this->material.TextureATCIndices[ATCType][i]);
+							{
+								const int ATCIndex = this->material.TextureATCIndices[ATCType][i];
+								if (!g_AnimatedMaterials[ATCIndex].SequenceLoaded)
+									LoadAnimatedTextures(ATCIndex);
+							}
 					}
 				}
 				else {
@@ -1364,10 +1353,15 @@ void Direct3DTexture::TagTexture() {
 						// Load the animated textures for each valid index
 						int ATCType = this->is_LightTexture ? LIGHTMAP_ATC_IDX : TEXTURE_ATC_IDX;
 						// Go over each valid InstTextureATCIndices and load their associated animations
-						for (int i = 0; i < MAX_INST_EVT; i++) {
+						for (int i = 0; i < MAX_INST_EVT; i++)
+						{
 							int size = this->material.InstTextureATCIndices[ATCType][i].size();
 							for (int j = 0; j < size; j++)
-								LoadAnimatedTextures(this->material.InstTextureATCIndices[ATCType][i][j]);
+							{
+								const int ATCIndex = this->material.InstTextureATCIndices[ATCType][i][j];
+								if (!g_AnimatedMaterials[ATCIndex].SequenceLoaded)
+									LoadAnimatedTextures(ATCIndex);
+							}
 						}
 					}
 				}
@@ -1382,7 +1376,7 @@ void Direct3DTexture::TagTexture() {
 					// Load the Greeble Textures
 					for (int i = 0; i < MAX_GREEBLE_LEVELS; i++) {
 						// We need to load this texture. Textures are loaded in resources->_extraTextures
-						if (greeble_data->GreebleTexIndex[i] == -1) {
+						if (greeble_data->GreebleTexIndex[i] == -1 && greeble_data->GreebleTexName[i][0] != 0) {
 							// TODO: Optimization opportunity: search all the texture names in g_GreebleData and avoid loading
 							// textures if we find we've already loaded them before...
 							greeble_data->GreebleTexIndex[i] = LoadGreebleTexture(greeble_data->GreebleTexName[i], &Width, &Height);
@@ -1398,7 +1392,7 @@ void Direct3DTexture::TagTexture() {
 							}
 						}
 						// Load Lightmap Greebles
-						if (greeble_data->GreebleLightMapIndex[i] == -1) {
+						if (greeble_data->GreebleLightMapIndex[i] == -1 && greeble_data->GreebleLightMapName[i][0] != 0) {
 							// TODO: Optimization opportunity: search all the lightmap texture names in g_GreebleData and avoid loading
 							// textures if we find we've already loaded them before...
 							greeble_data->GreebleLightMapIndex[i] = LoadGreebleTexture(greeble_data->GreebleLightMapName[i], &Width, &Height);
@@ -1456,10 +1450,20 @@ void Direct3DTexture::TagTexture() {
 				}
 
 				// Load the Normal Maps here...
-				if (this->material.NormalMapName[0] != 0 && !(this->material.NormalMapLoaded)) {
-					short Width, Height; // These variables are not used
-					this->NormalMapIdx = LoadNormalMap(this->material.NormalMapName, &Width, &Height);
-					this->material.NormalMapLoaded = true;
+				if (this->material.NormalMapName[0] != 0)
+				{
+					const std::string normalMapName = std::string(this->material.NormalMapName);
+					this->NormalMapIdx = QueryGlobalTextureMap(normalMapName);
+					if (this->NormalMapIdx == -1)
+					{
+						short Width, Height; // These variables are not used
+						this->NormalMapIdx = LoadNormalMap(this->material.NormalMapName, &Width, &Height);
+						AddToGlobalTextureMap(normalMapName, this->NormalMapIdx);
+						log_debug("[DBG] [MAT] LoadNormal [%s], res: %d, loaded: %d",
+							this->_surface->_name.c_str(),
+							this->NormalMapIdx, this->material.NormalMapLoaded);
+					}
+					this->material.NormalMapLoaded = (this->NormalMapIdx != -1);
 				}
 
 				// DEBUG
@@ -1581,7 +1585,6 @@ HRESULT Direct3DTexture::Load(
 
 	this->material = d3dTexture->material;
 	this->bHasMaterial = d3dTexture->bHasMaterial;
-	//this->lightTexture = d3dTexture->lightTexture;
 
 	this->GreebleTexIdx = d3dTexture->GreebleTexIdx;
 	this->NormalMapIdx = d3dTexture->NormalMapIdx;

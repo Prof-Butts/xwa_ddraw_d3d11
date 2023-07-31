@@ -259,7 +259,6 @@ PSConstantBufferType g_LastPSConstantBufferSet = PS_CONSTANT_BUFFER_NONE;
 
 FILE *g_DebugFile = NULL;
 
-extern std::vector<ColorLightPair> g_TextureVector;
 extern std::vector<Direct3DTexture *> g_AuxTextureVector;
 
 inline float lerp(float x, float y, float s) {
@@ -1621,7 +1620,6 @@ HRESULT DeviceResources::OnSizeChanged(HWND hWnd, DWORD dwWidth, DWORD dwHeight)
 	g_bDCApplyEraseRegionCommands = !g_bHUDVisibleOnStartup;
 	log_debug("[DBG] Resetting g_b3DSunPresent, g_b3DSkydomePresent");
 
-	g_TextureVector.clear();
 	g_AuxTextureVector.clear();
 	ClearGlobalTextureMap();
 	DeleteRandomVectorTexture();

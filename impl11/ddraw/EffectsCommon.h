@@ -15,6 +15,8 @@ const float DEG2RAD = PI / 180.0f;
 
 // General types and globals
 
+class Direct3DTexture;
+
 typedef struct uvfloat4_struct {
 	float x0, y0, x1, y1;
 } uvfloat4;
@@ -44,17 +46,6 @@ typedef struct MetricReconstructionCBStruct {
 	float mr_vr_aspect_ratio, mr_unused0;
 	float mv_vr_vertexbuf_aspect_ratio_comp[2]; // This is used to render the HUD
 } MetricReconstructionCB;
-
-// Color-Light links
-class Direct3DTexture;
-typedef struct ColorLightPairStruct {
-	Direct3DTexture* color, * light;
-
-	ColorLightPairStruct(Direct3DTexture* color) {
-		this->color = color;
-		this->light = NULL;
-	}
-} ColorLightPair;
 
 typedef struct BloomConfigStruct {
 	float fSaturationStrength, fCockpitStrength, fEngineGlowStrength, fSparksStrength;

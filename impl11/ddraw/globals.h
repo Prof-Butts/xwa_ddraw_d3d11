@@ -156,7 +156,6 @@ extern D3DTLVERTEX g_SpeedParticles2D[MAX_SPEED_PARTICLES * 12];
 
 
 
-extern std::vector<ColorLightPair> g_TextureVector;
 /*
  * Used to store a list of textures for fast lookup. For instance, all suns must
  * have their associated lights reset after jumping through hyperspace; and all

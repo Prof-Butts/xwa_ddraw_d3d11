@@ -165,6 +165,7 @@ float3 InverseTransformProjectionScreen(float4 input);
 void SetPresentCounter(int val, int b_resetReticle);
 void ReloadInterdictionMap();
 void ClearGlobalTextureMap();
+void ClearCachedSRVs();
 
 bool g_bWndProcReplaced = false;
 bool ReplaceWindowProc(HWND ThisWindow);
@@ -1622,6 +1623,7 @@ HRESULT DeviceResources::OnSizeChanged(HWND hWnd, DWORD dwWidth, DWORD dwHeight)
 
 	g_AuxTextureVector.clear();
 	ClearGlobalTextureMap();
+	ClearCachedSRVs();
 	DeleteRandomVectorTexture();
 	ResetXWALightInfo();
 	g_HiResTimer.ResetGlobalTime();

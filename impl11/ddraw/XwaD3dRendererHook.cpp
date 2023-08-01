@@ -326,9 +326,6 @@ void D3dRenderer::FlightStart()
 	_LBVHs.clear();
 	_tangentMap.clear();
 	g_meshToFGMap.clear();
-	// TODO: This function gets called every time an OPT is loaded. Calling
-	// ClearCachedSRVs() here may not have the expected effect...
-	ClearCachedSRVs();
 
 #if LOGGER_DUMP
 	s_currentFrameIndex = 0;

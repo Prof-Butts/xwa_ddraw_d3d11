@@ -10050,6 +10050,12 @@ HRESULT PrimarySurface::Flip(
 				g_iReactorExplosionCount = 0;
 				g_iD3DExecuteCounter = 0; // Reset the draw call counter for the D3DRendererHook
 
+				if (*g_playerInHangar && !g_bPrevPlayerInHangar)
+				{
+					// Restore the cockpit if we just landed in the hangar and the flag is set.
+					if (g_bResetCockpitDamageInHangar)
+						g_bResetCockpitDamage = true;
+				}
 				// Reset the frame counter if we just exited the hangar
 				if (!(*g_playerInHangar) && g_bPrevPlayerInHangar) {
 					SetPresentCounter(0, 0);

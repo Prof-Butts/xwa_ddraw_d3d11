@@ -1592,6 +1592,9 @@ bool LoadDCParams() {
 			else if (_stricmp(param, "diegetic_cockpit_enabled") == 0) {
 				g_bDiegeticCockpitEnabled = (bool)fValue;
 			}
+			else if (_stricmp(param, "reset_cockpit_damage_in_hangar") == 0) {
+				g_bResetCockpitDamageInHangar = (bool)fValue;
+			}
 		}
 	}
 	fclose(file);

@@ -124,7 +124,7 @@ extern Vector3 g_debug_v0, g_debug_v1, g_debug_v2;
 extern bool g_bDumpLaserPointerDebugInfo;
 extern Vector3 g_LPdebugPoint;
 extern float g_fLPdebugPointOffset, g_fDebugYCenter;
-extern bool g_bApplyCockpitDamage, g_bResetCockpitDamage;
+extern bool g_bApplyCockpitDamage, g_bResetCockpitDamage, g_bResetCockpitDamageInHangar;
 extern bool g_bAutoGreeblesEnabled;
 extern bool g_bShowBlastMarks;
 extern float g_fBlastMarkOfsX, g_fBlastMarkOfsY;

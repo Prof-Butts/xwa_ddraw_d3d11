@@ -647,7 +647,7 @@ bool g_b3DSunPresent = false;
 bool g_b3DSkydomePresent = false;
 
 // Force Cockpit Damage
-bool g_bApplyCockpitDamage = false, g_bResetCockpitDamage = false, g_bResetCockpitDamageInHangar = true;
+bool g_bApplyCockpitDamage = false, g_bResetCockpitDamage = false, g_bResetCockpitDamageInHangar = false;
 
 // Custom HUD colors
 uint32_t g_iHUDInnerColor = 0, g_iHUDBorderColor = 0;

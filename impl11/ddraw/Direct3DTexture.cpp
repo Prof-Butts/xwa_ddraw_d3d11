@@ -618,7 +618,7 @@ int Direct3DTexture::LoadNormalMap(char *DATZIPGroupIdImageId, short *Width, sho
 	return this->NormalMapIdx;
 }
 
-ID3D11ShaderResourceView *Direct3DTexture::CreateSRVFromBuffer(uint8_t *Buffer, int Width, int Height)
+ID3D11ShaderResourceView *Direct3DTexture::CreateSRVFromBuffer(uint8_t *Buffer, int BufferLength, int Width, int Height)
 {
 	auto& resources = this->_deviceResources;
 	auto& context = resources->_d3dDeviceContext;
@@ -631,9 +631,11 @@ ID3D11ShaderResourceView *Direct3DTexture::CreateSRVFromBuffer(uint8_t *Buffer, 
 	ID3D11Texture2D *texture2D = NULL;
 	ID3D11ShaderResourceView *texture2DSRV = NULL;
 
+	bool isBc7 = (BufferLength == Width * Height);
+
 	desc.Width = (UINT)Width;
 	desc.Height = (UINT)Height;
-	desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+	desc.Format = isBc7 ? DXGI_FORMAT_BC7_UNORM : DXGI_FORMAT_R8G8B8A8_UNORM;
 	desc.MiscFlags = 0;
 	desc.MipLevels = 1;
 	desc.ArraySize = 1;
@@ -646,7 +648,7 @@ ID3D11ShaderResourceView *Direct3DTexture::CreateSRVFromBuffer(uint8_t *Buffer, 
 
 	textureData.pSysMem = (void *)Buffer;
 	textureData.SysMemPitch = sizeof(uint8_t) * Width * 4;
-	textureData.SysMemSlicePitch = sizeof(uint8_t) * Width * Height * 4;
+	textureData.SysMemSlicePitch = 0;
 
 	if (FAILED(hr = device->CreateTexture2D(&desc, &textureData, &texture2D))) {
 		log_debug("[DBG] Failed when calling CreateTexture2D from Buffer, reason: 0x%x",
@@ -709,10 +711,18 @@ HRESULT Direct3DTexture::LoadDATImage(char *sDATFileName, int GroupId, int Image
 	if (Width_out != nullptr) *Width_out = Width;
 	if (Height_out != nullptr) *Height_out = Height;
 
-	buf_len = Width * Height * 4;
+	if (Format == 27 && Width % 4 == 0 && Height % 4 == 0)
+	{
+		buf_len = Width * Height;
+	}
+	else
+	{
+		buf_len = Width * Height * 4;
+	}
+
 	buf = new uint8_t[buf_len];
 	if (ReadDATImageData(buf, buf_len)) {
-		*srv = CreateSRVFromBuffer(buf, Width, Height);
+		*srv = CreateSRVFromBuffer(buf, buf_len, Width, Height);
 		if (*srv != nullptr) res = S_OK;
 	} 
 	else
@@ -750,18 +760,18 @@ HRESULT Direct3DTexture::LoadZIPImage(char *sZIPFileName, int GroupId, int Image
 		log_debug("[DBG] Could not load ZIP file: %s", sZIPFileName);
 		return res;
 	}
-	// First, see if the file already has been unzipped
-	constexpr int MAX_PATH_LEN = 256;
-	char sActualFileName[MAX_PATH_LEN];
-	if (!GetZIPImageMetadata(GroupId, ImageId, Width_out, Height_out, sActualFileName, MAX_PATH_LEN))
+
+	char* buffer = nullptr;
+	int bufferSize = 0;
+
+	if (!GetZIPImageMetadata(GroupId, ImageId, Width_out, Height_out, &buffer, &bufferSize))
 		return res;
 	//log_debug("[DBG] [C#] ZIP Image: [%s] loaded", sActualFileName);
 
-	wchar_t wTexName[MAX_TEX_SEQ_NAME];
-	size_t len = 0;
-	mbstowcs_s(&len, wTexName, MAX_TEX_SEQ_NAME, sActualFileName, MAX_TEX_SEQ_NAME);
-	res = DirectX::CreateWICTextureFromFile(resources->_d3dDevice, wTexName, NULL, srv);
-	
+	res = DirectX::CreateWICTextureFromMemory(resources->_d3dDevice, (uint8_t*)buffer, (size_t)bufferSize, NULL, srv);
+
+	LocalFree((HLOCAL)buffer);
+
 	if (res == S_OK)
 		AddCachedSRV(sZIPFileName, GroupId, ImageId, *srv);
 	return res;

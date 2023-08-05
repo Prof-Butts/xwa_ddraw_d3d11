@@ -1,11 +1,9 @@
-﻿using System;
+﻿using JeremyAnsel.Xwa.Dat;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
-using System.Linq;
+using System.IO;
 using System.Runtime.InteropServices;
-using System.Text;
-using System.Threading.Tasks;
-using JeremyAnsel.Xwa.Dat;
 
 /*
  
@@ -25,8 +23,15 @@ using JeremyAnsel.Xwa.Dat;
 
 namespace DATReader
 {
-    public class Main
+    public static class Main
     {
+        static Dictionary<string, DatFile> m_GenericDatFiles = new Dictionary<string, DatFile>(StringComparer.OrdinalIgnoreCase);
+        static HashSet<string> m_GenericDatNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "GenericDamage",
+            "RubbleEffects",
+        };
+
         // Cached DatFile var. This must be loaded before we start inspecting the file
         static DatFile m_DATFile = null;
         // Cached image var. This must be loaded before accessing raw image data.
@@ -56,7 +61,24 @@ namespace DATReader
             {
                 m_DATImage = null; // Release any previous instances
                 m_DATFile = null; // Release any previous instances
-                m_DATFile = DatFile.FromFile(sDatFileName);
+                //m_DATFile = DatFile.FromFile(sDatFileName);
+
+                string name = Path.GetFileNameWithoutExtension(sDatFileName);
+
+                if (!m_GenericDatFiles.TryGetValue(name, out m_DATFile))
+                {
+                    if (m_GenericDatNames.Contains(name))
+                    {
+                        m_DATFile = DatFile.FromFile(sDatFileName, true);
+                        //m_DATFile.ConvertToFormat25();
+                        m_GenericDatFiles.Add(name, m_DATFile);
+                    }
+                    else
+                    {
+                        m_DATFile = DatFile.FromFile(sDatFileName, false);
+                    }
+                }
+
                 if (m_DATFile == null)
                 {
                     if (m_Verbose) Trace.WriteLine("[DBG] [C#] Failed when loading: " + sDatFileName);
@@ -72,7 +94,7 @@ namespace DATReader
         }
 
         [DllExport(CallingConvention.Cdecl)]
-        public static unsafe bool GetDATImageMetadata(int GroupId, int ImageId, short *Width, short *Height, byte *Format)
+        public static unsafe bool GetDATImageMetadata(int GroupId, int ImageId, short* Width, short* Height, byte* Format)
         {
             if (m_DATFile == null)
             {
@@ -81,43 +103,55 @@ namespace DATReader
                 return false;
             }
 
-            IList<DatGroup> groups = m_DATFile.Groups;
-            foreach (var group in groups)
-                if (group.GroupId == GroupId)
-                {
-                    IList<DatImage> images = group.Images;
-                    foreach (var image in images)
-                        if (image.ImageId == ImageId)
-                        {
-                            // Release the previous cached image
-                            m_DATImage = null;
-                            // Cache the current image
-                            m_DATImage = image;
-                            // Populate the output values
-                            *Width = image.Width;
-                            *Height = image.Height;
-                            *Format = (byte)image.Format;
-                            if (m_Verbose) Trace.WriteLine("[DBG] [C#] Found " + GroupId + "-" + ImageId + ", " +
-                                "MetaData: (" + image.Width + ", " + image.Height + "), Type: " + image.Format);
-                            return true;
-                        }
+            DatImage image = m_DATFile.GetImageById((short)GroupId, (short)ImageId);
 
-                }
+            if (image != null)
+            {
+                // Release the previous cached image
+                m_DATImage = null;
+                // Cache the current image
+                m_DATImage = image;
+                // Populate the output values
+                *Width = image.Width;
+                *Height = image.Height;
+                *Format = (byte)image.Format;
+                if (m_Verbose) Trace.WriteLine("[DBG] [C#] Found " + GroupId + "-" + ImageId + ", " +
+                    "MetaData: (" + image.Width + ", " + image.Height + "), Type: " + image.Format);
+                return true;
+            }
+
             return false;
         }
 
         [DllExport(CallingConvention.Cdecl)]
-        public static unsafe bool ReadDATImageData(byte *RawData_out, int RawData_size)
+        public static unsafe bool ReadDATImageData(byte* RawData_out, int RawData_size)
         {
-            if (m_DATImage == null) {
+            if (m_DATImage == null || m_DATFile == null)
+            {
                 Trace.WriteLine("[DBG] [C#] Must cache an image first");
                 return false;
             }
-            
+
+            //m_DATImage = DatFile.GetImageDataById(m_DATFile.FileName, m_DATImage.GroupId, m_DATImage.ImageId);
+
+            if (!m_DATFile.HasImagesData)
+            {
+                m_DATFile = DatFile.FromFile(m_DATFile.FileName, true);
+                m_DATImage = m_DATFile.GetImageById(m_DATImage.GroupId, m_DATImage.ImageId);
+            }
+
             //m_DATImage.ConvertToFormat25(); // Looks like there's no need to do any conversion
             short W = m_DATImage.Width;
             short H = m_DATImage.Height;
-            byte[] data = m_DATImage.GetImageData();
+
+            if (RawData_size == W * H)
+            {
+                Marshal.Copy(m_DATImage.GetRawData(), 0, new IntPtr(RawData_out), m_DATImage.GetRawData().Length);
+                return true;
+            }
+
+            byte[] data = m_DATImage.Format == DatImageFormat.Format25 ? m_DATImage.GetRawData() : m_DATImage.GetImageData();
+
             int len = data.Length;
             if (m_Verbose)
                 Trace.WriteLine("[DBG] [C#] RawData, W*H*4 = " + (W * H * 4) + ", len: " + len + ", Format: " + m_DATImage.Format);
@@ -135,7 +169,7 @@ namespace DATReader
                 // For some reason, the images are still upside down when used as SRVs
                 // So, let's flip them here. RowOfs and RowStride are used to flip the
                 // image by reading it "backwards".
-                UInt32 OfsOut = 0, OfsIn = 0, RowStride = (UInt32 )W * 4, RowOfs = (UInt32)(H - 1) * RowStride;
+                UInt32 OfsOut = 0, OfsIn = 0, RowStride = (UInt32)W * 4, RowOfs = (UInt32)(H - 1) * RowStride;
                 for (int y = 0; y < H; y++)
                 {
                     OfsIn = RowOfs; // Flip the image
@@ -171,14 +205,18 @@ namespace DATReader
                 return 0;
             }
 
-            foreach (var group in m_DATFile.Groups)
-                if (group.GroupId == GroupId)
-                    return group.Images.Count;
+            DatGroup group = m_DATFile.GetGroupById((short)GroupId);
+
+            if (group != null)
+            {
+                return group.Images.Count;
+            }
+
             return 0;
         }
 
         [DllExport(CallingConvention.Cdecl)]
-        public static unsafe bool GetDATGroupImageList(int GroupId, short *ImageIds_out, int ImageIds_size)
+        public static unsafe bool GetDATGroupImageList(int GroupId, short* ImageIds_out, int ImageIds_size)
         {
             if (m_DATFile == null)
             {
@@ -186,19 +224,21 @@ namespace DATReader
                 return false;
             }
 
-            foreach (var group in m_DATFile.Groups)
-                if (group.GroupId == GroupId)
+            DatGroup group = m_DATFile.GetGroupById((short)GroupId);
+
+            if (group != null)
+            {
+                int Ofs = 0;
+                foreach (var image in group.Images)
                 {
-                    int Ofs = 0;
-                    foreach (var image in group.Images)
-                    {
-                        ImageIds_out[Ofs] = image.ImageId;
-                        if (m_Verbose) Trace.WriteLine("[DBG] [C#] Stored ImageId: " + image.ImageId);
-                        // Advance the output index, but prevent an overflow
-                        if (Ofs < ImageIds_size) Ofs++;
-                    }
-                    return true;
+                    ImageIds_out[Ofs] = image.ImageId;
+                    if (m_Verbose) Trace.WriteLine("[DBG] [C#] Stored ImageId: " + image.ImageId);
+                    // Advance the output index, but prevent an overflow
+                    if (Ofs < ImageIds_size) Ofs++;
                 }
+                return true;
+            }
+
             return false;
         }
     }

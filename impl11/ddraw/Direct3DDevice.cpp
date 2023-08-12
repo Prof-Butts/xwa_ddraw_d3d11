@@ -2645,7 +2645,8 @@ inline void UpdateDCHologramState() {
 		g_fDCHologramFadeIn = 1.0f;
 		g_fDCHologramFadeInIncr = -0.04f;
 	}
-	g_fDCHologramTime += 0.0166f;
+	//g_fDCHologramTime += 0.0166f;
+	g_fDCHologramTime += g_HiResTimer.elapsed_s;
 	g_fDCHologramFadeIn += g_fDCHologramFadeInIncr;
 	if (g_fDCHologramFadeIn > 1.0f) g_fDCHologramFadeIn = 1.0f;
 	if (g_fDCHologramFadeIn < 0.0f) g_fDCHologramFadeIn = 0.0f;
@@ -5364,6 +5365,14 @@ HRESULT Direct3DDevice::Execute(
 					log_debug("[DBG] Dumping OBJ (bIsExplosion): obj_%d, %s", g_iDumpLaserOBJIdx, lastTextureSelected->_surface->_cname);
 					DumpVerticesToOBJ(g_DumpLaserFile, instruction, currentIndexLocation,
 						g_iDumpLaserOBJIdx, lastTextureSelected->_surface->_cname);
+				}
+
+				// Tech Room Hologram control (this is only used for the engine glows)
+				if (g_bInTechRoom && g_bDCTechHolosVisible)
+				{
+					bModifiedShaders = 1;
+					g_PSCBuffer.rand0 = 8.0f * g_fDCHologramTime;
+					g_PSCBuffer.rand1 = (float)g_bDCTechHolosVisible;
 				}
 
 				// EARLY EXIT 2: RENDER NON-VR. Here we only need the state; but not the extra

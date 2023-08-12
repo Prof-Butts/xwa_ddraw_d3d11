@@ -148,6 +148,14 @@ PixelShaderOutput main(PixelShaderInput input)
 		} 
 		output.color = float4(color, alpha);
 		output.bloom = float4(fBloomStrength * output.color.rgb, alpha);
+		if (rand1 > 0.5)
+		{
+			const float  luma = dot(output.color.rgb, float3(0.299, 0.587, 0.114));
+			const float4 holo_col = 3.0 * float4(0.325, 0.541, 0.643, alpha);
+			const float  scans = 0.7 + 0.3 * sin(rand0 + 0.45 * input.pos.y);
+			const float4 mixed_color = lerp(output.color, luma * holo_col, 0.5f);
+			output.color = mixed_color * scans;
+		}
 		return output;
 	}
 

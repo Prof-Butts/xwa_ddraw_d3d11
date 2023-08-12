@@ -34,7 +34,7 @@ D2D1::ColorF g_DCLaserColor(0xFF0000, 0.35f), g_DCIonColor(0x0000FF, 0.35f), g_D
 extern Vector2 g_SubCMDBracket; // Populated in XwaDrawBracketHook for the sub-CMD bracket when the enhanced 2D renderer is on
 // HOLOGRAMS
 float g_fDCHologramFadeIn = 0.0f, g_fDCHologramFadeInIncr = 0.04f, g_fDCHologramTime = 0.0f;
-bool g_bDCHologramsVisible = true, g_bDCHologramsVisiblePrev = true;
+bool g_bDCHologramsVisible = true, g_bDCHologramsVisiblePrev = true, g_bDCTechHolosVisible = true;
 // DIEGETIC JOYSTICK
 bool g_bDiegeticCockpitEnabled = true;
 

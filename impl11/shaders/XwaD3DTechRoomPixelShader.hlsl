@@ -130,6 +130,15 @@ PixelShaderOutput main(PixelShaderInput input)
 		final_alpha = max(alpha, dot(output.color.rgb, 0.333));
 	output.color.a = final_alpha;
 
+	if (rand1 > 0.5)
+	{
+		const float  luma = dot(output.color.rgb, float3(0.299, 0.587, 0.114));
+		const float3 holo_col = 3.0 * float3(0.325, 0.541, 0.643);
+		const float  scans = 0.7 + 0.3 * sin(rand0 + 0.45 * input.pos.y);
+		const float3 mixed_color = lerp(output.color.rgb, luma * holo_col, 0.5f);
+		output.color.rgb = mixed_color * scans;
+	}
+
 	// In the D3dRendererHook, lightmaps and regular textures are rendered on the same draw call.
 	// Here's the case where a lightmap has been provided:
 	if (renderTypeIllum == 1)

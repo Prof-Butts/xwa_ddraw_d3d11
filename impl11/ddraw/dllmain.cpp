@@ -731,7 +731,10 @@ LRESULT CALLBACK MyWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam
 				return 0;
 			// Ctrl+H will toggle the headlights now
 			case 'H':
-				g_bDCHologramsVisible = !g_bDCHologramsVisible;
+				if (g_bInTechRoom)
+					g_bDCTechHolosVisible = !g_bDCTechHolosVisible;
+				else
+					g_bDCHologramsVisible = !g_bDCHologramsVisible;
 				return 0;
 			// Headlights must be automatic now. They are automatically turned on in the Death Star mission
 			/*

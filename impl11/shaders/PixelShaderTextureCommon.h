@@ -14,7 +14,7 @@ cbuffer ConstantBuffer : register(b9)
 	uint bIsLaser;				// 1 for Laser objects, setting this to 2 will make them brighter (intended for 32-bit mode)
 	float fOverlayBloomPower;	// Controls the intensity of the bloom effect coming from SCREEN overlay textures
 	uint bIsEngineGlow;			// 1 if this is an engine glow textures, 2 will make it brighter (intended for 32-bit mode)
-	uint GreebleControl;			// Bitmask: 0x1 0000 -- Use Normal Map
+	uint GreebleControl;		// Bitmask: 0x1 0000 -- Use Normal Map
 								// 0x00F 1st Tex Blend Mode
 								// 0x0F0 2nd Tex Blend Mode
 								// 0xF00 3rd Tex Blend Mode
@@ -58,8 +58,8 @@ cbuffer ConstantBuffer : register(b9)
 	uint OverlayCtrl;			// Used to control overlay effects, like shields down or hull damage
 	// 176 bytes
 
-	float rand0;				// Used as a random values in PixelShaderAnim.hlsl
-	float rand1;
+	float rand0;				// Used as a random values in PixelShaderAnim.hlsl, also used for Tech Room holos
+	float rand1;				// Used for Tech Room holos
 	float rand2;
 	float PS_unused0;
 	// 192 bytes

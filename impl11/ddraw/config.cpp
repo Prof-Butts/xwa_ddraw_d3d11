@@ -44,7 +44,7 @@ Config::Config()
 	this->XInputTriggerAsThrottle = 0;
 	this->InvertYAxis = false;
 	this->InvertThrottle = false;
-	this->MouseSensitivity = 0.5f;
+	this->MouseSensitivity = 0.0f; // Disable the mouse. No one uses it (because it's unplayable).
 	this->KbdSensitivity = 1.0f;
 
 	this->Concourse3DScale = 0.6f;
@@ -181,10 +181,13 @@ Config::Config()
 			{
 				this->InvertThrottle = (bool)stoi(value);
 			}
+			// No one uses the mouse. The game is unplayable with this implementation.
+			/*
 			else if (name == "MouseSensitivity")
 			{
 				this->MouseSensitivity = stof(value);
 			}
+			*/
 			else if (name == "KbdSensitivity")
 			{
 				this->KbdSensitivity = stof(value);

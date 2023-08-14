@@ -4422,10 +4422,10 @@ void EffectsRenderer::MainSceneHook(const SceneCompData* scene)
 	//if (bModifiedShaders) 
 	{
 		// Tech Room Hologram control
-		if (g_bInTechRoom && g_bDCTechHolosVisible)
+		if (g_bInTechRoom && g_config.TechRoomHolograms)
 		{
 			g_PSCBuffer.rand0 = 8.0f * g_fDCHologramTime;
-			g_PSCBuffer.rand1 = (float)g_bDCTechHolosVisible;
+			g_PSCBuffer.rand1 = 1.0f;
 		}
 		resources->InitPSConstantBuffer3D(resources->_PSConstantBuffer.GetAddressOf(), &g_PSCBuffer);
 		resources->InitVSConstantBuffer3D(resources->_VSConstantBuffer.GetAddressOf(), &g_VSCBuffer);

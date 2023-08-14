@@ -732,7 +732,7 @@ LRESULT CALLBACK MyWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam
 			// Ctrl+H will toggle the headlights now
 			case 'H':
 				if (g_bInTechRoom)
-					g_bDCTechHolosVisible = !g_bDCTechHolosVisible;
+					g_config.TechRoomHolograms = !g_config.TechRoomHolograms;
 				else
 					g_bDCHologramsVisible = !g_bDCHologramsVisible;
 				return 0;

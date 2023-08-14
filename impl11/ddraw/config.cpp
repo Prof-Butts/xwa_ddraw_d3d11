@@ -76,6 +76,7 @@ Config::Config()
 	this->HangarShadowsEnabled = true;
 	this->EnableSoftHangarShadows = true;
 	this->OnlyGrayscaleInTechRoom = false;
+	this->TechRoomHolograms = false;
 	this->CullBackFaces = false;
 
 	this->HDConcourseEnabled = false;
@@ -259,6 +260,10 @@ Config::Config()
 			else if (name == "OnlyGrayscaleInTechRoom")
 			{
 				this->OnlyGrayscaleInTechRoom = stoi(value) != 0;
+			}
+			else if (name == "HologramsInTechRoom")
+			{
+				this->TechRoomHolograms = (stoi(value) != 0);
 			}
 			else if (name == "CullBackFaces")
 			{

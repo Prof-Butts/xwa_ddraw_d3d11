@@ -5368,11 +5368,11 @@ HRESULT Direct3DDevice::Execute(
 				}
 
 				// Tech Room Hologram control (this is only used for the engine glows)
-				if (g_bInTechRoom && g_bDCTechHolosVisible)
+				if (g_bInTechRoom && g_config.TechRoomHolograms)
 				{
 					bModifiedShaders = 1;
 					g_PSCBuffer.rand0 = 8.0f * g_fDCHologramTime;
-					g_PSCBuffer.rand1 = (float)g_bDCTechHolosVisible;
+					g_PSCBuffer.rand1 = 1.0f;
 				}
 
 				// EARLY EXIT 2: RENDER NON-VR. Here we only need the state; but not the extra

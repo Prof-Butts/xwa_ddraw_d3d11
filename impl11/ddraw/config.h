@@ -54,6 +54,7 @@ public:
 	bool HangarShadowsEnabled;
 	bool EnableSoftHangarShadows;
 	bool OnlyGrayscaleInTechRoom;
+	bool TechRoomHolograms;
 	bool CullBackFaces;
 
 	bool HDConcourseEnabled;

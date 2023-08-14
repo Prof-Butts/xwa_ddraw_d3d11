@@ -264,7 +264,7 @@ Config::Config()
 			{
 				this->OnlyGrayscaleInTechRoom = stoi(value) != 0;
 			}
-			else if (name == "HologramsInTechRoom")
+			else if (name == "TechRoomHolograms")
 			{
 				this->TechRoomHolograms = (stoi(value) != 0);
 			}

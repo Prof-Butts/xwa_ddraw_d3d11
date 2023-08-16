@@ -635,7 +635,7 @@ ID3D11ShaderResourceView *Direct3DTexture::CreateSRVFromBuffer(uint8_t *Buffer, 
 
 	desc.Width = (UINT)Width;
 	desc.Height = (UINT)Height;
-	desc.Format = isBc7 ? DXGI_FORMAT_BC7_UNORM : DXGI_FORMAT_R8G8B8A8_UNORM;
+	desc.Format = isBc7 ? DXGI_FORMAT_BC7_UNORM : DXGI_FORMAT_B8G8R8A8_UNORM;
 	desc.MiscFlags = 0;
 	desc.MipLevels = 1;
 	desc.ArraySize = 1;

@@ -126,7 +126,8 @@
     <MSBuild BuildInParallel="true" UseResultsCache="true" Projects="$(MSBuildProjectFullPath)" Properties="DllExportRPkgDyn=true" Targets="Build" />
   </Target>
   <PropertyGroup>
-    <PostBuildEvent>copy /Y $(TargetPath) "C:\Program Files (x86)\GOG Galaxy\Games\Star Wars - X-Wing Alliance 5.6.2"</PostBuildEvent>
+    <PostBuildEvent>copy /Y $(TargetPath) "C:\Program Files (x86)\GOG Galaxy\Games\Star Wars - X-Wing Alliance 5.6.2"
+copy /Y $(TargetPath) "D:\Star Wars - X-Wing Alliance 5.7 Test"</PostBuildEvent>
   </PropertyGroup>
   <Target Name="EnsureNuGetPackageBuildImports" BeforeTargets="PrepareForBuild">
     <PropertyGroup>

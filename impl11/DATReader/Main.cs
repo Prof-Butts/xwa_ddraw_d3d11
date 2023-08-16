@@ -132,7 +132,11 @@ namespace DATReader
                 return false;
             }
 
-            //m_DATImage = DatFile.GetImageDataById(m_DATFile.FileName, m_DATImage.GroupId, m_DATImage.ImageId);
+            if (RawData_out == null)
+            {
+                Trace.WriteLine("[DBG] [C#] ReadDATImageData: output buffer should not be NULL");
+                return false;
+            }
 
             if (!m_DATFile.HasImagesData)
             {
@@ -140,59 +144,25 @@ namespace DATReader
                 m_DATImage = m_DATFile.GetImageById(m_DATImage.GroupId, m_DATImage.ImageId);
             }
 
-            //m_DATImage.ConvertToFormat25(); // Looks like there's no need to do any conversion
             short W = m_DATImage.Width;
             short H = m_DATImage.Height;
+            byte[] data;
 
-            if (RawData_size == W * H)
+            if (RawData_size == W * H || m_DATImage.Format == DatImageFormat.Format25)
             {
-                Marshal.Copy(m_DATImage.GetRawData(), 0, new IntPtr(RawData_out), m_DATImage.GetRawData().Length);
-                return true;
+                data = m_DATImage.GetRawData();
+            }
+            else
+            {
+                data = m_DATImage.GetImageData();
             }
 
-            byte[] data = m_DATImage.Format == DatImageFormat.Format25 ? m_DATImage.GetRawData() : m_DATImage.GetImageData();
-
-            int len = data.Length;
             if (m_Verbose)
-                Trace.WriteLine("[DBG] [C#] RawData, W*H*4 = " + (W * H * 4) + ", len: " + len + ", Format: " + m_DATImage.Format);
-
-            if (RawData_out == null)
             {
-                Trace.WriteLine("[DBG] [C#] ReadDATImageData: output buffer should not be NULL");
-                return false;
+                Trace.WriteLine("[DBG] [C#] RawData, W*H*4 = " + (W * H * 4) + ", len: " + data.Length + ", Format: " + m_DATImage.Format);
             }
 
-            try
-            {
-                int min_len = RawData_size;
-                if (data.Length < min_len) min_len = data.Length;
-                // For some reason, the images are still upside down when used as SRVs
-                // So, let's flip them here. RowOfs and RowStride are used to flip the
-                // image by reading it "backwards".
-                UInt32 OfsOut = 0, OfsIn = 0, RowStride = (UInt32)W * 4, RowOfs = (UInt32)(H - 1) * RowStride;
-                for (int y = 0; y < H; y++)
-                {
-                    OfsIn = RowOfs; // Flip the image
-                    for (int x = 0; x < W; x++)
-                    {
-                        RawData_out[OfsOut + 2] = data[OfsIn + 0]; // B
-                        RawData_out[OfsOut + 1] = data[OfsIn + 1]; // G
-                        RawData_out[OfsOut + 0] = data[OfsIn + 2]; // R
-                        RawData_out[OfsOut + 3] = data[OfsIn + 3]; // A
-                        OfsIn += 4;
-                        OfsOut += 4;
-                    }
-                    // Flip the image and prevent underflows:
-                    RowOfs -= RowStride;
-                    if (RowOfs < 0) RowOfs = 0;
-                }
-            }
-            catch (Exception e)
-            {
-                Trace.WriteLine("[DBG] [C#] Exception: " + e + ", caught in ReadDATImageData");
-                return false;
-            }
-
+            Marshal.Copy(data, 0, new IntPtr(RawData_out), data.Length);
             return true;
         }
 

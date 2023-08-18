@@ -56,6 +56,7 @@ public:
 	bool OnlyGrayscaleInTechRoom;
 	bool TechRoomHolograms;
 	bool CullBackFaces;
+	bool FlipDATImages;
 
 	bool HDConcourseEnabled;
 

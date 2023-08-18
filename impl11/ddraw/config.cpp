@@ -78,6 +78,7 @@ Config::Config()
 	this->OnlyGrayscaleInTechRoom = false;
 	this->TechRoomHolograms = false;
 	this->CullBackFaces = false;
+	this->FlipDATImages = true;
 
 	this->HDConcourseEnabled = false;
 
@@ -271,6 +272,10 @@ Config::Config()
 			else if (name == "CullBackFaces")
 			{
 				this->CullBackFaces = stoi(value) != 0;
+			}
+			else if (name == "FlipDATImages")
+			{
+				this->FlipDATImages = stoi(value) != 0;
 			}
 			else if (name == "HDConcourseEnabled")
 			{

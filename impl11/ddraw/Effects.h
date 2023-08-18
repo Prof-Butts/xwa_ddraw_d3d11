@@ -200,15 +200,20 @@ extern std::map<int32_t, std::tuple<std::string, int, int>> g_DebugMeshToNameMap
 
 // ********************************
 // DATReader function pointers
+constexpr uint32_t DAT_READER_VERSION_101 = 65537; // 1.0.1 -- default version
+extern uint32_t g_DATReaderVersion;
+typedef uint32_t(_cdecl * GetDATReaderVersionFun)();
 typedef void(_cdecl * SetDATVerbosityFun)(bool Verbose);
 typedef bool(_cdecl * LoadDATFileFun)(const char *sDatFileName);
 typedef bool(_cdecl * GetDATImageMetadataFun)(int GroupId, int ImageId, short *Width_out, short *Height_out, uint8_t *Format_out);
 typedef bool(_cdecl * ReadDATImageDataFun)(uint8_t *RawData_out, int RawData_size);
+typedef bool(_cdecl* ReadFlippedDATImageDataFun)(uint8_t* RawData_out, int RawData_size);
 typedef int(_cdecl * GetDATGroupImageCountFun)(int GroupId);
 typedef bool(_cdecl * GetDATGroupImageListFun)(int GroupId, short *ImageIds_out, int ImageIds_size);
 
 extern LoadDATFileFun LoadDATFile;
 extern GetDATImageMetadataFun GetDATImageMetadata;
+extern ReadFlippedDATImageDataFun ReadFlippedDATImageData;
 extern ReadDATImageDataFun ReadDATImageData;
 extern SetDATVerbosityFun SetDATVerbosity;
 extern GetDATGroupImageCountFun GetDATGroupImageCount;

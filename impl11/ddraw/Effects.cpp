@@ -203,12 +203,16 @@ D3DTLVERTEX g_SpeedParticles2D[MAX_SPEED_PARTICLES * 12];
 // DATReader global vars and function pointers
 HMODULE g_hDATReader = nullptr;
 
-LoadDATFileFun				LoadDATFile = nullptr;
-GetDATImageMetadataFun		GetDATImageMetadata = nullptr;
-ReadDATImageDataFun			ReadDATImageData = nullptr;
-SetDATVerbosityFun			SetDATVerbosity = nullptr;
-GetDATGroupImageCountFun		GetDATGroupImageCount = nullptr;
-GetDATGroupImageListFun		GetDATGroupImageList = nullptr;
+uint32_t g_DATReaderVersion = DAT_READER_VERSION_101;
+
+GetDATReaderVersionFun     GetDATReaderVersion     = nullptr;
+LoadDATFileFun             LoadDATFile             = nullptr;
+GetDATImageMetadataFun     GetDATImageMetadata     = nullptr;
+ReadDATImageDataFun        ReadDATImageData        = nullptr;
+ReadFlippedDATImageDataFun ReadFlippedDATImageData = nullptr;
+SetDATVerbosityFun         SetDATVerbosity         = nullptr;
+GetDATGroupImageCountFun   GetDATGroupImageCount   = nullptr;
+GetDATGroupImageListFun    GetDATGroupImageList    = nullptr;
 // bool g_bEnableDATReader; // TODO
 // **************************
 
@@ -443,12 +447,14 @@ bool InitDATReader() {
 		return false;
 	}
 
-	LoadDATFile = (LoadDATFileFun)GetProcAddress(g_hDATReader, "LoadDATFile");
-	GetDATImageMetadata = (GetDATImageMetadataFun)GetProcAddress(g_hDATReader, "GetDATImageMetadata");
-	ReadDATImageData = (ReadDATImageDataFun)GetProcAddress(g_hDATReader, "ReadDATImageData");
-	SetDATVerbosity = (SetDATVerbosityFun)GetProcAddress(g_hDATReader, "SetDATVerbosity");
-	GetDATGroupImageCount = (GetDATGroupImageCountFun)GetProcAddress(g_hDATReader, "GetDATGroupImageCount");
-	GetDATGroupImageList = (GetDATGroupImageListFun)GetProcAddress(g_hDATReader, "GetDATGroupImageList");
+	GetDATReaderVersion     = (GetDATReaderVersionFun)GetProcAddress(g_hDATReader, "GetDATReaderVersion");
+	LoadDATFile             = (LoadDATFileFun)GetProcAddress(g_hDATReader, "LoadDATFile");
+	GetDATImageMetadata     = (GetDATImageMetadataFun)GetProcAddress(g_hDATReader, "GetDATImageMetadata");
+	ReadDATImageData        = (ReadDATImageDataFun)GetProcAddress(g_hDATReader, "ReadDATImageData");
+	ReadFlippedDATImageData = (ReadFlippedDATImageDataFun)GetProcAddress(g_hDATReader, "ReadFlippedDATImageData");
+	SetDATVerbosity         = (SetDATVerbosityFun)GetProcAddress(g_hDATReader, "SetDATVerbosity");
+	GetDATGroupImageCount   = (GetDATGroupImageCountFun)GetProcAddress(g_hDATReader, "GetDATGroupImageCount");
+	GetDATGroupImageList    = (GetDATGroupImageListFun)GetProcAddress(g_hDATReader, "GetDATGroupImageList");
 	if (LoadDATFile == nullptr || GetDATImageMetadata == nullptr || ReadDATImageData == nullptr ||
 		SetDATVerbosity == nullptr || GetDATGroupImageCount == nullptr || GetDATGroupImageList == nullptr)
 	{
@@ -457,6 +463,17 @@ bool InitDATReader() {
 		g_hDATReader = nullptr;
 		return false;
 	}
+
+	if (GetDATReaderVersion != nullptr)
+	{
+		g_DATReaderVersion = GetDATReaderVersion();
+	}
+	log_debug("[DBG] DAT Reader Version: 0x%u (%d.%d.%d)",
+		g_DATReaderVersion,
+		g_DATReaderVersion >> 16,
+		(g_DATReaderVersion >> 8) & 0xFF,
+		g_DATReaderVersion & 0xFF);
+
 	return true;
 }
 

@@ -632,10 +632,12 @@ ID3D11ShaderResourceView *Direct3DTexture::CreateSRVFromBuffer(uint8_t *Buffer, 
 	ID3D11ShaderResourceView *texture2DSRV = NULL;
 
 	bool isBc7 = (BufferLength == Width * Height);
-
+	DXGI_FORMAT ColorFormat = (g_DATReaderVersion <= DAT_READER_VERSION_101 || g_config.FlipDATImages) ?
+		DXGI_FORMAT_R8G8B8A8_UNORM : // Original, to be used with DATReader 1.0.1. Needs channel swizzling.
+		DXGI_FORMAT_B8G8R8A8_UNORM;  // To be used with DATReader 1.0.2+. Enables Marshal.Copy(), no channel swizzling.
 	desc.Width = (UINT)Width;
 	desc.Height = (UINT)Height;
-	desc.Format = isBc7 ? DXGI_FORMAT_BC7_UNORM : DXGI_FORMAT_B8G8R8A8_UNORM;
+	desc.Format = isBc7 ? DXGI_FORMAT_BC7_UNORM : ColorFormat;
 	desc.MiscFlags = 0;
 	desc.MipLevels = 1;
 	desc.ArraySize = 1;
@@ -711,7 +713,9 @@ HRESULT Direct3DTexture::LoadDATImage(char *sDATFileName, int GroupId, int Image
 	if (Width_out != nullptr) *Width_out = Width;
 	if (Height_out != nullptr) *Height_out = Height;
 
-	if (Format == 27 && Width % 4 == 0 && Height % 4 == 0)
+	const bool isBc7 = (Format == 27);
+
+	if (isBc7 && (Width % 4 == 0) && (Height % 4 == 0))
 	{
 		buf_len = Width * Height;
 	}
@@ -721,12 +725,24 @@ HRESULT Direct3DTexture::LoadDATImage(char *sDATFileName, int GroupId, int Image
 	}
 
 	buf = new uint8_t[buf_len];
-	if (ReadDATImageData(buf, buf_len)) {
-		*srv = CreateSRVFromBuffer(buf, buf_len, Width, Height);
-		if (*srv != nullptr) res = S_OK;
-	} 
+	if (!isBc7 && g_config.FlipDATImages && ReadFlippedDATImageData != nullptr)
+	{
+		if (ReadFlippedDATImageData(buf, buf_len)) {
+			*srv = CreateSRVFromBuffer(buf, buf_len, Width, Height);
+			if (*srv != nullptr) res = S_OK;
+		}
+		else
+			log_debug("[DBG] [C++] Failed to read flipped image data");
+	}
 	else
-		log_debug("[DBG] [C++] Failed to read image data");
+	{
+		if (ReadDATImageData(buf, buf_len)) {
+			*srv = CreateSRVFromBuffer(buf, buf_len, Width, Height);
+			if (*srv != nullptr) res = S_OK;
+		}
+		else
+			log_debug("[DBG] [C++] Failed to read image data");
+	}
 
 	if (buf != nullptr) delete[] buf;
 	// Cache this image for future use

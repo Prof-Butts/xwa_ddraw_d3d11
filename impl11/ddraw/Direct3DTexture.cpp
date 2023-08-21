@@ -457,9 +457,6 @@ bool Direct3DTexture::GetCachedSRV(char *sDATZIPFileName, int GroupId, int Image
 		return false;
 	}
 	*srv = it->second;
-	// This AddRef gets taken care of in DeviceResources::ResetExtraTextures()
-	(*srv)->AddRef();
-	//log_debug("[DBG] Using cached image [%s]", hash);
 	return true;
 }
 
@@ -467,13 +464,16 @@ void Direct3DTexture::AddCachedSRV(char *sDATZIPFileName, int GroupId, int Image
 {
 	std::string hash = GetDATImageHash(sDATZIPFileName, GroupId, ImageId);
 	DATImageMap.insert(std::make_pair(hash, srv));
-	// This AddRef gets taken care of in DeviceResources::ResetExtraTextures()
+	// This AddRef gets taken care of in ClearCachedSRVs()
 	srv->AddRef();
-	//log_debug("[DBG] Cached image [%s]", hash);
 }
 
 void ClearCachedSRVs()
 {
+	for (auto item : DATImageMap)
+	{
+		item.second->Release();
+	}
 	DATImageMap.clear();
 }
 

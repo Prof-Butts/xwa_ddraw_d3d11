@@ -180,8 +180,8 @@ public:
 	STDMETHOD(PaletteChanged)(THIS_ DWORD, DWORD);
 
 	std::string GetDATImageHash(char *sDATZIPFileName, int GroupId, int ImageId);
-	bool GetCachedSRV(char *sDATZIPFileName, int GroupId, int ImageId, ID3D11ShaderResourceView **srv);
-	void AddCachedSRV(char *sDATZIPFileName, int GroupId, int ImageId, ID3D11ShaderResourceView *srv);
+	int GetCachedSRV(char *sDATZIPFileName, int GroupId, int ImageId, ID3D11ShaderResourceView **srv);
+	int AddCachedSRV(char *sDATZIPFileName, int GroupId, int ImageId, int index, ID3D11ShaderResourceView *srv);
 
 	void LoadAnimatedTextures(int ATCIndex);
 
@@ -191,11 +191,11 @@ public:
 
 	HRESULT CreateSRVFromBuffer(uint8_t *Buffer, int BufferLength, int Width, int Height, ID3D11ShaderResourceView **srv);
 
-	HRESULT LoadDATImage(char *sDATFileName, int GroupId, int ImageId, ID3D11ShaderResourceView **srv,
-		short *Width_out=nullptr, short *Height_out=nullptr);
+	int LoadDATImage(char *sDATFileName, int GroupId, int ImageId, bool cache,
+		ID3D11ShaderResourceView **srv, short *Width_out=nullptr, short *Height_out=nullptr);
 
-	HRESULT LoadZIPImage(char *sZIPFileName, int GroupId, int ImageId, ID3D11ShaderResourceView **srv,
-		short *Width_out=nullptr, short *Height_out=nullptr);
+	int LoadZIPImage(char *sZIPFileName, int GroupId, int ImageId, bool cache,
+		ID3D11ShaderResourceView **srv, short *Width_out=nullptr, short *Height_out=nullptr);
 	
 	STDMETHOD(Load)(THIS_ LPDIRECT3DTEXTURE);
 	

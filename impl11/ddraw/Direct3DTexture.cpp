@@ -25,7 +25,12 @@ namespace fs = std::filesystem;
 const char *TRIANGLE_PTR_RESNAME = "dat,13000,100,";
 const char *TARGETING_COMP_RESNAME = "dat,12000,1100,";
 
-std::map<std::string, ComPtr<ID3D11ShaderResourceView>> DATImageMap;
+// Maps DAT GroupId-ImageId to indices in resources->_extraTextures
+std::map<std::string, int> DATImageMap;
+// Maps image file names or DAT names (?) to indices in resources->_extraTextures
+// Maybe we can merge DATImageMap and g_TextureMap now...
+// DATImageMap used to map DAT GroupId-ImageId to ID3D11ShaderResourceView objects, but
+// that kind of caused memory leaks.
 std::map<std::string, int> g_TextureMap;
 
 void ClearGlobalTextureMap()
@@ -447,37 +452,31 @@ std::string Direct3DTexture::GetDATImageHash(char *sDATZIPFileName, int GroupId,
 	return std::string(sDATZIPFileName) + "-" + std::to_string(GroupId) + "-" + std::to_string(ImageId);
 }
 
-bool Direct3DTexture::GetCachedSRV(char *sDATZIPFileName, int GroupId, int ImageId, ID3D11ShaderResourceView **srv)
+int Direct3DTexture::GetCachedSRV(char *sDATZIPFileName, int GroupId, int ImageId, ID3D11ShaderResourceView **srv)
 {
-	*srv = nullptr;
-	return false;
-
 	std::string hash = GetDATImageHash(sDATZIPFileName, GroupId, ImageId);
 	auto it = DATImageMap.find(hash);
 	if (it == DATImageMap.end()) {
 		*srv = nullptr;
 		//log_debug("[DBG] Cached image not found [%s]", hash);
-		return false;
+		return -1;
 	}
-	*srv = it->second.Get();
-	return true;
+	auto &resources = this->_deviceResources;
+	const int index = it->second;
+	*srv = resources->_extraTextures[index];
+	return index;
 }
 
-void Direct3DTexture::AddCachedSRV(char *sDATZIPFileName, int GroupId, int ImageId, ID3D11ShaderResourceView *srv)
+int Direct3DTexture::AddCachedSRV(char *sDATZIPFileName, int GroupId, int ImageId, int index, ID3D11ShaderResourceView *srv)
 {
-	/*std::string hash = GetDATImageHash(sDATZIPFileName, GroupId, ImageId);
-	srv->AddRef();
-	DATImageMap.insert(std::make_pair(hash, srv));*/
+	auto& resources = this->_deviceResources;
+	std::string hash = GetDATImageHash(sDATZIPFileName, GroupId, ImageId);
+	DATImageMap.insert(std::make_pair(hash, index));
+	return index;
 }
 
 void ClearCachedSRVs()
 {
-	/*
-	for (auto item : DATImageMap)
-	{
-		item.second->Release();
-	}
-	*/
 	DATImageMap.clear();
 }
 
@@ -490,14 +489,14 @@ void Direct3DTexture::LoadAnimatedTextures(int ATCIndex)
 	for (uint32_t i = 0; i < atc->Sequence.size(); i++) {
 		TexSeqElem tex_seq_elem = atc->Sequence[i];
 		ID3D11ShaderResourceView *texSRV = nullptr;
-		HRESULT res = S_OK;
+		int index = -1;
 
 		if (tex_seq_elem.IsDATImage) {
-			res = LoadDATImage(tex_seq_elem.texname, tex_seq_elem.GroupId, tex_seq_elem.ImageId, &texSRV);
+			index = LoadDATImage(tex_seq_elem.texname, tex_seq_elem.GroupId, tex_seq_elem.ImageId, true, &texSRV);
 			//if (SUCCEEDED(res)) log_debug("[DBG] DAT %d-%d loaded!", tex_seq_elem.GroupId, tex_seq_elem.ImageId);
 		}
 		else if (tex_seq_elem.IsZIPImage) {
-			res = LoadZIPImage(tex_seq_elem.texname, tex_seq_elem.GroupId, tex_seq_elem.ImageId, &texSRV);
+			index = LoadZIPImage(tex_seq_elem.texname, tex_seq_elem.GroupId, tex_seq_elem.ImageId, true, &texSRV);
 			//if (SUCCEEDED(res)) log_debug("[DBG] ZIP %d-%d loaded!", tex_seq_elem.GroupId, tex_seq_elem.ImageId);
 		}
 		else {
@@ -515,16 +514,18 @@ void Direct3DTexture::LoadAnimatedTextures(int ATCIndex)
 			// Will have to come back to this later.
 			//HRESULT res = DirectX::CreateWICTextureFromFile(resources->_d3dDevice, wTexName, NULL,
 			//	&(resources->_extraTextures[resources->_numExtraTextures]));
-			res = DirectX::CreateWICTextureFromFile(resources->_d3dDevice, wTexName, NULL, &texSRV);
+			HRESULT res = DirectX::CreateWICTextureFromFile(resources->_d3dDevice, wTexName, NULL, &texSRV);
+			if (FAILED(res))
+				index = -1;
 		}
 
-		if (FAILED(res)) {
+		if (index == -1) {
 			if (tex_seq_elem.IsDATImage)
-				log_debug("[DBG] [MAT] ***** Could not load animated DAT texture [%s-%d-%d]: 0x%x",
-					tex_seq_elem.texname, tex_seq_elem.GroupId, tex_seq_elem.ImageId, res);
+				log_debug("[DBG] [MAT] ***** Could not load animated DAT texture [%s-%d-%d]",
+					tex_seq_elem.texname, tex_seq_elem.GroupId, tex_seq_elem.ImageId);
 			else
-				log_debug("[DBG] [MAT] ***** Could not load animated texture [%s]: 0x%x",
-					tex_seq_elem.texname, res);
+				log_debug("[DBG] [MAT] ***** Could not load animated texture [%s]",
+					tex_seq_elem.texname);
 			atc->Sequence[i].ExtraTextureIndex = -1;
 		}
 		else {
@@ -533,7 +534,7 @@ void Direct3DTexture::LoadAnimatedTextures(int ATCIndex)
 			//p->AddRef();
 			//resources->_extraTextures.push_back(p);
 
-			atc->Sequence[i].ExtraTextureIndex = resources->PushExtraTexture(texSRV); // LoadAnimatedTextures()
+			atc->Sequence[i].ExtraTextureIndex = index;
 
 			//resources->_numExtraTextures++;
 			//atc->LightMapSequence[i].ExtraTextureIndex = resources->_numExtraTextures - 1;
@@ -551,7 +552,7 @@ int Direct3DTexture::LoadGreebleTexture(char *GreebleDATZIPGroupIdImageId, short
 	auto &resources = this->_deviceResources;
 	ID3D11ShaderResourceView *texSRV = nullptr;
 	int GroupId = -1, ImageId = -1;
-	HRESULT res = S_OK;
+	int index = -1;
 
 	char *substr_dat = stristr(GreebleDATZIPGroupIdImageId, ".dat");
 	char *substr_zip = stristr(GreebleDATZIPGroupIdImageId, ".zip");
@@ -569,15 +570,15 @@ int Direct3DTexture::LoadGreebleTexture(char *GreebleDATZIPGroupIdImageId, short
 
 	// Load the greeble texture
 	if (bIsDATFile)
-		res = LoadDATImage(GreebleDATZIPGroupIdImageId, GroupId, ImageId, &texSRV, Width, Height);
+		index = LoadDATImage(GreebleDATZIPGroupIdImageId, GroupId, ImageId, true, &texSRV, Width, Height);
 	else
-		res = LoadZIPImage(GreebleDATZIPGroupIdImageId, GroupId, ImageId, &texSRV, Width, Height);
-	if (FAILED(res)) {
+		index = LoadZIPImage(GreebleDATZIPGroupIdImageId, GroupId, ImageId, true, &texSRV, Width, Height);
+	if (index == -1) {
 		log_debug("[DBG] Could not load greeble");
 		return -1;
 	}
 	// Link the new texture as a greeble of the current texture
-	this->GreebleTexIdx = resources->PushExtraTexture(texSRV); // LoadGreebleTexture()
+	this->GreebleTexIdx = index;
 	//log_debug("[DBG] Loaded Greeble texture at index: %d", this->GreebleTexIdx);
 	return this->GreebleTexIdx;
 }
@@ -587,7 +588,7 @@ int Direct3DTexture::LoadNormalMap(char *DATZIPGroupIdImageId, short *Width, sho
 	auto &resources = this->_deviceResources;
 	ID3D11ShaderResourceView *texSRV = nullptr;
 	int GroupId = -1, ImageId = -1;
-	HRESULT res = S_OK;
+	int index = -1;
 	char *substr_dat = stristr(DATZIPGroupIdImageId, ".dat");
 	char *substr_zip = stristr(DATZIPGroupIdImageId, ".zip");
 	bool bIsDATFile = substr_dat != NULL;
@@ -604,15 +605,15 @@ int Direct3DTexture::LoadNormalMap(char *DATZIPGroupIdImageId, short *Width, sho
 
 	// Load the greeble texture
 	if (bIsDATFile)
-		res = LoadDATImage(DATZIPGroupIdImageId, GroupId, ImageId, &texSRV, Width, Height);
+		index = LoadDATImage(DATZIPGroupIdImageId, GroupId, ImageId, true, &texSRV, Width, Height);
 	else
-		res = LoadZIPImage(DATZIPGroupIdImageId, GroupId, ImageId, &texSRV, Width, Height);
-	if (FAILED(res)) {
+		index = LoadZIPImage(DATZIPGroupIdImageId, GroupId, ImageId, true, &texSRV, Width, Height);
+	if (index == -1) {
 		log_debug("[DBG] Could not load NormalMap %s", DATZIPGroupIdImageId);
 		return -1;
 	}
 	// Link the new texture as a greeble of the current texture
-	this->NormalMapIdx = resources->PushExtraTexture(texSRV); // LoadNormalMap()
+	this->NormalMapIdx = index;
 	//log_debug("[DBG] Loaded NormalMap texture at index: %d", this->NormalMapIdx);
 	return this->NormalMapIdx;
 }
@@ -680,7 +681,7 @@ out:
 	return hr;
 }
 
-HRESULT Direct3DTexture::LoadDATImage(char *sDATFileName, int GroupId, int ImageId, ID3D11ShaderResourceView **srv,
+int Direct3DTexture::LoadDATImage(char *sDATFileName, int GroupId, int ImageId, bool cache, ID3D11ShaderResourceView **srv,
 	short *Width_out, short *Height_out)
 {
 	short Width = 0, Height = 0;
@@ -689,24 +690,30 @@ HRESULT Direct3DTexture::LoadDATImage(char *sDATFileName, int GroupId, int Image
 	int buf_len = 0;
 	// Initialize the output to null/failure by default:
 	HRESULT res = E_FAIL;
+	auto& resources = this->_deviceResources;
+	int index = -1;
 	*srv = nullptr;
 
-	if (GetCachedSRV(sDATFileName, GroupId, ImageId, srv))
-		return S_OK;
+	if (cache)
+	{
+		index = GetCachedSRV(sDATFileName, GroupId, ImageId, srv);
+		if (index != -1)
+			return index;
+	}
 
 	if (!InitDATReader()) // This call is idempotent and does nothing when DATReader is already loaded
-		return res;
+		return -1;
 
 	//if (SetDATVerbosity != nullptr) SetDATVerbosity(true);
 
 	if (!LoadDATFile(sDATFileName)) {
 		log_debug("[DBG] Could not load DAT file: %s", sDATFileName);
-		return res;
+		return -1;
 	}
 
 	if (!GetDATImageMetadata(GroupId, ImageId, &Width, &Height, &Format)) {
 		log_debug("[DBG] [C++] DAT Image not found");
-		return res;
+		return -1;
 	}
 
 	if (Width_out != nullptr) *Width_out = Width;
@@ -740,13 +747,23 @@ HRESULT Direct3DTexture::LoadDATImage(char *sDATFileName, int GroupId, int Image
 	}
 
 	if (buf != nullptr) delete[] buf;
-	// Cache this image for future use
-	if (res == S_OK)
-		AddCachedSRV(sDATFileName, GroupId, ImageId, *srv);
-	return res;
+
+	if (FAILED(res))
+		return -1;
+
+	if (cache)
+	{
+		index = resources->PushExtraTexture(*srv);
+		AddCachedSRV(sDATFileName, GroupId, ImageId, index, *srv);
+		return index;
+	}
+	else
+	{
+		return S_OK;
+	}
 }
 
-HRESULT Direct3DTexture::LoadZIPImage(char *sZIPFileName, int GroupId, int ImageId, ID3D11ShaderResourceView **srv,
+int Direct3DTexture::LoadZIPImage(char *sZIPFileName, int GroupId, int ImageId, bool cache, ID3D11ShaderResourceView **srv,
 	short *Width_out, short *Height_out)
 {
 	auto &resources = this->_deviceResources;
@@ -755,13 +772,18 @@ HRESULT Direct3DTexture::LoadZIPImage(char *sZIPFileName, int GroupId, int Image
 	int buf_len = 0;
 	// Initialize the output to null/failure by default:
 	HRESULT res = E_FAIL;
+	int index = -1;
 	*srv = nullptr;
 
-	if (GetCachedSRV(sZIPFileName, GroupId, ImageId, srv))
-		return S_OK;
+	if (cache)
+	{
+		index = GetCachedSRV(sZIPFileName, GroupId, ImageId, srv);
+		if (index != -1)
+			return index;
+	}
 
 	if (!InitZIPReader()) // This call is idempotent and should do nothing when ZIPReader is already loaded
-		return res;
+		return -1;
 
 	//if (SetZIPVerbosity != nullptr) SetZIPVerbosity(true);
 
@@ -769,23 +791,33 @@ HRESULT Direct3DTexture::LoadZIPImage(char *sZIPFileName, int GroupId, int Image
 	// Unzip the file first. If the file has been unzipped already, this is a no-op
 	if (!LoadZIPFile(sZIPFileName)) {
 		log_debug("[DBG] Could not load ZIP file: %s", sZIPFileName);
-		return res;
+		return -1;
 	}
 
 	char* buffer = nullptr;
 	int bufferSize = 0;
 
 	if (!GetZIPImageMetadata(GroupId, ImageId, Width_out, Height_out, &buffer, &bufferSize))
-		return res;
+		return -1;
 	//log_debug("[DBG] [C#] ZIP Image: [%s] loaded", sActualFileName);
 
 	res = DirectX::CreateWICTextureFromMemory(resources->_d3dDevice, (uint8_t*)buffer, (size_t)bufferSize, NULL, srv);
 
 	LocalFree((HLOCAL)buffer);
 
-	if (res == S_OK)
-		AddCachedSRV(sZIPFileName, GroupId, ImageId, *srv);
-	return res;
+	if (FAILED(res))
+		return -1;
+
+	if (cache)
+	{
+		index = resources->PushExtraTexture(*srv);
+		AddCachedSRV(sZIPFileName, GroupId, ImageId, index, *srv);
+		return index;
+	}
+	else
+	{
+		return S_OK;
+	}
 }
 
 void Direct3DTexture::TagTexture() {
@@ -1280,9 +1312,9 @@ void Direct3DTexture::TagTexture() {
 							if (ParseDatZipFileNameGroupIdImageId(g_DCElements[idx].coverTextureName, sDATZIPFileName, 128, &GroupId, &ImageId)) {
 								//log_debug("[DBG] [DC] Loading cover texture [%s]-%d-%d", sDATFileName, GroupId, ImageId);
 								if (substr_dat != NULL)
-									res = LoadDATImage(sDATZIPFileName, GroupId, ImageId, &(resources->dc_coverTexture[idx]));
+									res = LoadDATImage(sDATZIPFileName, GroupId, ImageId, false, &(resources->dc_coverTexture[idx]));
 								else
-									res = LoadZIPImage(sDATZIPFileName, GroupId, ImageId, &(resources->dc_coverTexture[idx]));
+									res = LoadZIPImage(sDATZIPFileName, GroupId, ImageId, false, &(resources->dc_coverTexture[idx]));
 								//if (FAILED(res)) log_debug("[DBG] [DC] *** ERROR loading cover texture");
 							}
 						} else {
@@ -1446,21 +1478,21 @@ void Direct3DTexture::TagTexture() {
 								TexSeqElem tex_seq_elem = atc->Sequence[j];
 								ID3D11ShaderResourceView *texSRV = nullptr;
 								if (atc->Sequence[j].ExtraTextureIndex == -1) {
-									HRESULT res = S_OK;
+									int index = -1;
 
 									if (tex_seq_elem.IsDATImage)
-										res = LoadDATImage(tex_seq_elem.texname, tex_seq_elem.GroupId,
-											/* ImageId */ j, &texSRV);
+										index = LoadDATImage(tex_seq_elem.texname, tex_seq_elem.GroupId,
+											/* ImageId */ j, true, &texSRV);
 									else if (tex_seq_elem.IsZIPImage)
-										res = LoadZIPImage(tex_seq_elem.texname, tex_seq_elem.GroupId,
-											/* ImageId */ j, &texSRV);
+										index = LoadZIPImage(tex_seq_elem.texname, tex_seq_elem.GroupId,
+											/* ImageId */ j, true, &texSRV);
 
-									if (FAILED(res)) {
-										log_debug("[DBG] [MAT] ***** Could not load DAT texture [%s-%d-%d]: 0x%x",
-											tex_seq_elem.texname, tex_seq_elem.GroupId, j, res);
+									if (index == -1) {
+										log_debug("[DBG] [MAT] ***** Could not load DAT texture [%s-%d-%d]",
+											tex_seq_elem.texname, tex_seq_elem.GroupId, j);
 									}
 									else {
-										atc->Sequence[j].ExtraTextureIndex = resources->PushExtraTexture(texSRV); // // TagTexture() (AltExplosions)
+										atc->Sequence[j].ExtraTextureIndex = index;
 									}
 								}
 							}

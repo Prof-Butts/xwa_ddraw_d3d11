@@ -25,7 +25,7 @@ namespace fs = std::filesystem;
 const char *TRIANGLE_PTR_RESNAME = "dat,13000,100,";
 const char *TARGETING_COMP_RESNAME = "dat,12000,1100,";
 
-std::map<std::string, ID3D11ShaderResourceView *> DATImageMap;
+std::map<std::string, ComPtr<ID3D11ShaderResourceView>> DATImageMap;
 std::map<std::string, int> g_TextureMap;
 
 void ClearGlobalTextureMap()
@@ -449,6 +449,9 @@ std::string Direct3DTexture::GetDATImageHash(char *sDATZIPFileName, int GroupId,
 
 bool Direct3DTexture::GetCachedSRV(char *sDATZIPFileName, int GroupId, int ImageId, ID3D11ShaderResourceView **srv)
 {
+	*srv = nullptr;
+	return false;
+
 	std::string hash = GetDATImageHash(sDATZIPFileName, GroupId, ImageId);
 	auto it = DATImageMap.find(hash);
 	if (it == DATImageMap.end()) {
@@ -456,24 +459,25 @@ bool Direct3DTexture::GetCachedSRV(char *sDATZIPFileName, int GroupId, int Image
 		//log_debug("[DBG] Cached image not found [%s]", hash);
 		return false;
 	}
-	*srv = it->second;
+	*srv = it->second.Get();
 	return true;
 }
 
 void Direct3DTexture::AddCachedSRV(char *sDATZIPFileName, int GroupId, int ImageId, ID3D11ShaderResourceView *srv)
 {
-	std::string hash = GetDATImageHash(sDATZIPFileName, GroupId, ImageId);
-	DATImageMap.insert(std::make_pair(hash, srv));
-	// This AddRef gets taken care of in ClearCachedSRVs()
+	/*std::string hash = GetDATImageHash(sDATZIPFileName, GroupId, ImageId);
 	srv->AddRef();
+	DATImageMap.insert(std::make_pair(hash, srv));*/
 }
 
 void ClearCachedSRVs()
 {
+	/*
 	for (auto item : DATImageMap)
 	{
 		item.second->Release();
 	}
+	*/
 	DATImageMap.clear();
 }
 
@@ -524,15 +528,12 @@ void Direct3DTexture::LoadAnimatedTextures(int ATCIndex)
 			atc->Sequence[i].ExtraTextureIndex = -1;
 		}
 		else {
-			// Use the following line when _extraTextures is an std::vector of ID3D11ShaderResourceView*:
-			resources->_extraTextures.push_back(texSRV);
-
 			//texSRV->AddRef(); // Without this line, funny things happen
 			//ComPtr<ID3D11ShaderResourceView> p = texSRV;
 			//p->AddRef();
 			//resources->_extraTextures.push_back(p);
 
-			atc->Sequence[i].ExtraTextureIndex = resources->_extraTextures.size() - 1;
+			atc->Sequence[i].ExtraTextureIndex = resources->PushExtraTexture(texSRV); // LoadAnimatedTextures()
 
 			//resources->_numExtraTextures++;
 			//atc->LightMapSequence[i].ExtraTextureIndex = resources->_numExtraTextures - 1;
@@ -575,10 +576,9 @@ int Direct3DTexture::LoadGreebleTexture(char *GreebleDATZIPGroupIdImageId, short
 		log_debug("[DBG] Could not load greeble");
 		return -1;
 	}
-	resources->_extraTextures.push_back(texSRV);
 	// Link the new texture as a greeble of the current texture
-	this->GreebleTexIdx = resources->_extraTextures.size() - 1;
-	log_debug("[DBG] Loaded Greeble texture at index: %d", this->GreebleTexIdx);
+	this->GreebleTexIdx = resources->PushExtraTexture(texSRV); // LoadGreebleTexture()
+	//log_debug("[DBG] Loaded Greeble texture at index: %d", this->GreebleTexIdx);
 	return this->GreebleTexIdx;
 }
 
@@ -611,14 +611,13 @@ int Direct3DTexture::LoadNormalMap(char *DATZIPGroupIdImageId, short *Width, sho
 		log_debug("[DBG] Could not load NormalMap %s", DATZIPGroupIdImageId);
 		return -1;
 	}
-	resources->_extraTextures.push_back(texSRV);
 	// Link the new texture as a greeble of the current texture
-	this->NormalMapIdx = resources->_extraTextures.size() - 1;
+	this->NormalMapIdx = resources->PushExtraTexture(texSRV); // LoadNormalMap()
 	//log_debug("[DBG] Loaded NormalMap texture at index: %d", this->NormalMapIdx);
 	return this->NormalMapIdx;
 }
 
-ID3D11ShaderResourceView *Direct3DTexture::CreateSRVFromBuffer(uint8_t *Buffer, int BufferLength, int Width, int Height)
+HRESULT Direct3DTexture::CreateSRVFromBuffer(uint8_t *Buffer, int BufferLength, int Width, int Height, ID3D11ShaderResourceView **srv)
 {
 	auto& resources = this->_deviceResources;
 	auto& context = resources->_d3dDeviceContext;
@@ -628,8 +627,8 @@ ID3D11ShaderResourceView *Direct3DTexture::CreateSRVFromBuffer(uint8_t *Buffer, 
 	D3D11_TEXTURE2D_DESC desc = { 0 };
 	D3D11_SHADER_RESOURCE_VIEW_DESC shaderResourceViewDesc{};
 	D3D11_SUBRESOURCE_DATA textureData = { 0 };
-	ID3D11Texture2D *texture2D = NULL;
-	ID3D11ShaderResourceView *texture2DSRV = NULL;
+	ComPtr<ID3D11Texture2D> texture2D;
+	*srv = NULL;
 
 	bool isBc7 = (BufferLength == Width * Height);
 	DXGI_FORMAT ColorFormat = (g_DATReaderVersion <= DAT_READER_VERSION_101 || g_config.FlipDATImages) ?
@@ -662,7 +661,7 @@ ID3D11ShaderResourceView *Direct3DTexture::CreateSRVFromBuffer(uint8_t *Buffer, 
 	shaderResourceViewDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
 	shaderResourceViewDesc.Texture2D.MostDetailedMip = 0;
 	shaderResourceViewDesc.Texture2D.MipLevels = 1;
-	if (FAILED(hr = device->CreateShaderResourceView(texture2D, &shaderResourceViewDesc, &texture2DSRV))) {
+	if (FAILED(hr = device->CreateShaderResourceView(texture2D, &shaderResourceViewDesc, srv))) {
 		log_debug("[DBG] Failed when calling CreateShaderResourceView on texture2D, reason: 0x%x",
 			device->GetDeviceRemovedReason());
 		goto out;
@@ -678,7 +677,7 @@ out:
 	if (texture2D != nullptr) texture2D->Release();
 	if (texture2DSRV != nullptr) texture2DSRV->Release();
 	return NULL;*/
-	return texture2DSRV;
+	return hr;
 }
 
 HRESULT Direct3DTexture::LoadDATImage(char *sDATFileName, int GroupId, int ImageId, ID3D11ShaderResourceView **srv,
@@ -689,7 +688,7 @@ HRESULT Direct3DTexture::LoadDATImage(char *sDATFileName, int GroupId, int Image
 	uint8_t *buf = nullptr;
 	int buf_len = 0;
 	// Initialize the output to null/failure by default:
-	HRESULT res = -1;
+	HRESULT res = E_FAIL;
 	*srv = nullptr;
 
 	if (GetCachedSRV(sDATFileName, GroupId, ImageId, srv))
@@ -727,19 +726,15 @@ HRESULT Direct3DTexture::LoadDATImage(char *sDATFileName, int GroupId, int Image
 	buf = new uint8_t[buf_len];
 	if (!isBc7 && g_config.FlipDATImages && ReadFlippedDATImageData != nullptr)
 	{
-		if (ReadFlippedDATImageData(buf, buf_len)) {
-			*srv = CreateSRVFromBuffer(buf, buf_len, Width, Height);
-			if (*srv != nullptr) res = S_OK;
-		}
+		if (ReadFlippedDATImageData(buf, buf_len))
+			res = CreateSRVFromBuffer(buf, buf_len, Width, Height, srv);
 		else
 			log_debug("[DBG] [C++] Failed to read flipped image data");
 	}
 	else
 	{
-		if (ReadDATImageData(buf, buf_len)) {
-			*srv = CreateSRVFromBuffer(buf, buf_len, Width, Height);
-			if (*srv != nullptr) res = S_OK;
-		}
+		if (ReadDATImageData(buf, buf_len))
+			res = CreateSRVFromBuffer(buf, buf_len, Width, Height, srv);
 		else
 			log_debug("[DBG] [C++] Failed to read image data");
 	}
@@ -759,7 +754,7 @@ HRESULT Direct3DTexture::LoadZIPImage(char *sZIPFileName, int GroupId, int Image
 	uint8_t *buf = nullptr;
 	int buf_len = 0;
 	// Initialize the output to null/failure by default:
-	HRESULT res = -1;
+	HRESULT res = E_FAIL;
 	*srv = nullptr;
 
 	if (GetCachedSRV(sZIPFileName, GroupId, ImageId, srv))
@@ -1281,7 +1276,7 @@ void Direct3DTexture::TagTexture() {
 							char sDATZIPFileName[128];
 							short GroupId, ImageId;
 							bool bIsDATFile = false;
-							res = -1;
+							res = E_FAIL;
 							if (ParseDatZipFileNameGroupIdImageId(g_DCElements[idx].coverTextureName, sDATZIPFileName, 128, &GroupId, &ImageId)) {
 								//log_debug("[DBG] [DC] Loading cover texture [%s]-%d-%d", sDATFileName, GroupId, ImageId);
 								if (substr_dat != NULL)
@@ -1465,8 +1460,7 @@ void Direct3DTexture::TagTexture() {
 											tex_seq_elem.texname, tex_seq_elem.GroupId, j, res);
 									}
 									else {
-										resources->_extraTextures.push_back(texSRV);
-										atc->Sequence[j].ExtraTextureIndex = resources->_extraTextures.size() - 1;
+										atc->Sequence[j].ExtraTextureIndex = resources->PushExtraTexture(texSRV); // // TagTexture() (AltExplosions)
 									}
 								}
 							}

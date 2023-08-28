@@ -189,7 +189,7 @@ public:
 
 	int LoadNormalMap(char * DATZIPGroupIdImageId, short * Width, short * Height);
 
-	ID3D11ShaderResourceView *CreateSRVFromBuffer(uint8_t *Buffer, int BufferLength, int Width, int Height);
+	HRESULT CreateSRVFromBuffer(uint8_t *Buffer, int BufferLength, int Width, int Height, ID3D11ShaderResourceView **srv);
 
 	HRESULT LoadDATImage(char *sDATFileName, int GroupId, int ImageId, ID3D11ShaderResourceView **srv,
 		short *Width_out=nullptr, short *Height_out=nullptr);

@@ -172,6 +172,7 @@ public:
 	void ResetActiveCockpit();
 
 	void ResetExtraTextures();
+	int PushExtraTexture(ID3D11ShaderResourceView* srv);
 	void InitScissorRect(D3D11_RECT* rect);
 
 	HRESULT RenderMain(char* buffer, DWORD width, DWORD height, DWORD bpp, RenderMainColorKeyType useColorKey = RENDERMAIN_COLORKEY_20);
@@ -540,7 +541,7 @@ public:
 	bool _bHUDVerticesReady;
 
 	// Dynamic Cockpit coverTextures:
-	// The line below had a hard-coded max of 40. I think it should be 
+	// The line below had a hard-coded max of 40. I think it should be
 	// MAX_DC_SRC_ELEMENTS instead... but if something explodes in DC, it
 	// might be because of this.
 	// I think it was just dumb luck that I put the "40" in there and didn't

@@ -422,7 +422,7 @@ HRESULT DeviceResources::Initialize()
 	UINT createDeviceFlags = D3D11_CREATE_DEVICE_BGRA_SUPPORT;
 
 #ifdef _DEBUG
-	//createDeviceFlags |= D3D11_CREATE_DEVICE_DEBUG;
+	createDeviceFlags |= D3D11_CREATE_DEVICE_DEBUG;
 #endif
 
 	this->_d3dDriverType = D3D_DRIVER_TYPE_HARDWARE;
@@ -1549,7 +1549,14 @@ void DeviceResources::ResetActiveCockpit() {
 	}
 }
 
-void DeviceResources::ResetExtraTextures() {
+int DeviceResources::PushExtraTexture(ID3D11ShaderResourceView* srv)
+{
+	_extraTextures.push_back(srv);
+	return _extraTextures.size() - 1;
+}
+
+void DeviceResources::ResetExtraTextures()
+{
 	//for (int i = 0; i < MAX_EXTRA_TEXTURES; i++) {
 	//	if (this->_extraTextures[i] != nullptr) {
 	//		this->_extraTextures[i]->Release();
@@ -1560,7 +1567,7 @@ void DeviceResources::ResetExtraTextures() {
 
 	for (uint32_t i = 0; i < _extraTextures.size(); i++)
 		if (_extraTextures[i] != nullptr) {
-			int count = 0;
+			//int count = 0;
 			// TODO: Cached SRVs increase the refcounts and rely on this code
 			// to release everything. This might not be the proper solution,
 			// but it seems to work.
@@ -1655,6 +1662,36 @@ HRESULT DeviceResources::OnSizeChanged(HWND hWnd, DWORD dwWidth, DWORD dwHeight)
 	this->_shadertoyRTV.Release();
 	this->_shadertoySRV.Release();
 	this->_shadertoyAuxSRV.Release();
+
+	/*
+	if (this->_HUDVertexBuffer)
+	{
+		this->_HUDVertexBuffer.Release();
+		this->_HUDVertexBuffer = NULL;
+	}
+	if (this->_clearHUDVertexBuffer)
+	{
+		this->_clearHUDVertexBuffer.Release();
+		this->_clearHUDVertexBuffer = NULL;
+	}
+	if (this->_hyperspaceVertexBuffer)
+	{
+		this->_hyperspaceVertexBuffer.Release();
+		this->_hyperspaceVertexBuffer = NULL;
+	}
+	if (this->_postProcessVertBuffer != NULL) {
+		this->_postProcessVertBuffer->Release();
+		this->_postProcessVertBuffer = NULL;
+	}
+	if (this->_speedParticlesVertexBuffer != NULL)
+	{
+		this->_speedParticlesVertexBuffer->Release();
+		this->_speedParticlesVertexBuffer = NULL;
+	}
+	if (_grayNoiseTex != nullptr)
+		DeleteGrayNoiseTexture();
+	*/
+
 	if (g_bUseSteamVR) {
 		this->_offscreenBufferR.Release();
 		this->_offscreenBufferAsInputR.Release();

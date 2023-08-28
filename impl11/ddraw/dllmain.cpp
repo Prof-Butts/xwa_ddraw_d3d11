@@ -10,6 +10,11 @@
 #include <objbase.h>
 #include <hidusage.h>
 
+#ifdef _DEBUG
+#include <dxgidebug.h>
+#include <dxgi1_3.h>
+#endif
+
 #include <stdio.h>
 #include <vector>
 
@@ -1731,6 +1736,21 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
 
 		CloseDATReader(); // Idempotent: does nothing if the DATReader wasn't loaded.
 		CloseZIPReader(); // Idempotent: does nothing if the ZIPReader wasn't loaded.
+
+#ifdef _DEBUG
+		IDXGIDebug1* dxgiDebug;
+		HRESULT hr = DXGIGetDebugInterface1(0, IID_PPV_ARGS(&dxgiDebug));
+		if (SUCCEEDED(hr))
+		{
+			log_debug("[DBG] Reporting Live Objects...");
+			dxgiDebug->ReportLiveObjects(DXGI_DEBUG_ALL, DXGI_DEBUG_RLO_ALL);
+		}
+		else
+		{
+			log_debug("[DBG] Could NOT get DXGI DEBUG object");
+		}
+#endif
+
 		if (g_bUseSteamVR)
 			ShutDownSteamVR();
 		else if (g_bEnableVR)

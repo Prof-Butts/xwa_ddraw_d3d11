@@ -4080,7 +4080,7 @@ void EffectsRenderer::MainSceneHook(const SceneCompData* scene)
 	_deviceResources->InitTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 	_deviceResources->InitInputLayout(_inputLayout);
 	_deviceResources->InitVertexShader(_vertexShader);
-	ComPtr<ID3D11PixelShader> lastPixelShader = InTechGlobe() ? _techRoomPixelShader : _pixelShader;
+	ID3D11PixelShader* lastPixelShader = InTechGlobe() ? _techRoomPixelShader : _pixelShader;
 	_deviceResources->InitPixelShader(lastPixelShader);
 
 	UpdateTextures(scene);

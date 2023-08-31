@@ -742,7 +742,7 @@ struct Material {
 		}
 
 		// Some ships may not be equipped with shields, so we need to check the intial status too
-		if (g_GameEvent.CockpitInstruments.Shields && !g_GameEvent.CockpitInstruments.Shields &&
+		if (g_GameEvent.InitialCockpitInstruments.Shields && !g_GameEvent.CockpitInstruments.Shields &&
 			TextureATCIndices[ATCType][CPT_EVT_BROKEN_SHIELDS] > -1) {
 			if (bIsDamageTex != NULL) *bIsDamageTex = true;
 			return TextureATCIndices[ATCType][CPT_EVT_BROKEN_SHIELDS];

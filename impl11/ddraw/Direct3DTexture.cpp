@@ -306,21 +306,7 @@ int Direct3DTexture::GetHeight() {
 
 Direct3DTexture::~Direct3DTexture()
 {
-	const auto &resources = this->_deviceResources;
-	
-	//if (this->is_CockpitTex) {
-		// There's code in ResetDynamicCockpit that prevents resetting it multiple times.
-		// In other words, ResetDynamicCockpit is idempotent.
-		// ResetDynamicCockpit will also reset the Active Cockpit
-		//resources->ResetDynamicCockpit();
-	//}
-	/* 
-	We can't reliably reset DC here because the textures may not be reloaded and then we
-	just disable DC. This happens if hook_60fps.dll is used. We need to be smarter and
-	detect when the cockpit name has changed. If it has, then we reset DC and reload the
-	elements.
-	*/
-	//log_debug("[DBG] [DC] Destroying texture %s", this->_surface->_name);
+	*this->_textureView.GetAddressOf() = nullptr;
 }
 
 HRESULT Direct3DTexture::QueryInterface(

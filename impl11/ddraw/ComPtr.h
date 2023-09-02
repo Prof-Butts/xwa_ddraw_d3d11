@@ -18,10 +18,6 @@ public:
 	ComPtr(T* ptr)
 	{
 		this->_ptr = ptr;
-		if (_ptr)
-		{
-			_ptr->AddRef();
-		}
 	}
 
 	~ComPtr()

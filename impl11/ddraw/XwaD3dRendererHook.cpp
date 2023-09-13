@@ -197,8 +197,6 @@ std::map<int, int> g_MeshTagMap;
 // Maps Face Groups to LOD.
 std::map<int, int> g_FGToLODMap;
 
-// FGData = (FGKey, numFaces)
-using FGData = std::tuple<int, int>;
 // Maps meshes to its list of Face Groups (including all LODs).
 // This map is used to compute the tangents for normal mapping.
 std::map<int, std::vector<FGData>> g_meshToFGMap;
@@ -325,7 +323,11 @@ void D3dRenderer::FlightStart()
 	_centers.clear();
 	_LBVHs.clear();
 	_tangentMap.clear();
-	g_meshToFGMap.clear();
+	// g_meshToFGMap is cleared in DeviceResources::OnSizeChanged().
+	// The reason for that is that pressing H to restart a mission will cause this class to
+	// be re-created; but the D3dRendererOptNodeHook() will not get called again and that's
+	// where g_meshToFGMap is populated. Hence, if we clear g_meshToFGMap here, it won't be
+	// repopulated when the mission restarts this way.
 
 #if LOGGER_DUMP
 	s_currentFrameIndex = 0;

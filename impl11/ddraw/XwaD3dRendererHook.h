@@ -1,6 +1,7 @@
 #pragma once
 
 #include "xwa_structures.h"
+#include <map>
 
 class DeviceResources;
 
@@ -16,6 +17,13 @@ enum RendererType
 };
 
 extern RendererType g_rendererType;
+
+// Normal Mapping mesh-to-FaceGroup data:
+// FGData = (FGKey, numFaces)
+using FGData = std::tuple<int, int>;
+// Maps meshes to its list of Face Groups (including all LODs).
+// This map is used to compute the tangents for normal mapping.
+extern std::map<int, std::vector<FGData>> g_meshToFGMap;
 
 void D3dRendererInitialize();
 void D3dRendererUninitialize();

@@ -1628,6 +1628,7 @@ HRESULT DeviceResources::OnSizeChanged(HWND hWnd, DWORD dwWidth, DWORD dwHeight)
 	g_bDCApplyEraseRegionCommands = !g_bHUDVisibleOnStartup;
 	log_debug("[DBG] Resetting g_b3DSunPresent, g_b3DSkydomePresent");
 
+	g_meshToFGMap.clear();
 	g_AuxTextureVector.clear();
 	ClearGlobalTextureMap();
 	ClearCachedSRVs();

@@ -1735,7 +1735,7 @@ void ReadMaterialLine(char* buf, Material* curMaterial, char *OPTname) {
 	else if (_stricmp(param, "ThrottleMaxAngle") == 0) {
 		curMaterial->ThrottleMaxAngle = fValue;
 	}
-	else if (_stricmp(param, "`ThrottleStart") == 0) {
+	else if (_stricmp(param, "ThrottleStart") == 0) {
 		curMaterial->DiegeticMesh = DM_THR_TRANS;
 		LoadLightColor(buf, &(curMaterial->ThrottleStart));
 		curMaterial->ThrottleStart *= METERS_TO_OPT;

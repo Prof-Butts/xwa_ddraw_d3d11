@@ -93,6 +93,7 @@ void log_debug(const char *format, ...);
 void log_file(const char *format, ...);
 short log_debug_vr(short y, int color, const char* format, ...);
 void log_debug_vr(int color, const char* format, ...);
+void log_debug_vr(const char* format, ...);
 void log_debug_vr_reset();
 void close_log_file();
 char* stristr(const char* str1, const char* str2);

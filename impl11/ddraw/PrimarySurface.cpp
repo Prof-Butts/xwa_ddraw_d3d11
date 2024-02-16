@@ -41,6 +41,7 @@ void DisplayBox(char *name, Box box);
 Vector3 project(Vector3 pos3D, Matrix4 viewMatrix, Matrix4 projEyeMatrix /*, float *sx, float *sy */);
 inline void backProject(float sx, float sy, float rhw, Vector3 *P);
 inline void backProjectMetric(float sx, float sy, float rhw, Vector3 *P);
+float3 InverseTransformProjectionScreen(float4 input);
 Vector3 projectMetric(Vector3 pos3D, Matrix4 viewMatrix, Matrix4 projEyeMatrix, bool bForceNonVR);
 inline Vector3 projectToInGameCoords(Vector3 pos3D, Matrix4 viewMatrix, Matrix4 projEyeMatrix);
 inline Vector3 projectToInGameOrPostProcCoordsMetric(Vector3 pos3D, Matrix4 viewMatrix, Matrix4 projEyeMatrix, bool bForceNonVR = false);
@@ -5349,6 +5350,184 @@ out:
 	this->_deviceResources->EndAnnotatedEvent();
 }
 
+void PrimarySurface::RenderBracketsVR()
+{
+	auto& resources = this->_deviceResources;
+	auto& device = resources->_d3dDevice;
+	auto& context = resources->_d3dDeviceContext;
+
+	float x0, y0, x1, y1;
+	D3D11_VIEWPORT viewport;
+	float bgColor[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
+	this->_deviceResources->BeginAnnotatedEvent(L"RenderBracketsVR");
+
+	// g_ReticleCentroid is in in-game coordinates. For the shader, we need to transform that into UVs:
+	//float x = g_ReticleCentroid.x / g_fCurInGameWidth, y = g_ReticleCentroid.y / g_fCurInGameHeight;
+	/*float x, y;
+	InGameToScreenCoords((UINT)g_nonVRViewport.TopLeftX, (UINT)g_nonVRViewport.TopLeftY,
+		(UINT)g_nonVRViewport.Width, (UINT)g_nonVRViewport.Height, g_ReticleCentroid.x, g_ReticleCentroid.y, &x, &y);
+	x /= g_fCurScreenWidth;
+	y /= g_fCurScreenHeight;*/
+
+	GetScreenLimitsInUVCoords(&x0, &y0, &x1, &y1);
+	GetCraftViewMatrix(&g_ShadertoyBuffer.viewMat);
+	//g_ShadertoyBuffer.viewMat.invert();
+	g_ShadertoyBuffer.x0 = x0;
+	g_ShadertoyBuffer.y0 = y0;
+	g_ShadertoyBuffer.x1 = x1;
+	g_ShadertoyBuffer.y1 = y1;
+
+	g_ShadertoyBuffer.VRmode = 2; // 0 = non-VR, 1 = SBS, 2 = SteamVR
+	g_ShadertoyBuffer.iResolution[0] = g_fCurScreenWidth;
+	g_ShadertoyBuffer.iResolution[1] = g_fCurScreenHeight;
+	//g_ShadertoyBuffer.y_center = bExternalView ? 0.0f : g_fYCenter;
+	g_ShadertoyBuffer.y_center = g_fYCenter;
+	g_ShadertoyBuffer.FOVscale = g_fFOVscale;
+
+	resources->InitPSConstantBufferHyperspace(resources->_hyperspaceConstantBuffer.GetAddressOf(), &g_ShadertoyBuffer);
+	resources->InitPixelShader(resources->_externalHUDPS_VR);
+	// We need this to ensure backface culling is disabled
+	resources->InitRasterizerState(resources->_rasterizerState);
+
+	context->ResolveSubresource(resources->_offscreenBufferAsInput, 0, resources->_offscreenBuffer, 0, BACKBUFFER_FORMAT);
+	context->ResolveSubresource(resources->_offscreenBufferAsInput, D3D11CalcSubresource(0, 1, 1),
+		resources->_offscreenBuffer, D3D11CalcSubresource(0, 1, 1), BACKBUFFER_FORMAT);
+
+	// Render the brackets
+	{
+		// Set the new viewport (a full quad covering the full screen)
+		viewport.Width = g_fCurScreenWidth;
+		viewport.Height = g_fCurScreenHeight;
+		viewport.Width = (float)resources->_backbufferWidth;
+		viewport.TopLeftX = 0.0f;
+		viewport.TopLeftY = 0.0f;
+		viewport.MinDepth = D3D11_MIN_DEPTH;
+		viewport.MaxDepth = D3D11_MAX_DEPTH;
+		resources->InitViewport(&viewport);
+
+		// We don't need to clear the current vertex and pixel constant buffers.
+		// Since we've just finished rendering 3D, they should contain values that
+		// can be reused. So let's just overwrite the values that we need.
+		g_VSCBuffer.aspect_ratio      = g_fAspectRatio;
+		g_VSCBuffer.z_override        = -1.0f;
+		g_VSCBuffer.sz_override       = -1.0f;
+		g_VSCBuffer.mult_z_override   = -1.0f;
+		g_VSCBuffer.apply_uv_comp     = false;
+		g_VSCBuffer.bPreventTransform = 0.0f;
+		g_VSCBuffer.bFullTransform    = 0.0f;
+		if (g_bEnableVR)
+		{
+			g_VSCBuffer.viewportScale[0] = 1.0f / resources->_displayWidth;
+			g_VSCBuffer.viewportScale[1] = 1.0f / resources->_displayHeight;
+		}
+		else
+		{
+			g_VSCBuffer.viewportScale[0] = 2.0f / resources->_displayWidth;
+			g_VSCBuffer.viewportScale[1] = -2.0f / resources->_displayHeight;
+		}
+
+		g_VSCBuffer.z_override = 65536.0f;
+
+		// Set the left projection matrix (the viewMatrix is set at the beginning of the frame)
+		g_VSMatrixCB.projEye[0] = g_FullProjMatrixLeft;
+		g_VSMatrixCB.projEye[1] = g_FullProjMatrixRight;
+		resources->InitVSConstantBuffer3D(resources->_VSConstantBuffer.GetAddressOf(), &g_VSCBuffer);
+		resources->InitVSConstantBufferMatrix(resources->_VSMatrixBuffer.GetAddressOf(), &g_VSMatrixCB);
+
+		//resources->FillReticleVertexBuffer(g_fCurInGameWidth, g_fCurInGameHeight);
+		UINT stride = sizeof(D3DTLVERTEX), offset = 0;
+		resources->InitVertexBuffer(resources->_hyperspaceVertexBuffer.GetAddressOf(), &stride, &offset);
+		//resources->InitVertexBuffer(resources->_reticleVertexBuffer.GetAddressOf(), &stride, &offset);
+		resources->InitInputLayout(resources->_inputLayout);
+		if (g_bEnableVR)
+			resources->InitVertexShader(resources->_sbsVertexShader); // if (g_bEnableVR)
+		else
+			resources->InitVertexShader(resources->_vertexShader);
+
+		resources->InitTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+
+		context->ClearRenderTargetView(resources->_renderTargetViewPost, bgColor);
+		// Set the RTV:
+		ID3D11RenderTargetView* rtvs[1] = {
+			resources->_renderTargetViewPost.Get(), // Render to offscreenBufferPost instead of offscreenBuffer
+		};
+		context->OMSetRenderTargets(1, rtvs, NULL);
+		// Set the SRVs:
+		ID3D11ShaderResourceView* srvs[2] = {
+			resources->_offscreenAsInputShaderResourceView.Get(),
+			resources->_BracketsSRV.Get(),
+		};
+		context->PSSetShaderResources(0, 2, srvs);
+		context->DrawInstanced(6, 2, 0, 0); // if (g_bUseSteamVR)
+
+		if (g_bDumpSSAOBuffers) {
+			DirectX::SaveWICTextureToFile(context, resources->_offscreenBufferPost, GUID_ContainerFormatJpeg,
+				L"C:\\Temp\\_offscreenBufPostExternalHUD.jpg");
+		}
+
+		// Second render: If VR mode is enabled, then compose the previous render with the offscreen buffer
+		{
+			// Reset the viewport for non-VR mode, post-proc viewport (cover the whole screen)
+			viewport.TopLeftX = 0.0f;
+			viewport.TopLeftY = 0.0f;
+			viewport.Width = g_fCurScreenWidth;
+			viewport.Height = g_fCurScreenHeight;
+			viewport.MaxDepth = D3D11_MAX_DEPTH;
+			viewport.MinDepth = D3D11_MIN_DEPTH;
+			resources->InitViewport(&viewport);
+
+			// Reset the vertex shader to regular 2D post-process
+			// Set the Vertex Shader Constant buffers
+			resources->InitVSConstantBuffer2D(resources->_mainShadersConstantBuffer.GetAddressOf(),
+				0.0f, 1.0f, 1.0f, 1.0f, 0.0f); // Do not use 3D projection matrices
+
+			// Set/Create the VertexBuffer and set the topology, etc
+			UINT stride = sizeof(MainVertex), offset = 0;
+			resources->InitVertexBuffer(resources->_postProcessVertBuffer.GetAddressOf(), &stride, &offset);
+			resources->InitInputLayout(resources->_mainInputLayout);
+			resources->InitVertexShader(g_bUseSteamVR ? resources->_mainVertexShaderVR : resources->_mainVertexShader);
+
+			// Reset the UV limits for this shader
+			GetScreenLimitsInUVCoords(&x0, &y0, &x1, &y1);
+			g_ShadertoyBuffer.x0 = x0;
+			g_ShadertoyBuffer.y0 = y0;
+			g_ShadertoyBuffer.x1 = x1;
+			g_ShadertoyBuffer.y1 = y1;
+			g_ShadertoyBuffer.iResolution[0] = g_fCurScreenWidth;
+			g_ShadertoyBuffer.iResolution[1] = g_fCurScreenHeight;
+			resources->InitPSConstantBufferHyperspace(resources->_hyperspaceConstantBuffer.GetAddressOf(), &g_ShadertoyBuffer);
+			resources->InitPixelShader(resources->_addGeomComposePS);
+
+			// The output from the previous effect will be in offscreenBufferPost, so let's resolve it
+			// to _shadertoyBuf to use it now:
+			context->ResolveSubresource(resources->_shadertoyBuf, 0, resources->_offscreenBufferPost, 0, BACKBUFFER_FORMAT);
+			context->ResolveSubresource(resources->_shadertoyBuf,
+				D3D11CalcSubresource(0, 1, 1), resources->_offscreenBufferPost, D3D11CalcSubresource(0, 1, 1), BACKBUFFER_FORMAT);
+
+			context->ClearRenderTargetView(resources->_renderTargetViewPost, bgColor);
+			ID3D11RenderTargetView* rtvs[1] = {
+				resources->_renderTargetViewPost.Get(), // Render to offscreenBufferPost instead of offscreenBuffer
+			};
+			context->OMSetRenderTargets(1, rtvs, NULL);
+			// Set the SRVs:
+			ID3D11ShaderResourceView* srvs[2] = {
+				resources->_offscreenAsInputShaderResourceView.Get(), // The current render
+				resources->_shadertoySRV.Get(),	 // The effect rendered in the previous pass
+			};
+			context->PSSetShaderResources(0, 2, srvs);
+			context->DrawInstanced(6, 2, 0, 0); // if (g_bUseSteamVR)
+		}
+	}
+
+	// Copy the result (_offscreenBufferPost) to the _offscreenBuffer so that it gets displayed
+	context->CopyResource(resources->_offscreenBuffer, resources->_offscreenBufferPost);
+
+	// Restore previous rendertarget, etc
+	resources->InitInputLayout(resources->_inputLayout); // Not sure this is really needed
+
+	this->_deviceResources->EndAnnotatedEvent();
+}
+
 inline void ProjectSpeedPoint(const Matrix4 &ViewMatrix, D3DTLVERTEX *particles, int idx)
 {
 	const float FOVFactor = g_ShadertoyBuffer.FOVscale;
@@ -9793,9 +9972,12 @@ HRESULT PrimarySurface::Flip(
 			}
 
 			// Render the enhanced bracket after all the shading has been applied.
-			if (g_config.Radar2DRendererEnabled && !g_bEnableVR)
+			if (g_config.Radar2DRendererEnabled)
 			{
-				this->RenderBracket();
+				if (!g_bEnableVR)
+					this->RenderBracket();
+				else
+					this->CacheBracketsVR();
 			}
 
 			// Draw the reticle on top of everything else
@@ -9826,7 +10008,40 @@ HRESULT PrimarySurface::Flip(
 				desc.StencilEnable = FALSE;
 				resources->InitDepthStencilState(depthState, &desc);
 
+				// It's still called RenderExternalHUD(), but we use this to render the reticle
+				// in VR when inside the cockpit.
 				RenderExternalHUD();
+			}
+
+			//if (g_bUseSteamVR)
+			if (false)
+			{
+				// We need to set the blend state properly for Bloom, or else we might get
+				// different results when brackets are rendered because they alter the 
+				// blend state
+				D3D11_BLEND_DESC blendDesc{};
+				blendDesc.AlphaToCoverageEnable = FALSE;
+				blendDesc.IndependentBlendEnable = FALSE;
+				blendDesc.RenderTarget[0].BlendEnable = TRUE;
+				blendDesc.RenderTarget[0].SrcBlend = D3D11_BLEND_SRC_ALPHA;
+				blendDesc.RenderTarget[0].DestBlend = D3D11_BLEND_INV_SRC_ALPHA;
+				blendDesc.RenderTarget[0].BlendOp = D3D11_BLEND_OP_ADD;
+				blendDesc.RenderTarget[0].SrcBlendAlpha = D3D11_BLEND_SRC_ALPHA;
+				blendDesc.RenderTarget[0].DestBlendAlpha = D3D11_BLEND_INV_SRC_ALPHA;
+				blendDesc.RenderTarget[0].BlendOpAlpha = D3D11_BLEND_OP_ADD;
+				blendDesc.RenderTarget[0].RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL;
+				hr = resources->InitBlendState(nullptr, &blendDesc);
+
+				// Temporarily disable ZWrite: we won't need it to display Bloom
+				D3D11_DEPTH_STENCIL_DESC desc;
+				ComPtr<ID3D11DepthStencilState> depthState;
+				desc.DepthEnable = FALSE;
+				desc.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ZERO;
+				desc.DepthFunc = D3D11_COMPARISON_ALWAYS;
+				desc.StencilEnable = FALSE;
+				resources->InitDepthStencilState(depthState, &desc);
+
+				RenderBracketsVR();
 			}
 
 			if (g_bStarDebugEnabled)
@@ -11767,6 +11982,11 @@ void PrimarySurface::RenderBracket()
 
 	this->_deviceResources->BeginAnnotatedEvent(L"RenderBracket");
 
+	float bgColor[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
+	auto& resources = _deviceResources;
+	auto& context = _deviceResources->_d3dDeviceContext;
+	context->ClearRenderTargetView(resources->_BracketsRTV, bgColor);
+
 	if (this->_deviceResources->_d2d1RenderTarget != s_d2d1RenderTarget || this->_deviceResources->_displayWidth != s_displayWidth || this->_deviceResources->_displayHeight != s_displayHeight)
 	{
 		s_d2d1RenderTarget = this->_deviceResources->_d2d1RenderTarget;
@@ -11893,8 +12113,95 @@ void PrimarySurface::RenderBracket()
 	s_brush = nullptr;
 	g_xwa_bracket.clear();
 
+	context->ResolveSubresource(resources->_BracketsAsInput, 0, resources->_BracketsMSAA, 0, BACKBUFFER_FORMAT);
+
 	this->_deviceResources->EndAnnotatedEvent();
 
+	if (g_bDumpSSAOBuffers && g_bUseSteamVR)
+	{
+		DirectX::SaveWICTextureToFile(context, resources->_BracketsAsInput, GUID_ContainerFormatPng, L"C:\\Temp\\_BracketsAsInput.png");
+	}
+}
+
+void PrimarySurface::CacheBracketsVR()
+{
+	const float Znear = *(float*)0x08B94CC;
+	const float Zfar = *(float*)0x05B46B4;
+	unsigned int brushColor = 0;
+
+	//log_debug_vr(0xFFFF33, "Znear: %0.3f, Zfar: %0.3f", Znear, Zfar);
+	//log_debug_vr(0xFFFFFF, "brackets: %d", g_xwa_bracket.size());
+	for (const auto& xwaBracket : g_xwa_bracket)
+	{
+		unsigned short si = ((unsigned short*)0x08D9420)[xwaBracket.colorIndex];
+		unsigned int esi;
+
+		if (((bool(*)())0x0050DC50)() != 0)
+		{
+			unsigned short eax = si & 0x001F;
+			unsigned short ecx = si & 0x7C00;
+			unsigned short edx = si & 0x03E0;
+
+			esi = (eax << 3) | (edx << 6) | (ecx << 9);
+		}
+		else
+		{
+			unsigned short eax = si & 0x001F;
+			unsigned short edx = si & 0xF800;
+			unsigned short ecx = si & 0x07E0;
+
+			esi = (eax << 3) | (ecx << 5) | (edx << 8);
+		}
+
+		if (esi != brushColor)
+		{
+			brushColor = esi;
+		}
+
+		// xwaBracket.positionX/Y is the top-left corner, so adding halfWidth/Height gives us
+		// the center of the bracket:
+		float X = (float)(xwaBracket.positionX + xwaBracket.width / 2.0f);
+		float Y = (float)(xwaBracket.positionY + xwaBracket.height / 2.0f);
+		float desiredZ = 250.0f;
+		// The following division is correct. Znear is actually greater than Zfar because the
+		// depth is inverted (0 is far, 1 is close). It's also normalized.
+		float Z = Zfar / (desiredZ * METERS_TO_OPT);
+		float3 V = InverseTransformProjectionScreen({ X, Y, Z, Z });
+		V.y = -V.y;
+		V.z = -V.z;
+
+		// This would be the lower-right corner of the bracket:
+		X = (float)(xwaBracket.positionX + xwaBracket.width);
+		Y = (float)(xwaBracket.positionY + xwaBracket.height);
+		// The following division is correct. Znear is actually greater than Zfar because the
+		// depth is inverted (0 is far, 1 is close). It's also normalized.
+		float3 W = InverseTransformProjectionScreen({ X, Y, Z, Z });
+		W.y = -W.y;
+		W.z = -W.z;
+
+		BracketVR bracketVR;
+		bracketVR.posOPT.x = V.x;
+		bracketVR.posOPT.y = V.z;
+		bracketVR.posOPT.z = V.y;
+		bracketVR.halfWidthOPT  = fabs(W.x - V.x);
+		bracketVR.halfHeightOPT = fabs(W.y - V.y);
+		bracketVR.color.x = ((brushColor >> 16) & 0xFF) / 255.0f;
+		bracketVR.color.y = ((brushColor >>  8) & 0xFF) / 255.0f;
+		bracketVR.color.y = (brushColor & 0xFF) / 255.0f;
+		g_bracketsVR.push_back(bracketVR);
+
+		// Bracket are defined in in-game coords
+		/*log_debug_vr(0xFFFFFF, "(%0.3f, %0.3f) --> (%0.3f, %0.3f, %0.3f)",
+			X, Y,
+			bracketVR.posOPT.x * OPT_TO_METERS,
+			bracketVR.posOPT.y * OPT_TO_METERS,
+			bracketVR.posOPT.z * OPT_TO_METERS);*/
+	}
+
+	g_xwa_bracket.clear();
+
+	EffectsRenderer* renderer = (EffectsRenderer*)g_current_renderer;
+	renderer->RenderVRBrackets();
 }
 
 /*

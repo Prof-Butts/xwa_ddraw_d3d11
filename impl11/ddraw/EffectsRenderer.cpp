@@ -26,6 +26,8 @@ bool g_bUseCentroids = true;
 RTCDevice g_rtcDevice = nullptr;
 RTCScene g_rtcScene = nullptr;
 
+std::vector<BracketVR> g_bracketsVR;
+
 char* g_sBLASBuilderTypeNames[(int)BLASBuilderType::MAX] = {
 	"      BVH2",
 	"      QBVH",
@@ -2319,6 +2321,7 @@ void EffectsRenderer::SceneBegin(DeviceResources* deviceResources)
 	g_vrGlovesMeshes[1].rendered = false;
 	_bDotsbRendered = false;
 	_bHUDRendered = false;
+	_bBracketsRendered = false;
 
 	// Initialize the OBJ dump file for the current frame
 	if ((bD3DDumpOBJEnabled || bHangarDumpOBJEnabled) && g_bDumpSSAOBuffers) {
@@ -6460,6 +6463,171 @@ void EffectsRenderer::RenderVRDots()
 	_deviceResources->EndAnnotatedEvent();
 }
 
+void EffectsRenderer::RenderVRBrackets()
+{
+	// TODO: This method should work even when the Active Cockpit is disabled.
+	if (!g_bUseSteamVR || !g_bRendering3D || !g_bActiveCockpitEnabled || _bBracketsRendered || !_bCockpitConstantsCaptured)
+		return;
+
+	_deviceResources->BeginAnnotatedEvent(L"RenderVRBrackets");
+
+	auto& resources = _deviceResources;
+	auto& context = resources->_d3dDeviceContext;
+	const bool bGunnerTurret = (g_iPresentCounter > PLAYERDATATABLE_MIN_SAFE_FRAME) ?
+		PlayerDataTable[*g_playerIndex].gunnerTurretActive : false;
+
+	SaveContext();
+
+	context->VSSetConstantBuffers(0, 1, _constantBuffer.GetAddressOf());
+	context->PSSetConstantBuffers(0, 1, _constantBuffer.GetAddressOf());
+	// Set the proper rastersizer and depth stencil states for transparency
+	_deviceResources->InitBlendState(_transparentBlendState, nullptr);
+	//_deviceResources->InitDepthStencilState(_transparentDepthState, nullptr);
+	// _mainDepthState is COMPARE_ALWAYS, so the VR dots are always displayed
+	_deviceResources->InitDepthStencilState(_deviceResources->_mainDepthState, nullptr);
+
+	_deviceResources->InitViewport(&_viewport);
+	_deviceResources->InitTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+	_deviceResources->InitInputLayout(_inputLayout);
+	_deviceResources->InitVertexShader(_vertexShader);
+
+	// Other stuff that is common in the loop below
+	UINT vertexBufferStride = sizeof(D3dVertex);
+	UINT vertexBufferOffset = 0;
+
+	ZeroMemory(&g_PSCBuffer, sizeof(g_PSCBuffer));
+	g_PSCBuffer.bIsShadeless = 1;
+	g_PSCBuffer.fSSAOMaskVal = SHADELESS_MAT;
+
+	g_VRGeometryCBuffer.numStickyRegions = 0;
+	// Disable region highlighting
+	g_VRGeometryCBuffer.clicked[0] = false;
+	g_VRGeometryCBuffer.clicked[1] = false;
+
+	// Flags used in RenderScene():
+	_bIsCockpit = !bGunnerTurret;
+	_bIsGunner = bGunnerTurret;
+	_bIsBlastMark = false;
+
+	// Set the textures
+	_deviceResources->InitPSShaderResourceView(_vrGreenCirclesSRV.Get(), nullptr);
+
+	// Set the mesh buffers
+	ID3D11ShaderResourceView* vsSSRV[4] = { _vrDotMeshVerticesSRV.Get(), nullptr, _vrDotMeshTexCoordsSRV.Get(), nullptr };
+	context->VSSetShaderResources(0, 4, vsSSRV);
+
+	// Set the index and vertex buffers
+	_deviceResources->InitVertexBuffer(nullptr, nullptr, nullptr);
+	_deviceResources->InitVertexBuffer(_vrDotVertexBuffer.GetAddressOf(), &vertexBufferStride, &vertexBufferOffset);
+	_deviceResources->InitIndexBuffer(nullptr, true);
+	_deviceResources->InitIndexBuffer(_vrDotIndexBuffer.Get(), true);
+
+	// Apply the VS and PS constants
+	resources->InitPSConstantBuffer3D(resources->_PSConstantBuffer.GetAddressOf(), &g_PSCBuffer);
+	resources->InitVRGeometryCBuffer(resources->_VRGeometryCBuffer.GetAddressOf(), &g_VRGeometryCBuffer);
+	_deviceResources->InitPixelShader(resources->_pixelShaderVRGeom);
+
+	// Set the constants buffer
+	Matrix4 Vinv = g_VSMatrixCB.fullViewMat;
+	Vinv.invert();
+
+	// Let's replace transformWorldView with the identity matrix:
+	Matrix4 Id;
+	const float* m = Id.get();
+	for (int i = 0; i < 16; i++) _CockpitConstants.transformWorldView[i] = m[i];
+
+	context->UpdateSubresource(_constantBuffer, 0, nullptr, &_CockpitConstants, 0, 0);
+	_trianglesCount = g_vrDotNumTriangles;
+
+	Matrix4 V, swap({ 1,0,0,0,  0,0,1,0,  0,1,0,0,  0,0,0,1 });
+
+	// Get the width in OPT-scale of the mesh that will be rendered:
+	// 0 -> 1
+	// |
+	// 3
+	const float meshWidth = g_vrDotMeshVertices[1].x - g_vrDotMeshVertices[0].x;
+	//log_debug_vr("meshWidth: %0.3f", meshWidth);
+
+	for (const auto &bracketVR : g_bracketsVR)
+	{
+		Vector4 dotPosSteamVR;
+		dotPosSteamVR.x = bracketVR.posOPT.x * OPT_TO_METERS;
+		dotPosSteamVR.y = bracketVR.posOPT.z * OPT_TO_METERS;
+		dotPosSteamVR.z = bracketVR.posOPT.y * OPT_TO_METERS;
+		dotPosSteamVR.w = 1.0f;
+		const float meshScale = (bracketVR.halfWidthOPT * 2.0f) / meshWidth;
+
+		/*log_debug_vr("pos: %0.3f, %0.3f, %0.3f | width: %0.3f, scale: %0.3f",
+			dotPosSteamVR.x, dotPosSteamVR.y, dotPosSteamVR.z,
+			bracketVR.halfWidthOPT * 2.0f, meshScale);*/
+
+		// Compute a new matrix for the dot by using the origin -> intersection point view vector.
+		// First we'll align this vector with Z+ and then we'll use the inverse of this matrix to
+		// rotate the dot so that it always faces the origin.
+		{
+			Vector4 P = dotPosSteamVR;
+
+			// O is the headset's center, in SteamVR coords:
+			Vector4 O = g_VSMatrixCB.fullViewMat * Vector4(0, 0, 0, 1);
+			// N goes from the intersection point to the headset's origin: it's the view vector now
+			Vector4 N = P - O;
+			//log_debug_vr(50 + contIdx * 25, FONT_WHITE_COLOR, "P[%d]: %0.3f, %0.3f, %0.3f", contIdx, P.x, P.y, P.z);
+
+			N.normalize();
+			// Rotate N into the Y-Z plane --> make x == 0
+			const float Yang = atan2(N.x, N.z) * RAD_TO_DEG;
+			Matrix4 Ry = Matrix4().rotateY(-Yang);
+			N = Ry * N;
+
+			// Rotate N into the X-Z plane --> make y == 0. N should now be equal to Z+
+			const float Xang = atan2(N.y, N.z) * RAD_TO_DEG;
+			Matrix4 Rx = Matrix4().rotateX(Xang);
+			//N = Rx * N;
+			//log_debug_vr(50 + contIdx * 25, FONT_WHITE_COLOR, "[%d]: %0.3f, %0.3f, %0.3f", contIdx, N.x, N.y, N.z);
+			// The transform chain is now Rx * Ry: this will align the view vector going from the
+			// origin to the intersection with Z+
+			// Adding Rz to the chain makes the dot keep the up direction aligned with the camera.
+			// This is what the brackets do right now.
+			// Removing Rz keeps the up direction aligned with the reticle: this is probably
+			// what we want to do if we want to replace the brackets/reticle/pips
+			Matrix4 Rz = Matrix4().rotateZ(-g_pSharedDataCockpitLook->Roll);
+			V = Rz * Rx * Ry; // <-- Up direction is always view-aligned
+			//V = Rx * Ry; // <-- Up direction is reticle-aligned
+			// The transpose is the inverse, so it will align Z+ with the view vector:
+			V.transpose();
+			V = swap * V * swap;
+		}
+
+		Matrix4 DotTransform;
+		{
+			Matrix4 swapScale({ 1,0,0,0,  0,0,-1,0,  0,-1,0,0,  0,0,0,1 });
+
+			DotTransform.identity();
+			// This transform will put the dot in the center of the screen, no matter where we look.
+			// but bInHangar must be forced to true:
+			//T = Matrix4().translate(0, -15.0f, 0.0f);
+			Vector3 posOPT = { dotPosSteamVR.x * METERS_TO_OPT,
+			                   dotPosSteamVR.z * METERS_TO_OPT,
+			                   dotPosSteamVR.y * METERS_TO_OPT };
+			Matrix4 T = Matrix4().translate(posOPT);
+			DotTransform = swapScale * T * Matrix4().scale(meshScale) * V;
+		}
+		// The Vertex Shader does post-multiplication, so we need to transpose the matrix:
+		DotTransform.transpose();
+		g_OPTMeshTransformCB.MeshTransform = DotTransform;
+
+		// Apply the VS and PS constants
+		resources->InitVSConstantOPTMeshTransform(resources->_OPTMeshTransformCB.GetAddressOf(), &g_OPTMeshTransformCB);
+
+		RenderScene();
+	}
+
+	_bBracketsRendered = true;
+	RestoreContext();
+	g_bracketsVR.clear();
+	_deviceResources->EndAnnotatedEvent();
+}
+
 void EffectsRenderer::RenderVRHUD()
 {
 	if (!g_bUseSteamVR || !g_bRendering3D || _bHUDRendered || !_bCockpitConstantsCaptured)
@@ -7759,5 +7927,6 @@ void EffectsRenderer::RenderDeferredDrawCalls()
 	RenderVRKeyboard();
 	RenderVRDots();
 	//RenderVRHUD();
+	//RenderVRBrackets();
 	_deviceResources->EndAnnotatedEvent();
 }

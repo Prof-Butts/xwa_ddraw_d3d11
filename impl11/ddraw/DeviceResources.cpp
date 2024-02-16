@@ -1780,6 +1780,8 @@ HRESULT DeviceResources::OnSizeChanged(HWND hWnd, DWORD dwWidth, DWORD dwHeight)
 	*/
 
 	if (g_bUseSteamVR) {
+		this->_BracketsMSAA.Release();
+		this->_BracketsAsInput.Release();
 		this->_offscreenBufferR.Release();
 		this->_offscreenBufferAsInputR.Release();
 		this->_offscreenBufferPostR.Release();
@@ -1828,6 +1830,7 @@ HRESULT DeviceResources::OnSizeChanged(HWND hWnd, DWORD dwWidth, DWORD dwHeight)
 		this->_DCTextSRV.Release();
 		this->_DCTextRTV.Release();
 		this->_DCTextAsInputRTV.Release();
+		this->_BracketsRTV.Release();
 	}
 
 	if (g_bEnableVR) {
@@ -1835,6 +1838,7 @@ HRESULT DeviceResources::OnSizeChanged(HWND hWnd, DWORD dwWidth, DWORD dwHeight)
 		this->_ReticleBufAsInput.Release();
 		this->_ReticleRTV.Release();
 		this->_ReticleSRV.Release();
+		this->_BracketsSRV.Release();
 	}
 
 	if (g_bActiveCockpitEnabled) {
@@ -2184,7 +2188,7 @@ HRESULT DeviceResources::OnSizeChanged(HWND hWnd, DWORD dwWidth, DWORD dwHeight)
 			BACKBUFFER_FORMAT,
 			this->_backbufferWidth,
 			this->_backbufferHeight,
-			(g_bUseSteamVR)? 2 : 1, //If we want to render in single-pass instanced stereo, we need Texture2DArray with 1 slice per eye
+			g_bUseSteamVR ? 2 : 1, //If we want to render in single-pass instanced stereo, we need Texture2DArray with 1 slice per eye
 			1,
 			D3D11_BIND_RENDER_TARGET,
 			D3D11_USAGE_DEFAULT,
@@ -2208,6 +2212,20 @@ HRESULT DeviceResources::OnSizeChanged(HWND hWnd, DWORD dwWidth, DWORD dwHeight)
 				log_err("dwWidth, Height: %u, %u\n", dwWidth, dwHeight);
 				log_err_desc(step, hWnd, hr, desc);
 				goto out;
+			}
+
+			if (g_bUseSteamVR)
+			{
+				desc.ArraySize = 1;
+				step = "_BracketsMSAA";
+				hr = this->_d3dDevice->CreateTexture2D(&desc, nullptr, &this->_BracketsMSAA);
+				log_debug("[DBG] _BracketsMSAA: %u, %u", desc.Width, desc.Height);
+				if (FAILED(hr)) {
+					log_err("dwWidth, Height: %u, %u\n", dwWidth, dwHeight);
+					log_err_desc(step, hWnd, hr, desc);
+					goto out;
+				}
+				desc.ArraySize = g_bUseSteamVR ? 2 : 1;
 			}
 
 			step = "_offscreenBufferPost";
@@ -2726,6 +2744,18 @@ HRESULT DeviceResources::OnSizeChanged(HWND hWnd, DWORD dwWidth, DWORD dwHeight)
 					log_err("Successfully created _DCTextAsInput with combined flags\n");
 				}
 
+				if (g_bUseSteamVR) {
+					step = "_BracketsAsInput";
+					UINT curSize = desc.ArraySize;
+					desc.ArraySize = 1;
+					if (FAILED(this->_d3dDevice->CreateTexture2D(&desc, nullptr, &this->_BracketsAsInput)))
+					{
+						log_debug("[DBG] Failed to create _BracketsAsInput");
+						goto out;
+					}
+					desc.ArraySize = curSize;
+				}
+
 				// Restore the previous bind flags, just in case there is a dependency on these later on
 				desc.BindFlags = curFlags;
 			}
@@ -3027,6 +3057,14 @@ HRESULT DeviceResources::OnSizeChanged(HWND hWnd, DWORD dwWidth, DWORD dwHeight)
 			if (g_bEnableVR) {
 				step = "_ReticleSRV";
 				hr = this->_d3dDevice->CreateShaderResourceView(this->_ReticleBufAsInput, &shaderResourceViewDesc, &this->_ReticleSRV);
+				if (FAILED(hr)) {
+					log_err("dwWidth, Height: %u, %u\n", dwWidth, dwHeight);
+					log_shaderres_view(step, hWnd, hr, shaderResourceViewDesc);
+					goto out;
+				}
+
+				step = "_BracketsSRV";
+				hr = this->_d3dDevice->CreateShaderResourceView(this->_BracketsAsInput, &shaderResourceViewDesc, &this->_BracketsSRV);
 				if (FAILED(hr)) {
 					log_err("dwWidth, Height: %u, %u\n", dwWidth, dwHeight);
 					log_shaderres_view(step, hWnd, hr, shaderResourceViewDesc);
@@ -3504,7 +3542,17 @@ HRESULT DeviceResources::OnSizeChanged(HWND hWnd, DWORD dwWidth, DWORD dwHeight)
 				log_debug("[DBG] [DC] _DCTextRTV FAILED");
 				goto out;
 			}
-			
+
+			if (g_bUseSteamVR)
+			{
+				step = "_BracketsRTV";
+				hr = this->_d3dDevice->CreateRenderTargetView(this->_BracketsMSAA, &GetRtvDesc(this->_useMultisampling, false), &this->_BracketsRTV);
+				if (FAILED(hr)) {
+					log_debug("[DBG] [DC] _BracketsRTV FAILED");
+					goto out;
+				}
+			}
+		
 			step = "_renderTargetViewDynCockpitAsInput";
 			// This RTV writes to a monoscopic non-MSAA texture
 			hr = this->_d3dDevice->CreateRenderTargetView(this->_offscreenAsInputDynCockpit, &GetRtvDesc(false, false),
@@ -3903,7 +3951,12 @@ HRESULT DeviceResources::OnSizeChanged(HWND hWnd, DWORD dwWidth, DWORD dwHeight)
 		// This surface is used with _d2d1OffscreenRenderTarget to render directly to the
 		// _offscreenBuffer. This is used to render things like the brackets that shouldn't
 		// be captured in the DC buffers. Currently only used in PrimarySurface::RenderBracket()
-		hr = this->_offscreenBuffer.As(&offscreenSurface);
+		// In SteamVR mode, _offscreenBuffer is an array because we do indexed draw calls. So here
+		// we need to render to a buffer that isn't an array: _BracketsMSAA
+		if (!g_bUseSteamVR)
+			hr = this->_offscreenBuffer.As(&offscreenSurface);
+		else
+			hr = this->_BracketsMSAA.As(&offscreenSurface);
 
 		// This surface can be used to render directly to the DC foreground buffer
 		if (g_bDynCockpitEnabled)
@@ -3919,7 +3972,7 @@ HRESULT DeviceResources::OnSizeChanged(HWND hWnd, DWORD dwWidth, DWORD dwHeight)
 			hr = this->_d2d1Factory->CreateDxgiSurfaceRenderTarget(DCSurface, properties, &this->_d2d1DCRenderTarget);
 
 			//We don't need the D2D1 surfaces in VR mode, the brackets will be rendered in the original way by Execute()
-			if (!g_bEnableVR)
+			//if (!g_bEnableVR)
 				hr = this->_d2d1Factory->CreateDxgiSurfaceRenderTarget(offscreenSurface, properties, &this->_d2d1OffscreenRenderTarget);
 
 			if (SUCCEEDED(hr))

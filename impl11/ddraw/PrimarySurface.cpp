@@ -9796,10 +9796,10 @@ HRESULT PrimarySurface::Flip(
 			// Render the enhanced bracket after all the shading has been applied.
 			if (g_config.Radar2DRendererEnabled)
 			{
-				if (!g_bEnableVR)
+				//if (!g_bEnableVR)
 					this->RenderBracket();
-				else
-					this->CacheBracketsVR();
+				//else
+					//this->CacheBracketsVR();
 			}
 
 			// Draw the reticle on top of everything else
@@ -11757,6 +11757,14 @@ void PrimarySurface::RenderBracket()
 	static float s_scaleX;
 	static float s_scaleY;
 
+	auto& resources = _deviceResources;
+	auto& context = _deviceResources->_d3dDeviceContext;
+	if (g_bUseSteamVR)
+	{
+		float bgColor[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
+		context->ClearRenderTargetView(resources->_BracketsRTV, bgColor);
+	}
+
 	if (!g_PrimarySurfaceInitialized)
 	{
 		s_d2d1RenderTarget = nullptr;
@@ -11868,21 +11876,48 @@ void PrimarySurface::RenderBracket()
 		}
 		else
 		{
-			// top left
-			rtv->DrawLine(D2D1::Point2F(posX, posY), D2D1::Point2F(posX + posW * posSide, posY), s_brush, strokeWidth);
-			rtv->DrawLine(D2D1::Point2F(posX, posY), D2D1::Point2F(posX, posY + posH * posSide), s_brush, strokeWidth);
+			if (!g_bUseSteamVR)
+			{
+				// top left
+				rtv->DrawLine(D2D1::Point2F(posX, posY), D2D1::Point2F(posX + posW * posSide, posY), s_brush, strokeWidth);
+				rtv->DrawLine(D2D1::Point2F(posX, posY), D2D1::Point2F(posX, posY + posH * posSide), s_brush, strokeWidth);
 
-			// top right
-			rtv->DrawLine(D2D1::Point2F(posX + posW - posW * posSide, posY), D2D1::Point2F(posX + posW, posY), s_brush, strokeWidth);
-			rtv->DrawLine(D2D1::Point2F(posX + posW, posY), D2D1::Point2F(posX + posW, posY + posH * posSide), s_brush, strokeWidth);
+				// top right
+				rtv->DrawLine(D2D1::Point2F(posX + posW - posW * posSide, posY), D2D1::Point2F(posX + posW, posY), s_brush, strokeWidth);
+				rtv->DrawLine(D2D1::Point2F(posX + posW, posY), D2D1::Point2F(posX + posW, posY + posH * posSide), s_brush, strokeWidth);
 
-			// bottom left
-			rtv->DrawLine(D2D1::Point2F(posX, posY + posH - posH * posSide), D2D1::Point2F(posX, posY + posH), s_brush, strokeWidth);
-			rtv->DrawLine(D2D1::Point2F(posX, posY + posH), D2D1::Point2F(posX + posW * posSide, posY + posH), s_brush, strokeWidth);
+				// bottom left
+				rtv->DrawLine(D2D1::Point2F(posX, posY + posH - posH * posSide), D2D1::Point2F(posX, posY + posH), s_brush, strokeWidth);
+				rtv->DrawLine(D2D1::Point2F(posX, posY + posH), D2D1::Point2F(posX + posW * posSide, posY + posH), s_brush, strokeWidth);
 
-			// bottom right
-			rtv->DrawLine(D2D1::Point2F(posX + posW - posW * posSide, posY + posH), D2D1::Point2F(posX + posW, posY + posH), s_brush, strokeWidth);
-			rtv->DrawLine(D2D1::Point2F(posX + posW, posY + posH - posH * posSide), D2D1::Point2F(posX + posW, posY + posH), s_brush, strokeWidth);
+				// bottom right
+				rtv->DrawLine(D2D1::Point2F(posX + posW - posW * posSide, posY + posH), D2D1::Point2F(posX + posW, posY + posH), s_brush, strokeWidth);
+				rtv->DrawLine(D2D1::Point2F(posX + posW, posY + posH - posH * posSide), D2D1::Point2F(posX + posW, posY + posH), s_brush, strokeWidth);
+			}
+			else
+			{
+				const float roll = g_pSharedDataCockpitLook->Roll;
+				const float c = cos(roll * DEG2RAD);
+				const float s = sin(roll * DEG2RAD);
+				Vector2 X = Vector2(c, s);
+				Vector2 Y = Vector2(-s, c);
+				Vector2 C, P, Q;
+				C = { posX + posW / 2.0f, posY + posH / 2.0f };
+
+				// top left
+				P = { posX, posY };
+				Q = P + (posW * posSide) * X;
+				rtv->DrawLine(D2D1::Point2F(P.x, P.y), D2D1::Point2F(Q.x, Q.y), s_brush, strokeWidth);
+				Q = P + (posH * posSide) * Y;
+				rtv->DrawLine(D2D1::Point2F(P.x, P.y), D2D1::Point2F(Q.x, Q.y), s_brush, strokeWidth);
+
+				// top right
+				P = { posX + posW - posW * posSide, posY };
+				Q = P - (posW * posSide) * X;
+				rtv->DrawLine(D2D1::Point2F(P.x, P.y), D2D1::Point2F(Q.x, Q.y), s_brush, strokeWidth);
+				Q = P + (posH * posSide) * Y;
+				rtv->DrawLine(D2D1::Point2F(P.x, P.y), D2D1::Point2F(Q.x, Q.y), s_brush, strokeWidth);
+			}
 		}
 	}
 
@@ -11896,6 +11931,64 @@ void PrimarySurface::RenderBracket()
 	// crashes when exiting.
 	s_brush = nullptr;
 	g_xwa_bracket.clear();
+
+	if (g_bUseSteamVR)
+	{
+		const float Zfar = *(float*)0x05B46B4;
+
+		//Matrix4 Heading;
+		//GetHyperspaceEffectMatrix(&Heading);
+		//GetCockpitViewMatrix(&Heading);
+		Vector4 Rs, Us, Fs;
+		Matrix4 Heading = GetCurrentHeadingMatrix(Rs, Us, Fs, false);
+		Matrix4 ViewMatrix = g_VSMatrixCB.fullViewMat; // See RenderSpeedEffect() for details
+		ViewMatrix.invert();
+		Matrix4 S = Matrix4().scale(-1, -1, 1);
+		ViewMatrix = S * ViewMatrix * S * Heading;
+
+		Vector4 U = ViewMatrix * Vector4(0, 0, -1, 0);
+		g_VRGeometryCBuffer.U.x = U.x;
+		g_VRGeometryCBuffer.U.y = U.y;
+		g_VRGeometryCBuffer.U.z = U.z;
+		g_VRGeometryCBuffer.U.w = 0;
+		log_debug_vr("Up: %0.3f, %0.3f, %0.3f", U.x, U.y, U.z);
+
+		context->ResolveSubresource(resources->_BracketsAsInput, 0, resources->_BracketsMSAA, 0, BACKBUFFER_FORMAT);
+		if (g_bDumpSSAOBuffers && g_bUseSteamVR)
+		{
+			DirectX::SaveWICTextureToFile(context, resources->_BracketsAsInput, GUID_ContainerFormatPng, L"C:\\Temp\\_BracketsAsInput.png");
+		}
+
+		g_bracketsVR.clear();
+		float W = g_fCurInGameWidth;
+		float H = g_fCurInGameHeight;
+		float desiredZ = 65536.0f;
+		float X = W / 2.0f, Y = H / 2.0f;
+		float Z = Zfar / (desiredZ * METERS_TO_OPT);
+		float3 P = InverseTransformProjectionScreen({ X, Y, Z, Z });
+		P.y = -P.y;
+		P.z = -P.z;
+
+		//float3 Q = InverseTransformProjectionScreen({ X + (0.5f * W / 2.0f), Y + (0.5f * H / 2.0f), Z, Z });
+		float3 Q = InverseTransformProjectionScreen({ W, H, Z, Z });
+		Q.y = -Q.y;
+		Q.z = -Q.z;
+
+		BracketVR bracketVR;
+		bracketVR.posOPT.x = P.x;
+		bracketVR.posOPT.y = P.z;
+		bracketVR.posOPT.z = P.y;
+		bracketVR.halfWidthOPT = fabs(Q.x - P.x);
+		bracketVR.halfHeightOPT = fabs(Q.y - P.y);
+		bracketVR.color.x = ((brushColor >> 16) & 0xFF) / 255.0f;
+		bracketVR.color.y = ((brushColor >> 8) & 0xFF) / 255.0f;
+		bracketVR.color.y = (brushColor & 0xFF) / 255.0f;
+		g_bracketsVR.push_back(bracketVR);
+
+		// This method should only be called in VR mode:
+		EffectsRenderer* renderer = (EffectsRenderer*)g_current_renderer;
+		renderer->RenderVRBrackets();
+	}
 
 	this->_deviceResources->EndAnnotatedEvent();
 
@@ -11977,6 +12070,34 @@ void PrimarySurface::CacheBracketsVR()
 	}
 
 	g_xwa_bracket.clear();
+
+	{
+		g_bracketsVR.clear();
+		float W = g_fCurInGameWidth;
+		float H = g_fCurInGameHeight;
+		float desiredZ = 65536.0f;
+		float X = W / 2.0f, Y = H / 2.0f;
+		float Z = Zfar / (desiredZ * METERS_TO_OPT);
+		float3 P = InverseTransformProjectionScreen({ X, Y, Z, Z });
+		P.y = -P.y;
+		P.z = -P.z;
+
+		float3 Q = InverseTransformProjectionScreen({ X + (0.5f * W / 2.0f), Y + (0.5f * H / 2.0f), Z, Z });
+		//float3 Q = InverseTransformProjectionScreen({ X + W, H, Z, Z });
+		Q.y = -Q.y;
+		Q.z = -Q.z;
+
+		BracketVR bracketVR;
+		bracketVR.posOPT.x = P.x;
+		bracketVR.posOPT.y = P.z;
+		bracketVR.posOPT.z = P.y;
+		bracketVR.halfWidthOPT = fabs(Q.x - P.x);
+		bracketVR.halfHeightOPT = fabs(Q.y - P.y);
+		bracketVR.color.x = ((brushColor >> 16) & 0xFF) / 255.0f;
+		bracketVR.color.y = ((brushColor >> 8) & 0xFF) / 255.0f;
+		bracketVR.color.y = (brushColor & 0xFF) / 255.0f;
+		g_bracketsVR.push_back(bracketVR);
+	}
 
 	// This method should only be called in VR mode:
 	EffectsRenderer* renderer = (EffectsRenderer*)g_current_renderer;

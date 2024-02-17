@@ -27,6 +27,8 @@ cbuffer ConstantBuffer : register(b11)
 	// 80 bytes
 	float4 clickRegions[2];
 	// 112 bytes
+	float4 U;
+	// 128 bytes
 };
 
 // New PixelShaderInput needed for the D3DRendererHook
@@ -79,8 +81,8 @@ PixelShaderOutput main(PixelShaderInput input)
 	const float4 texelColor = texture0.Sample(sampler0, input.tex);
 	const float  alpha      = texelColor.w;
 	const float2 uv         = input.tex;
-	if (alpha < 0.75)
-		discard;
+	//if (alpha < 0.75)
+	//	discard;
 
 	output.color = texelColor;
 	// Zero-out the bloom mask.
@@ -118,6 +120,9 @@ PixelShaderOutput main(PixelShaderInput input)
 	float3 P = input.pos3D.xyz;
 	output.pos3D = float4(P, 1);
 
+	const float3 V = normalize(P);
+	const float Vdist = dot(V, U.xyz);
+
 	float3 N = normalize(input.normal.xyz);
 	N.y = -N.y; // Invert the Y axis, originally Y+ is down
 	N.z = -N.z;
@@ -145,5 +150,14 @@ PixelShaderOutput main(PixelShaderInput input)
 		output.ssMask.a = min(output.ssMask.a, output.color.a);
 	}
 
+	//output.color.r  = 2.0 * input.tex.x;
+	//output.color.b  = 2.0 * input.tex.y;
+	//output.color.a += 0.25;
+
+	output.color.rb = 0.5 * Vdist;
+	output.color.a = pow(Vdist, 4.0);
+
+	if (output.color.a < 0.2)
+		discard;
 	return output;
 }

@@ -6510,7 +6510,8 @@ void EffectsRenderer::RenderVRBrackets()
 	_bIsBlastMark = false;
 
 	// Set the textures
-	_deviceResources->InitPSShaderResourceView(_vrGreenCirclesSRV.Get(), nullptr);
+	//_deviceResources->InitPSShaderResourceView(_vrGreenCirclesSRV.Get(), nullptr);
+	_deviceResources->InitPSShaderResourceView(resources->_BracketsSRV.Get(), nullptr);
 
 	// Set the mesh buffers
 	ID3D11ShaderResourceView* vsSSRV[4] = { _vrDotMeshVerticesSRV.Get(), nullptr, _vrDotMeshTexCoordsSRV.Get(), nullptr };
@@ -6610,7 +6611,8 @@ void EffectsRenderer::RenderVRBrackets()
 			                   dotPosSteamVR.z * METERS_TO_OPT,
 			                   dotPosSteamVR.y * METERS_TO_OPT };
 			Matrix4 T = Matrix4().translate(posOPT);
-			DotTransform = swapScale * T * Matrix4().scale(meshScale) * V;
+			//DotTransform = swapScale * T * Matrix4().scale(meshScale) * V;
+			DotTransform = swapScale * T * Matrix4().scale(meshScale);
 		}
 		// The Vertex Shader does post-multiplication, so we need to transpose the matrix:
 		DotTransform.transpose();

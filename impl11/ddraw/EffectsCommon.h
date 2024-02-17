@@ -398,6 +398,8 @@ struct VRGeometryCBuffer {
 	// 80 bytes
 	float4   clickRegions[2];
 	// 112 bytes
+	float4   U;
+	// 128 bytes
 };
 
 typedef struct {

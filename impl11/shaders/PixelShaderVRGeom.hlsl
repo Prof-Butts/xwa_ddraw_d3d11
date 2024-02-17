@@ -1,7 +1,6 @@
-// Copyright (c) 2019 Leo Reyes
+// Copyright (c) 2024 Leo Reyes
 // Licensed under the MIT license. See LICENSE.txt
 // This shader is currently used to render the VR keyboard and gloves.
-//#include "HSV.h"
 #include "shader_common.h"
 #include "shading_system.h"
 #include "PixelShaderTextureCommon.h"
@@ -9,24 +8,20 @@
 Texture2D texture0 : register(t0);
 SamplerState sampler0 : register(s0);
 
-//Texture2D texture1 : register(t1);
-//SamplerState sampler1 : register(s1);
-
-// When the Dynamic Cockpit is active:
-// texture0 == regular texture
-// texture1 == ??? illumination texture?
-
 // VRGeometryCBuffer
 cbuffer ConstantBuffer : register(b11)
 {
-	uint  numStickyRegions;
-	uint2 clicked;
-	uint  vr_unused0;
+	uint   numStickyRegions;
+	uint2  clicked;
+	uint   bRenderBracket;
 	// 16 bytes
 	float4 stickyRegions[4];
 	// 80 bytes
 	float4 clickRegions[2];
 	// 112 bytes
+	float  strokeWidth;
+	float3 bracketColor;
+	// 128 bytes
 };
 
 // New PixelShaderInput needed for the D3DRendererHook
@@ -72,21 +67,54 @@ float noise(in float3 x)
 				hash(i + float3(1, 1, 1)), f.x), f.y), f.z);
 }
 
-PixelShaderOutput main(PixelShaderInput input)
+PixelShaderOutput RenderBracket(PixelShaderInput input)
 {
 	PixelShaderOutput output;
 
+	float alpha =
+		(input.tex.x <= strokeWidth) || (input.tex.x >= 1.0 - strokeWidth) || // Left and right bars
+		(input.tex.y <= strokeWidth) || (input.tex.y >= 1.0 - strokeWidth) ? // Top and bottom bars
+		1 : 0;
+
+	if (alpha < 0.7)
+		discard;
+
+	// gapSize prevents the gap from being greater than the size of the stroke. In other words
+	// if the bracket is so small that the stroke will create a closed bracket, then let's leave
+	// a closed bracket.
+	// Create the gaps in the bracket:
+	const float gapSize = max(strokeWidth, 0.2);
+	if ((input.tex.x >= gapSize && input.tex.x <= 1.0 - gapSize) ||
+	    (input.tex.y >= gapSize && input.tex.y <= 1.0 - gapSize))
+		discard;
+
+	output.color  = float4(bracketColor, alpha);
+	output.bloom  = float4(output.color.rgb, alpha);
+	output.pos3D  = 0;
+	output.normal = 0;
+	output.ssMask = 0;
+	output.ssaoMask = float4(fSSAOMaskVal, 0.1, 0, alpha);
+	return output;
+}
+
+PixelShaderOutput main(PixelShaderInput input)
+{
+	if (bRenderBracket)
+		return RenderBracket(input);
+
+	PixelShaderOutput output;
 	const float4 texelColor = texture0.Sample(sampler0, input.tex);
 	const float  alpha      = texelColor.w;
 	const float2 uv         = input.tex;
+
 	if (alpha < 0.75)
 		discard;
 
 	output.color = texelColor;
 	// Zero-out the bloom mask.
 	output.bloom = float4(0, 0, 0, 0);
-	uint i;
 
+	uint i;
 	for (i = 0; i < numStickyRegions; i++)
 	{
 		const float4 region = stickyRegions[i];
@@ -96,7 +124,6 @@ PixelShaderOutput main(PixelShaderInput input)
 			output.color.rgb = 1 - output.color.rgb;
 			output.bloom.rgb = output.color.rgb;
 			output.bloom.a   = 0.75;
-			//output.color.r += 0.3;
 		}
 	}
 
@@ -144,6 +171,9 @@ PixelShaderOutput main(PixelShaderInput input)
 		output.bloom = lerp(0.0, 2.0 * nvideo, clamp(fadeIn, 0.0, 1.0));
 		output.ssMask.a = min(output.ssMask.a, output.color.a);
 	}
+
+	//if (output.color.a < 0.2)
+	//	discard;
 
 	return output;
 }

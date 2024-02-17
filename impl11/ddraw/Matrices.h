@@ -47,6 +47,7 @@ public:
     Matrix2&    identity();
     Matrix2&    transpose();                            // transpose itself and return reference
     Matrix2&    invert();
+    Matrix2&    rotate(float angle);
 
     // operators
     Matrix2     operator+(const Matrix2& rhs) const;    // add rhs

@@ -132,6 +132,8 @@ public:
 
 	void RenderExternalHUD();
 
+	void RenderBracketAsHUD(int, int);
+
 	inline void AddSpeedPoint(const Matrix4 &H, D3DTLVERTEX *particles, Vector4 Q, float zdisp, int ofs, float craft_speed);
 
 	int AddGeometry(const Matrix4 & ViewMatrix, D3DTLVERTEX * particles, Vector4 Q, float zdisp, int ofs);
@@ -220,7 +222,11 @@ public:
 
 	void RenderRadar();
 
+	void RenderBracketBackProjected();
+
 	void RenderBracket();
+
+	void CacheBracketsVR();
 
 	void RenderSynthDCElems();
 

@@ -226,6 +226,8 @@ public:
 	ComPtr<ID3D11Texture2D> _DCTextAsInput;				   // Resolved from DCTextMSAA for use in shaders
 	ComPtr<ID3D11Texture2D> _ReticleBufMSAA;			   // "RTV" to render the HUD in VR mode
 	ComPtr<ID3D11Texture2D> _ReticleBufAsInput;			   // Resolved from _ReticleBufMSAA for use in shaders
+	ComPtr<ID3D11Texture2D> _BracketsMSAA;                 // Brackets are rendered here in VR mode
+	ComPtr<ID3D11Texture2D> _BracketsAsInput;              // Resolved from _BracketsMSAA
 	// Barrel effect
 	ComPtr<ID3D11Texture2D> _offscreenBufferPost;  // This is the output of the barrel effect
 	ComPtr<ID3D11Texture2D> _offscreenBufferPostR; // This is the output of the barrel effect for the right image when using SteamVR
@@ -307,6 +309,7 @@ public:
 	ComPtr<ID3D11RenderTargetView> _DCTextRTV;
 	ComPtr<ID3D11RenderTargetView> _DCTextAsInputRTV;
 	ComPtr<ID3D11RenderTargetView> _ReticleRTV;
+	ComPtr<ID3D11RenderTargetView> _BracketsRTV;
 	// Barrel Effect
 	ComPtr<ID3D11RenderTargetView> _renderTargetViewPost;  // Used for the barrel effect
 	ComPtr<ID3D11RenderTargetView> _renderTargetViewPostR; // Used for the barrel effect (right image) when SteamVR is used.
@@ -355,6 +358,7 @@ public:
 	ComPtr<ID3D11ShaderResourceView> _offscreenAsInputDynCockpitBG_SRV; // SRV for HUD element backgrounds
 	ComPtr<ID3D11ShaderResourceView> _DCTextSRV;						// SRV for the HUD text
 	ComPtr<ID3D11ShaderResourceView> _ReticleSRV;						// SRV for the HUD text
+	ComPtr<ID3D11ShaderResourceView> _BracketsSRV;						// SRV for the Brackets
 	// Shadertoy
 	ComPtr<ID3D11ShaderResourceView> _shadertoySRV;
 	ComPtr<ID3D11ShaderResourceView> _shadertoySRV_R;

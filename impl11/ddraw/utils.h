@@ -91,6 +91,7 @@ void saveSurface(const std::wstring& name, char* buffer, DWORD width, DWORD heig
 
 void log_debug(const char *format, ...);
 void log_file(const char *format, ...);
+void log_debug_vr_set_row(short row);
 short log_debug_vr(short y, int color, const char* format, ...);
 void log_debug_vr(int color, const char* format, ...);
 void log_debug_vr(const char* format, ...);

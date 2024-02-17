@@ -1692,7 +1692,7 @@ inline void InverseTransformProjectionScreen(UINT index, Vector3 *P, bool invert
 	input.y = g_OrigVerts[index].sy;
 	input.z = g_OrigVerts[index].sz;
 	input.w = invertZ ? (1.0f - g_OrigVerts[index].rhw) : g_OrigVerts[index].rhw;
-	float3 pos = InverseTransformProjectionScreen(input);
+	float3 pos = InverseTransformProjectionScreen(input); // InverseTransformProjectionScreen
 	P->x = pos.x * OPT_TO_METERS;
 	P->y = pos.y * OPT_TO_METERS;
 	P->z = pos.z * OPT_TO_METERS;
@@ -2129,7 +2129,7 @@ void DumpVerticesToOBJ(FILE *file, LPD3DINSTRUCTION instruction, UINT curIndex, 
 	float projectionDeltaX = *(float*)0x08C1600 + *(float*)0x0686ACC;
 	float projectionDeltaY = *(float*)0x080ACF8 + *(float*)0x07B33C0 + *(float*)0x064D1AC;
 #if METRIC == 1
-	fprintf(file, "# NEW DDRAW, METRIC\n");
+	fprintf(file, "# NEW DDRAW, METRIC -- TEST\n");
 #else
 	fprintf(file, "# NEW DDRAW, RAW\n");
 #endif
@@ -2144,36 +2144,36 @@ void DumpVerticesToOBJ(FILE *file, LPD3DINSTRUCTION instruction, UINT curIndex, 
 		// Back-project the vertices of the triangle into metric 3D space:
 		index = g_config.D3dHookExists ? g_OrigIndex[idx++] : triangle->v1;
 		//v0.x = g_OrigVerts[index].sx; v0.y = g_OrigVerts[index].sy; w0 = 1.0f / g_OrigVerts[index].rhw;
-#if METRIC == 1
+//#if METRIC == 1
 		//backProjectMetric(index, &tempv0);
 		InverseTransformProjectionScreen(index, &tempv0, invertZ);
 		fprintf(file, "v %0.6f %0.6f %0.6f\n", tempv0.x, tempv0.y, tempv0.z);
-#else
-		fprintf(file, "v %0.6f %0.6f %0.6f  # %0.6f\n",
+//#else
+		fprintf(file, "# v %0.6f %0.6f %0.6f  # %0.6f\n",
 			g_OrigVerts[index].sx, g_OrigVerts[index].sy, g_OrigVerts[index].sz, g_OrigVerts[index].rhw);
-#endif
+//#endif
 
 		index = g_config.D3dHookExists ? g_OrigIndex[idx++] : triangle->v2;
 		//v1.x = g_OrigVerts[index].sx; v1.y = g_OrigVerts[index].sy; w1 = 1.0f / g_OrigVerts[index].rhw;
-#if METRIC == 1
+//#if METRIC == 1
 		//backProjectMetric(index, &tempv1);
 		InverseTransformProjectionScreen(index, &tempv1, invertZ);
 		fprintf(file, "v %0.6f %0.6f %0.6f\n", tempv1.x, tempv1.y, tempv1.z);
-#else
-		fprintf(file, "v %0.6f %0.6f %0.6f  # %0.6f\n",
+//#else
+		fprintf(file, "# v %0.6f %0.6f %0.6f  # %0.6f\n",
 			g_OrigVerts[index].sx, g_OrigVerts[index].sy, g_OrigVerts[index].sz, g_OrigVerts[index].rhw);
-#endif
+//#endif
 
 		index = g_config.D3dHookExists ? g_OrigIndex[idx++] : triangle->v3;
 		//v2.x = g_OrigVerts[index].sx; v2.y = g_OrigVerts[index].sy; w2 = 1.0f / g_OrigVerts[index].rhw;
-#if METRIC == 1
+//#if METRIC == 1
 		//backProjectMetric(index, &tempv2);
 		InverseTransformProjectionScreen(index, &tempv2, invertZ);
 		fprintf(file, "v %0.6f %0.6f %0.6f\n", tempv2.x, tempv2.y, tempv2.z);
-#else
-		fprintf(file, "v %0.6f %0.6f %0.6f  # %0.6f\n",
+//#else
+		fprintf(file, "# v %0.6f %0.6f %0.6f  # %0.6f\n",
 			g_OrigVerts[index].sx, g_OrigVerts[index].sy, g_OrigVerts[index].sz, g_OrigVerts[index].rhw);
-#endif
+//#endif
 
 		if (!g_config.D3dHookExists) triangle++;
 
@@ -5305,6 +5305,15 @@ HRESULT Direct3DDevice::Execute(
 					DumpVerticesToOBJ(g_DumpLaserFile, instruction, currentIndexLocation,
 						g_iDumpLaserOBJIdx, lastTextureSelected->_surface->_cname);
 				}
+
+				/*
+				if (bIsEngineGlow)
+				{
+					float3 P = InverseTransformProjectionScreen({ 427.0f, 480.0f, 0.22222222f, 0.22222222f }, false);
+					log_debug("[DBG] PCENTER: %0.3f, %0.3f, %0.3f",
+						P.x * OPT_TO_METERS, P.y * OPT_TO_METERS, P.z * OPT_TO_METERS);
+				}
+				*/
 
 				// Tech Room Hologram control (this is only used for the engine glows)
 				if (g_bInTechRoom && g_config.TechRoomHolograms)

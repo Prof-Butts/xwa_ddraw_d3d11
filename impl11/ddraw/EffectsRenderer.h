@@ -111,6 +111,7 @@ protected:
 	ComPtr<ID3D11ShaderResourceView> _vrGreenCirclesSRV;
 	bool _bDotsbRendered;
 	bool _bHUDRendered;
+	bool _bBracketsRendered;
 
 	D3D11_PRIMITIVE_TOPOLOGY _oldTopology;
 	UINT _oldStencilRef, _oldSampleMask;
@@ -144,7 +145,9 @@ protected:
 
 public:
 	bool _bCockpitConstantsCaptured;
+	bool _bExteriorConstantsCaptured;
 	D3dConstants _CockpitConstants;
+	D3dConstants _ExteriorConstants;
 	XwaTransform _CockpitWorldView;
 
 	EffectsRenderer();
@@ -211,6 +214,7 @@ public:
 	void RenderLasers();
 	void RenderTransparency();
 	void RenderVRDots();
+	void RenderVRBrackets();
 	void RenderVRHUD();
 	void RenderVRKeyboard();
 	void RenderVRGloves();

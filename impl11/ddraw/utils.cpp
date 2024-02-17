@@ -814,6 +814,11 @@ short log_debug_vr(short y, int color, const char* format, ...)
 }
 
 static short log_debug_y = 50;
+void log_debug_vr_set_row(short row)
+{
+	log_debug_y = row * 25;
+}
+
 void log_debug_vr(int color, const char* format, ...)
 {
 	char buf[512];

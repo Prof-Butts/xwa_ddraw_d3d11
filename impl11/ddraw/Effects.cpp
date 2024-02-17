@@ -406,6 +406,12 @@ void ScreenCoordsToInGame(float left, float top, float width, float height, floa
 	*y_out = g_fCurInGameHeight * (y - top) / height;
 }
 
+void ScreenCoordsToInGame(float *x, float *y)
+{
+	float tmpX = *x, tmpY = *y;
+	ScreenCoordsToInGame(g_nonVRViewport.TopLeftX, g_nonVRViewport.TopLeftY,
+		g_nonVRViewport.Width, g_nonVRViewport.Height, tmpX, tmpY, x, y);
+}
 
 void CycleFOVSetting()
 {

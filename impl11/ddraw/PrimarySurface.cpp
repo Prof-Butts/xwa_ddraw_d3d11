@@ -41,6 +41,7 @@ void DisplayBox(char *name, Box box);
 Vector3 project(Vector3 pos3D, Matrix4 viewMatrix, Matrix4 projEyeMatrix /*, float *sx, float *sy */);
 inline void backProject(float sx, float sy, float rhw, Vector3 *P);
 inline void backProjectMetric(float sx, float sy, float rhw, Vector3 *P);
+float3 InverseTransformProjectionScreen(float4 input);
 Vector3 projectMetric(Vector3 pos3D, Matrix4 viewMatrix, Matrix4 projEyeMatrix, bool bForceNonVR);
 inline Vector3 projectToInGameCoords(Vector3 pos3D, Matrix4 viewMatrix, Matrix4 projEyeMatrix);
 inline Vector3 projectToInGameOrPostProcCoordsMetric(Vector3 pos3D, Matrix4 viewMatrix, Matrix4 projEyeMatrix, bool bForceNonVR = false);
@@ -9793,9 +9794,12 @@ HRESULT PrimarySurface::Flip(
 			}
 
 			// Render the enhanced bracket after all the shading has been applied.
-			if (g_config.Radar2DRendererEnabled && !g_bEnableVR)
+			if (g_config.Radar2DRendererEnabled)
 			{
-				this->RenderBracket();
+				if (!g_bEnableVR)
+					this->RenderBracket();
+				else
+					this->CacheBracketsVR();
 			}
 
 			// Draw the reticle on top of everything else
@@ -11895,6 +11899,88 @@ void PrimarySurface::RenderBracket()
 
 	this->_deviceResources->EndAnnotatedEvent();
 
+}
+
+void PrimarySurface::CacheBracketsVR()
+{
+	//const float Znear = *(float*)0x08B94CC;
+	const float Zfar = *(float*)0x05B46B4;
+	unsigned int brushColor = 0;
+
+	//log_debug_vr(0xFFFF33, "Znear: %0.3f, Zfar: %0.3f", Znear, Zfar);
+	//log_debug_vr(0xFFFFFF, "brackets: %d", g_xwa_bracket.size());
+	for (const auto& xwaBracket : g_xwa_bracket)
+	{
+		unsigned short si = ((unsigned short*)0x08D9420)[xwaBracket.colorIndex];
+		unsigned int esi;
+
+		if (((bool(*)())0x0050DC50)() != 0)
+		{
+			unsigned short eax = si & 0x001F;
+			unsigned short ecx = si & 0x7C00;
+			unsigned short edx = si & 0x03E0;
+
+			esi = (eax << 3) | (edx << 6) | (ecx << 9);
+		}
+		else
+		{
+			unsigned short eax = si & 0x001F;
+			unsigned short edx = si & 0xF800;
+			unsigned short ecx = si & 0x07E0;
+
+			esi = (eax << 3) | (ecx << 5) | (edx << 8);
+		}
+
+		if (esi != brushColor)
+		{
+			brushColor = esi;
+		}
+
+		// xwaBracket.positionX/Y is the top-left corner, so adding halfWidth/Height gives us
+		// the center of the bracket:
+		float X = (float)(xwaBracket.positionX + xwaBracket.width / 2.0f);
+		float Y = (float)(xwaBracket.positionY + xwaBracket.height / 2.0f);
+		float desiredZ = 250.0f;
+		// The following division is correct. Znear is actually greater than Zfar because the
+		// depth is inverted (0 is far, 1 is close). It's also normalized.
+		float Z = Zfar / (desiredZ * METERS_TO_OPT);
+		float3 V = InverseTransformProjectionScreen({ X, Y, Z, Z });
+		V.y = -V.y;
+		V.z = -V.z;
+
+		// This would be the lower-right corner of the bracket:
+		X = (float)(xwaBracket.positionX + xwaBracket.width);
+		Y = (float)(xwaBracket.positionY + xwaBracket.height);
+		// The following division is correct. Znear is actually greater than Zfar because the
+		// depth is inverted (0 is far, 1 is close). It's also normalized.
+		float3 W = InverseTransformProjectionScreen({ X, Y, Z, Z });
+		W.y = -W.y;
+		W.z = -W.z;
+
+		BracketVR bracketVR;
+		bracketVR.posOPT.x = V.x;
+		bracketVR.posOPT.y = V.z;
+		bracketVR.posOPT.z = V.y;
+		bracketVR.halfWidthOPT = fabs(W.x - V.x);
+		bracketVR.halfHeightOPT = fabs(W.y - V.y);
+		bracketVR.color.x = ((brushColor >> 16) & 0xFF) / 255.0f;
+		bracketVR.color.y = ((brushColor >> 8) & 0xFF) / 255.0f;
+		bracketVR.color.y = (brushColor & 0xFF) / 255.0f;
+		g_bracketsVR.push_back(bracketVR);
+
+		// Bracket are defined in in-game coords
+		/*log_debug_vr(0xFFFFFF, "(%0.3f, %0.3f) --> (%0.3f, %0.3f, %0.3f)",
+			X, Y,
+			bracketVR.posOPT.x * OPT_TO_METERS,
+			bracketVR.posOPT.y * OPT_TO_METERS,
+			bracketVR.posOPT.z * OPT_TO_METERS);*/
+	}
+
+	g_xwa_bracket.clear();
+
+	// This method should only be called in VR mode:
+	EffectsRenderer* renderer = (EffectsRenderer*)g_current_renderer;
+	renderer->RenderVRBrackets();
 }
 
 /*

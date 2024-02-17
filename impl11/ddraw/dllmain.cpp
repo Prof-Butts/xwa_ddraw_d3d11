@@ -1531,7 +1531,8 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
 				// This hook will need more work in VR mode (back-project coords into 3D and then project again
 				// into 2D twice -- once for each eye -- then select the left/right offscreen buffers...); for now,
 				// let's only enable this hook if we didn't start in VR mode:
-				if (!g_bEnableVR) {
+				//if (!g_bEnableVR)
+				{
 					// DrawBracketInFlightHook
 					*(unsigned char*)(0x00503D46 + 0x00) = 0xE8;
 					*(int*)(0x00503D46 + 0x01) = (int)DrawBracketInFlightHook - (0x00503D46 + 0x05);

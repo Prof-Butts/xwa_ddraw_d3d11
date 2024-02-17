@@ -222,6 +222,8 @@ public:
 
 	void RenderBracket();
 
+	void CacheBracketsVR();
+
 	void RenderSynthDCElems();
 
 	ULONG _refCount;

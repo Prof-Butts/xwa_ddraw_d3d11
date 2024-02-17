@@ -312,6 +312,14 @@ extern bool g_bDumpOptNodes;
 // ZIP variables
 extern bool g_bCleanupZIPDirs;
 
+struct BracketVR
+{
+	Vector3 posOPT;
+	float halfWidthOPT, halfHeightOPT;
+	Vector3 color;
+};
+extern std::vector<BracketVR> g_bracketsVR;
+
 // *****************************************************
 // Global functions
 // *****************************************************

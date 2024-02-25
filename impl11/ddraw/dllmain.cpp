@@ -52,6 +52,7 @@ extern bool g_bEnableAnimations;
 extern bool g_bFadeLights;
 extern bool g_bEnableQBVHwSAH;
 extern bool g_bUseCentroids;
+extern float g_fBracketRollComp;
 
 void Normalize(float4 *Vector) {
 	float x = Vector->x;
@@ -374,6 +375,9 @@ LRESULT CALLBACK MyWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam
 					g_fRTGaussFactor += 0.1f;
 					log_debug("[DBG] g_fRTGaussFactor: %0.6f", g_fRTGaussFactor);
 					break;
+				case 16:
+					g_fBracketRollComp -= 5.0f;
+					break;
 				}
 
 				/*
@@ -458,6 +462,9 @@ LRESULT CALLBACK MyWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam
 					g_fRTGaussFactor -= 0.1f;
 					if (g_fRTGaussFactor < 0.1f) g_fRTGaussFactor = 0.01f;
 					log_debug("[DBG] g_fRTGaussFactor: %0.6f", g_fRTGaussFactor);
+					break;
+				case 16:
+					g_fBracketRollComp += 5.0f;
 					break;
 				}
 
@@ -1533,13 +1540,16 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
 				// let's only enable this hook if we didn't start in VR mode:
 				//if (!g_bEnableVR)
 				{
-					// DrawBracketInFlightHook
+					// DrawBracketInFlightHook (this includes the sub-components rendered in OPT space)
 					*(unsigned char*)(0x00503D46 + 0x00) = 0xE8;
 					*(int*)(0x00503D46 + 0x01) = (int)DrawBracketInFlightHook - (0x00503D46 + 0x05);
 
-					// DrawBracketInFlightHook CMD
-					*(unsigned char*)(0x00478E44 + 0x00) = 0xE8;
-					*(int*)(0x00478E44 + 0x01) = (int)DrawBracketInFlightHook - (0x00478E44 + 0x05);
+					if (!g_bEnableVR)
+					{
+						// DrawBracketInFlightHook CMD
+						*(unsigned char*)(0x00478E44 + 0x00) = 0xE8;
+						*(int*)(0x00478E44 + 0x01) = (int)DrawBracketInFlightHook - (0x00478E44 + 0x05);
+					}
 				}
 				// DrawBracketMapHook
 				*(unsigned char*)(0x00503CFE + 0x00) = 0xE8;

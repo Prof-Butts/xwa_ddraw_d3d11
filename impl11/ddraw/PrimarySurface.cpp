@@ -29,6 +29,8 @@
 
 extern D3dRenderer* g_current_renderer;
 extern LBVH* g_ACTLASTree;
+extern float g_f0x08C1600, g_f0x0686ACC;
+extern float g_f0x080ACF8, g_f0x07B33C0, g_f0x064D1AC;
 //extern float g_HMDYaw, g_HMDPitch, g_HMDRoll;
 
 // Text Rendering
@@ -41,7 +43,11 @@ void DisplayBox(char *name, Box box);
 Vector3 project(Vector3 pos3D, Matrix4 viewMatrix, Matrix4 projEyeMatrix /*, float *sx, float *sy */);
 inline void backProject(float sx, float sy, float rhw, Vector3 *P);
 inline void backProjectMetric(float sx, float sy, float rhw, Vector3 *P);
+
+float4 TransformProjection(float3 input);
+float4 TransformProjectionScreen(float3 input);
 float3 InverseTransformProjectionScreen(float4 input);
+
 Vector3 projectMetric(Vector3 pos3D, Matrix4 viewMatrix, Matrix4 projEyeMatrix, bool bForceNonVR);
 inline Vector3 projectToInGameCoords(Vector3 pos3D, Matrix4 viewMatrix, Matrix4 projEyeMatrix);
 inline Vector3 projectToInGameOrPostProcCoordsMetric(Vector3 pos3D, Matrix4 viewMatrix, Matrix4 projEyeMatrix, bool bForceNonVR = false);
@@ -5350,6 +5356,250 @@ out:
 	this->_deviceResources->EndAnnotatedEvent();
 }
 
+/// <summary>
+/// Inputs: the bracket in-game coords and a populated _BracketsSRV
+/// </summary>
+void PrimarySurface::RenderBracketAsHUD(int bracketX, int bracketY)
+{
+	auto& resources = this->_deviceResources;
+	auto& device = resources->_d3dDevice;
+	auto& context = resources->_d3dDeviceContext;
+	bool bDirectSBS = false;
+	float x0, y0, x1, y1;
+	D3D11_VIEWPORT viewport;
+	float bgColor[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
+	const bool bExternalView = PlayerDataTable[*g_playerIndex].Camera.ExternalCamera;
+	const bool bReticleInvisible = false;
+	const bool bTriangleInvisible = false;
+
+	// The reticle centroid is not visible and the triangle pointer isn't visible: nothing to do
+	if (bReticleInvisible && bTriangleInvisible)
+		return;
+
+	this->_deviceResources->BeginAnnotatedEvent(L"RenderBracketAsHUD");
+
+	// DEBUG
+	//g_MetricRecCBuffer.mr_debug_value = g_fDebugFOVscale;
+	//resources->InitVSConstantBufferMetricRec(resources->_metricRecVSConstantBuffer.GetAddressOf(), &g_MetricRecCBuffer);
+	//resources->InitPSConstantBufferMetricRec(resources->_metricRecPSConstantBuffer.GetAddressOf(), &g_MetricRecCBuffer);
+	// DEBUG
+
+	//float sz, rhw;
+	//ZToDepthRHW(g_fHUDDepth, &sz, &rhw);
+	//log_debug("[DBG] sz: %0.3f, rhw: %0.3f", sz, rhw);
+
+	// g_ReticleCentroid is in in-game coordinates. For the shader, we need to transform that into UVs:
+	//float x = g_ReticleCentroid.x / g_fCurInGameWidth, y = g_ReticleCentroid.y / g_fCurInGameHeight;
+	float x, y;
+	InGameToScreenCoords((UINT)g_nonVRViewport.TopLeftX, (UINT)g_nonVRViewport.TopLeftY,
+		(UINT)g_nonVRViewport.Width, (UINT)g_nonVRViewport.Height,
+		(float)bracketX, (float)bracketY, &x, &y);
+	//log_debug_vr("Bracket: %0.3f, %0.3f", (float)bracketX, (float)bracketY);
+	x /= g_fCurScreenWidth;
+	y /= g_fCurScreenHeight;
+
+	// Send the reticle centroid to the shader:
+	g_ShadertoyBuffer.SunCoords[0].x = x;
+	g_ShadertoyBuffer.SunCoords[0].y = y;
+	g_ShadertoyBuffer.SunCoords[0].z = 1.0f / g_fReticleScale;
+	g_ShadertoyBuffer.SunCoords[0].w = 1.0f;
+
+	// Disable the triangle render:
+	g_ShadertoyBuffer.SunCoords[1].w = 0.0f;
+
+	GetScreenLimitsInUVCoords(&x0, &y0, &x1, &y1);
+	GetCraftViewMatrix(&g_ShadertoyBuffer.viewMat);
+	g_ShadertoyBuffer.x0 = x0;
+	g_ShadertoyBuffer.y0 = y0;
+	g_ShadertoyBuffer.x1 = x1;
+	g_ShadertoyBuffer.y1 = y1;
+	g_ShadertoyBuffer.VRmode = 2; // 0 = non-VR, 1 = SBS, 2 = SteamVR
+	g_ShadertoyBuffer.iResolution[0] = g_fCurScreenWidth;
+	g_ShadertoyBuffer.iResolution[1] = g_fCurScreenHeight;
+	g_ShadertoyBuffer.y_center = bExternalView ? 0.0f : g_fYCenter;
+	g_ShadertoyBuffer.FOVscale = g_fFOVscale;
+
+	resources->InitPSConstantBufferHyperspace(resources->_hyperspaceConstantBuffer.GetAddressOf(), &g_ShadertoyBuffer);
+	resources->InitPixelShader(g_bUseSteamVR ? resources->_externalHUDPS_VR : resources->_externalHUDPS);
+	// We need this to ensure backface culling is disabled
+	resources->InitRasterizerState(resources->_rasterizerState);
+
+	context->ResolveSubresource(resources->_offscreenBufferAsInput, 0, resources->_offscreenBuffer, 0, BACKBUFFER_FORMAT);
+	if (g_bUseSteamVR)
+		context->ResolveSubresource(
+			resources->_offscreenBufferAsInput, D3D11CalcSubresource(0, 1, 1),
+			resources->_offscreenBuffer, D3D11CalcSubresource(0, 1, 1), BACKBUFFER_FORMAT);
+	// Resolve the Reticle buffer
+	if (g_bEnableVR) {
+		context->ResolveSubresource(resources->_ReticleBufAsInput, 0, resources->_ReticleBufMSAA, 0, BACKBUFFER_FORMAT);
+		if (g_bDumpSSAOBuffers) {
+			DirectX::SaveWICTextureToFile(context, resources->_ReticleBufAsInput, GUID_ContainerFormatPng,
+				L"C:\\Temp\\_reticleBufAsInput.png");
+
+		}
+	}
+
+	// Render the external HUD
+	{
+		// Set the new viewport (a full quad covering the full screen)
+		viewport.Width = g_fCurScreenWidth;
+		viewport.Height = g_fCurScreenHeight;
+		// VIEWPORT-LEFT
+		if (g_bEnableVR) {
+			if (g_bUseSteamVR)
+				viewport.Width = (float)resources->_backbufferWidth;
+			else
+				viewport.Width = (float)resources->_backbufferWidth / 2.0f;
+		}
+		viewport.TopLeftX = 0.0f;
+		viewport.TopLeftY = 0.0f;
+		viewport.MinDepth = D3D11_MIN_DEPTH;
+		viewport.MaxDepth = D3D11_MAX_DEPTH;
+		resources->InitViewport(&viewport);
+
+		// We don't need to clear the current vertex and pixel constant buffers.
+		// Since we've just finished rendering 3D, they should contain values that
+		// can be reused. So let's just overwrite the values that we need.
+		g_VSCBuffer.aspect_ratio = g_fAspectRatio;
+		g_VSCBuffer.z_override = -1.0f;
+		g_VSCBuffer.sz_override = -1.0f;
+		g_VSCBuffer.mult_z_override = -1.0f;
+		g_VSCBuffer.apply_uv_comp = false;
+		g_VSCBuffer.bPreventTransform = 0.0f;
+		g_VSCBuffer.bFullTransform = 0.0f;
+		if (g_bEnableVR)
+		{
+			g_VSCBuffer.viewportScale[0] = 1.0f / resources->_displayWidth;
+			g_VSCBuffer.viewportScale[1] = 1.0f / resources->_displayHeight;
+		}
+		else
+		{
+			g_VSCBuffer.viewportScale[0] = 2.0f / resources->_displayWidth;
+			g_VSCBuffer.viewportScale[1] = -2.0f / resources->_displayHeight;
+		}
+
+		// These are the same settings we used previously when rendering the HUD during a draw() call.
+		// We use these settings to place the HUD at different depths
+		g_VSCBuffer.z_override = g_fHUDDepth;
+		// The Aiming HUD is now visible in external view using the exterior hook, let's put it at
+		// infinity
+		if (bExternalView)
+			g_VSCBuffer.z_override = 65536.0f;
+		if (g_bFloatingAimingHUD)
+			g_VSCBuffer.bPreventTransform = 1.0f;
+
+		// Set the left projection matrix (the viewMatrix is set at the beginning of the frame)
+		g_VSMatrixCB.projEye[0] = g_FullProjMatrixLeft;
+		g_VSMatrixCB.projEye[1] = g_FullProjMatrixRight;
+		resources->InitVSConstantBuffer3D(resources->_VSConstantBuffer.GetAddressOf(), &g_VSCBuffer);
+		resources->InitVSConstantBufferMatrix(resources->_VSMatrixBuffer.GetAddressOf(), &g_VSMatrixCB);
+
+		//resources->FillReticleVertexBuffer(g_fCurInGameWidth, g_fCurInGameHeight);
+		UINT stride = sizeof(D3DTLVERTEX), offset = 0;
+		resources->InitVertexBuffer(resources->_hyperspaceVertexBuffer.GetAddressOf(), &stride, &offset);
+		resources->InitInputLayout(resources->_inputLayout);
+		if (g_bEnableVR)
+			resources->InitVertexShader(resources->_sbsVertexShader); // if (g_bEnableVR)
+		else
+			resources->InitVertexShader(resources->_vertexShader);
+
+		resources->InitTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+
+		context->ClearRenderTargetView(resources->_renderTargetViewPost, bgColor);
+		// Set the RTV:
+		ID3D11RenderTargetView* rtvs[1] = {
+			resources->_renderTargetViewPost.Get(), // Render to offscreenBufferPost instead of offscreenBuffer
+		};
+		context->OMSetRenderTargets(1, rtvs, NULL);
+		// Set the SRVs:
+		ID3D11ShaderResourceView* srvs[2] = {
+			resources->_offscreenAsInputShaderResourceView.Get(),
+			//resources->_ReticleSRV.Get(),
+			resources->_BracketsSRV.Get(),
+		};
+		context->PSSetShaderResources(0, 2, srvs);
+		if (g_bUseSteamVR)
+			context->DrawInstanced(6, 2, 0, 0); // if (g_bUseSteamVR)
+		else
+			context->Draw(6, 0);
+
+		if (!g_bEnableVR)
+			goto out;
+
+		if (g_bDumpSSAOBuffers) {
+			DirectX::SaveWICTextureToFile(context, resources->_offscreenBufferPost, GUID_ContainerFormatJpeg,
+				L"C:\\Temp\\_offscreenBufPostBrackets.jpg");
+		}
+
+		// Second render: If VR mode is enabled, then compose the previous render with the offscreen buffer
+		{
+			// Reset the viewport for non-VR mode, post-proc viewport (cover the whole screen)
+			viewport.TopLeftX = 0.0f;
+			viewport.TopLeftY = 0.0f;
+			viewport.Width = g_fCurScreenWidth;
+			viewport.Height = g_fCurScreenHeight;
+			viewport.MaxDepth = D3D11_MAX_DEPTH;
+			viewport.MinDepth = D3D11_MIN_DEPTH;
+			resources->InitViewport(&viewport);
+
+			// Reset the vertex shader to regular 2D post-process
+			// Set the Vertex Shader Constant buffers
+			resources->InitVSConstantBuffer2D(resources->_mainShadersConstantBuffer.GetAddressOf(),
+				0.0f, 1.0f, 1.0f, 1.0f, 0.0f); // Do not use 3D projection matrices
+
+			// Set/Create the VertexBuffer and set the topology, etc
+			UINT stride = sizeof(MainVertex), offset = 0;
+			resources->InitVertexBuffer(resources->_postProcessVertBuffer.GetAddressOf(), &stride, &offset);
+			resources->InitInputLayout(resources->_mainInputLayout);
+			resources->InitVertexShader(g_bUseSteamVR ? resources->_mainVertexShaderVR : resources->_mainVertexShader);
+
+			// Reset the UV limits for this shader
+			GetScreenLimitsInUVCoords(&x0, &y0, &x1, &y1);
+			g_ShadertoyBuffer.x0 = x0;
+			g_ShadertoyBuffer.y0 = y0;
+			g_ShadertoyBuffer.x1 = x1;
+			g_ShadertoyBuffer.y1 = y1;
+			g_ShadertoyBuffer.iResolution[0] = g_fCurScreenWidth;
+			g_ShadertoyBuffer.iResolution[1] = g_fCurScreenHeight;
+			resources->InitPSConstantBufferHyperspace(resources->_hyperspaceConstantBuffer.GetAddressOf(), &g_ShadertoyBuffer);
+			resources->InitPixelShader(resources->_addGeomComposePS);
+
+			// The output from the previous effect will be in offscreenBufferPost, so let's resolve it
+			// to _shadertoyBuf to use it now:
+			context->ResolveSubresource(resources->_shadertoyBuf, 0, resources->_offscreenBufferPost, 0, BACKBUFFER_FORMAT);
+			if (g_bUseSteamVR)
+				context->ResolveSubresource(
+					resources->_shadertoyBuf, D3D11CalcSubresource(0, 1, 1),
+					resources->_offscreenBufferPost, D3D11CalcSubresource(0, 1, 1), BACKBUFFER_FORMAT);
+
+			context->ClearRenderTargetView(resources->_renderTargetViewPost, bgColor);
+			ID3D11RenderTargetView* rtvs[1] = {
+				resources->_renderTargetViewPost.Get(), // Render to offscreenBufferPost instead of offscreenBuffer
+			};
+			context->OMSetRenderTargets(1, rtvs, NULL);
+			// Set the SRVs:
+			ID3D11ShaderResourceView* srvs[2] = {
+				resources->_offscreenAsInputShaderResourceView.Get(), // The current render
+				resources->_shadertoySRV.Get(),	 // The effect rendered in the previous pass
+			};
+			context->PSSetShaderResources(0, 2, srvs);
+			if (g_bUseSteamVR)
+				context->DrawInstanced(6, 2, 0, 0); // if (g_bUseSteamVR)
+			else
+				context->Draw(6, 0);
+		}
+	}
+
+out:
+	// Copy the result (_offscreenBufferPost) to the _offscreenBuffer so that it gets displayed
+	context->CopyResource(resources->_offscreenBuffer, resources->_offscreenBufferPost);
+
+	// Restore previous rendertarget, etc
+	resources->InitInputLayout(resources->_inputLayout); // Not sure this is really needed
+
+	this->_deviceResources->EndAnnotatedEvent();
+}
+
 inline void ProjectSpeedPoint(const Matrix4 &ViewMatrix, D3DTLVERTEX *particles, int idx)
 {
 	const float FOVFactor = g_ShadertoyBuffer.FOVscale;
@@ -9796,10 +10046,10 @@ HRESULT PrimarySurface::Flip(
 			// Render the enhanced bracket after all the shading has been applied.
 			if (g_config.Radar2DRendererEnabled)
 			{
-				//if (!g_bEnableVR)
+				if (!g_bEnableVR)
 					this->RenderBracket();
-				//else
-					//this->CacheBracketsVR();
+				else
+					this->CacheBracketsVR();
 			}
 
 			// Draw the reticle on top of everything else
@@ -10175,7 +10425,8 @@ HRESULT PrimarySurface::Flip(
 				//context->ResolveSubresource(resources->_backBuffer, 0, resources->_offscreenBufferPost, 0, BACKBUFFER_FORMAT);
 				//log_debug("[DBG] (%d) offscreenBuffer --> backBuffer", g_iPresentCounter);
 				if (g_bDumpSSAOBuffers)
-					DirectX::SaveDDSTextureToFile(context, resources->_backBuffer, L"C:\\Temp\\_backBuffer.dds");
+					//DirectX::SaveDDSTextureToFile(context, resources->_backBuffer, L"C:\\Temp\\_backBuffer.dds");
+					DirectX::SaveWICTextureToFile(context, resources->_backBuffer, GUID_ContainerFormatPng, L"C:\\Temp\\_backBuffer.png");
 			}
 
 			if (g_bDumpSSAOBuffers)
@@ -10313,8 +10564,7 @@ HRESULT PrimarySurface::Flip(
 				g_bHyperspaceFirstFrame = false;
 				g_bHyperHeadSnapped = false;
 				//*g_playerInHangar = 0;
-				if (g_bDumpSSAOBuffers)
-					g_bDumpSSAOBuffers = false;
+				
 				//if (g_bDumpOptNodes)
 				//	g_bDumpOptNodes = false;
 
@@ -10501,6 +10751,11 @@ HRESULT PrimarySurface::Flip(
 
 			// Submit images to SteamVR
 			if (g_bUseSteamVR) {
+				if (g_bDumpSSAOBuffers)
+				{
+					DirectX::SaveWICTextureToFile(context, resources->_offscreenBuffer, GUID_ContainerFormatPng, L"c:\\Temp\\_steamVROffscreenBuffer.png");
+				}
+
 				//if (!g_pHMD->GetTimeSinceLastVsync(&seconds, &frame))
 				//	log_debug("[DBG] No Vsync info available");
 				vr::EVRCompositorError error = vr::VRCompositorError_None;
@@ -10514,6 +10769,9 @@ HRESULT PrimarySurface::Flip(
 				error = g_pVRCompositor->Submit(vr::Eye_Left, &leftEyeTexture);
 				error = g_pVRCompositor->Submit(vr::Eye_Right, &rightEyeTexture);
 			}
+
+			if (g_bDumpSSAOBuffers)
+				g_bDumpSSAOBuffers = false;
 
 			// We're about to switch to 3D rendering.
 			// * Update the hyperspace FSM if necessary
@@ -11744,7 +12002,7 @@ void PrimarySurface::RenderRadar()
 	this->_deviceResources->EndAnnotatedEvent();
 }
 
-void PrimarySurface::RenderBracket()
+void PrimarySurface::RenderBracketBackProjected()
 {
 	static ID2D1RenderTarget* s_d2d1RenderTarget = nullptr;
 	static DWORD s_displayWidth = 0;
@@ -11756,14 +12014,7 @@ void PrimarySurface::RenderBracket()
 	static UINT s_top;
 	static float s_scaleX;
 	static float s_scaleY;
-
-	auto& resources = _deviceResources;
-	auto& context = _deviceResources->_d3dDeviceContext;
-	if (g_bUseSteamVR)
-	{
-		float bgColor[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
-		context->ClearRenderTargetView(resources->_BracketsRTV, bgColor);
-	}
+	const float Zfar = *(float*)0x05B46B4;
 
 	if (!g_PrimarySurfaceInitialized)
 	{
@@ -11776,8 +12027,69 @@ void PrimarySurface::RenderBracket()
 		s_brushOffscreen.Release();
 		return;
 	}
-
+	
 	this->_deviceResources->BeginAnnotatedEvent(L"RenderBracket");
+
+	auto& resources = _deviceResources;
+	auto& context = _deviceResources->_d3dDeviceContext;
+
+	float f0 = *(float*)0x08C1600;
+	float f1 = *(float*)0x0686ACC;
+	float f2 = *(float*)0x080ACF8;
+	float f3 = *(float*)0x07B33C0;
+	float f4 = *(float*)0x064D1AC;
+
+	bool bExternalCamera = g_iPresentCounter > PLAYERDATATABLE_MIN_SAFE_FRAME &&
+	                       PlayerDataTable[*g_playerIndex].Camera.ExternalCamera;
+
+	const float bracketDepth = 65536.0f * METERS_TO_OPT;
+	const float zwBracket = Zfar / (bracketDepth + Zfar);
+
+	const float W = g_fCurInGameWidth;
+	const float H = g_fCurInGameHeight;
+	const float screenCenterX = W / 2.0f;
+	const float screenCenterY = H / 2.0f;
+
+	// Let's project the origin, at 64km away to get the center of rotation. This should give us
+	// the position of the reticle when inside the cockpit, and the center of the screen, when the
+	// external camera is active.
+	// This is equivalent to finding y_center as done in other parts of the code. Only now we're not
+	// doing anything hacky, just using math to find it.
+	float4 forwardCenter = TransformProjectionScreen(float3(0, 0, 65536.0f * 40.96f));
+
+	if (g_bUseSteamVR)
+	{
+		float bgColor[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
+		context->ClearRenderTargetView(resources->_BracketsRTV, bgColor);
+
+		// Restore the projection deltas used during the regular MainSceneHook() execution.
+		// For some reason, these parameters change when the external camera is activated.
+		if (bExternalCamera)
+		{
+			// These are the constants used when rendering the cockpit. The HUD is not at the center
+			// of the screen when using these:
+			*(float*)0x08C1600 = g_f0x08C1600;
+			*(float*)0x0686ACC = g_f0x0686ACC;
+			*(float*)0x080ACF8 = g_f0x080ACF8;
+			*(float*)0x07B33C0 = g_f0x07B33C0;
+			*(float*)0x064D1AC = g_f0x064D1AC;
+
+			/*{
+				float Znear = *(float*)0x08B94CC;
+				float Zfar = *(float*)0x05B46B4;
+				float projectionDeltaX = *(float*)0x08C1600 + *(float*)0x0686ACC;
+				float projectionDeltaY = *(float*)0x080ACF8 + *(float*)0x07B33C0 + *(float*)0x064D1AC;
+				log_debug_vr("RenderBracket Znear,far: %0.3f, %0.3f. DX: %0.3f, DY: %0.3f",
+					Znear, Zfar, projectionDeltaX, projectionDeltaY);
+			}*/
+		}
+
+		/*log_debug_vr("(%0.3f, %0.3f)-(%0.3f, %0.3f)",
+			g_nonVRViewport.TopLeftX, g_nonVRViewport.TopLeftY,
+			g_nonVRViewport.Width, g_nonVRViewport.Height);
+		log_debug_vr("InGame: % 0.3f, % 0.3f", g_fCurInGameWidth, g_fCurInGameHeight);
+		log_debug_vr("SteamVR: %0.3f, %0.3f", g_fCurScreenWidth, g_fCurScreenHeight);*/
+	}
 
 	if (this->_deviceResources->_d2d1RenderTarget != s_d2d1RenderTarget || this->_deviceResources->_displayWidth != s_displayWidth || this->_deviceResources->_displayHeight != s_displayHeight)
 	{
@@ -11897,26 +12209,103 @@ void PrimarySurface::RenderBracket()
 			else
 			{
 				const float roll = g_pSharedDataCockpitLook->Roll;
-				const float c = cos(roll * DEG2RAD);
-				const float s = sin(roll * DEG2RAD);
-				Vector2 X = Vector2(c, s);
-				Vector2 Y = Vector2(-s, c);
-				Vector2 C, P, Q;
-				C = { posX + posW / 2.0f, posY + posH / 2.0f };
+				Vector4 P, Q;
 
-				// top left
-				P = { posX, posY };
-				Q = P + (posW * posSide) * X;
-				rtv->DrawLine(D2D1::Point2F(P.x, P.y), D2D1::Point2F(Q.x, Q.y), s_brush, strokeWidth);
-				Q = P + (posH * posSide) * Y;
-				rtv->DrawLine(D2D1::Point2F(P.x, P.y), D2D1::Point2F(Q.x, Q.y), s_brush, strokeWidth);
+				Matrix4 toInGame = Matrix4().scale(g_fCurInGameWidth / g_fCurScreenWidth,
+												   g_fCurInGameHeight / g_fCurScreenHeight, 1.0f);
+				Matrix4 toScreen = Matrix4().scale(g_fCurScreenWidth / g_fCurInGameWidth,
+												   g_fCurScreenHeight / g_fCurInGameHeight, 1.0f);
+				// Brackets are defined in post-proc 2D coords -- not in-game coords. The difference
+				// is that post-proc 2D coords are defined by SteamVR's render size.
+				Vector4 bracketCenter = Vector4(posX + posW / 2.0f, posY + posH / 2.0f, 0, 1.0f);
+				// Convert to in-game coords:
+				bracketCenter = toInGame * bracketCenter;
+				Vector4 points[4] = { { posX, posY, 0, 1 },
+				                      { posX + posW, posY, 0, 1 },
+				                      { posX + posW, posY + posH, 0, 1 },
+				                      { posX, posY + posH, 0, 1 } };
+				// Convert to in-game coords:
+				for (int i = 0; i < 4; i++)
+					points[i] = toInGame * points[i];
 
-				// top right
-				P = { posX + posW - posW * posSide, posY };
-				Q = P - (posW * posSide) * X;
-				rtv->DrawLine(D2D1::Point2F(P.x, P.y), D2D1::Point2F(Q.x, Q.y), s_brush, strokeWidth);
-				Q = P + (posH * posSide) * Y;
-				rtv->DrawLine(D2D1::Point2F(P.x, P.y), D2D1::Point2F(Q.x, Q.y), s_brush, strokeWidth);
+				Matrix4 T    = Matrix4().translate(-bracketCenter.x, -bracketCenter.y, 0);
+				Matrix4 Tinv = Matrix4().translate(forwardCenter.x, forwardCenter.y, 0);
+				Matrix4 R    = Matrix4().rotateZ(roll);
+				Matrix4 V;
+				// Roll compensation:
+				R = Tinv * T;
+
+				//log_debug_vr("bracketCenter: %0.3f, %0.3f", bracketCenter.x, bracketCenter.y);
+				//log_debug_vr("screenCenter: %0.3f, %0.3f", screenCenterX, screenCenterY);
+
+				{
+					float3 P3D = InverseTransformProjectionScreen({ bracketCenter.x, bracketCenter.y, zwBracket, zwBracket });
+
+					// N goes from the origin to the back-projected bracket center: it's the view vector now
+					Vector3 N = Vector3(P3D.x, P3D.y, P3D.z);
+					N.normalize();
+
+					// Rotate N into the Y-Z plane --> make x == 0
+					const float Yang = atan2(N.x, N.z) * RAD_TO_DEG;
+					Matrix4 Ry = Matrix4().rotateY(-Yang);
+					N = Ry * N;
+					//log_debug_vr("N: %0.3f, %0.3f, %0.3f", N.x, N.y, N.z);
+
+					// Rotate N into the X-Z plane --> make y == 0. N should now be equal to Z+
+					const float Xang = atan2(N.y, N.z) * RAD_TO_DEG;
+					Matrix4 Rx = Matrix4().rotateX(Xang);
+					//N = Rx * N;
+					//log_debug_vr("N: %0.3f, %0.3f, %0.3f", N.x, N.y, N.z);
+
+					// The transform chain is now Rx * Ry: this will align the view vector going from the
+					// origin to the intersection with Z+
+					// Adding Rz to the chain makes the dot keep the up direction aligned with the camera.
+					// This is what the brackets do right now.
+					// Removing Rz keeps the up direction aligned with the reticle: this is probably
+					// what we want to do if we want to replace the brackets/reticle/pips
+					Matrix4 Rz = Matrix4().rotateZ(-g_pSharedDataCockpitLook->Roll);
+					V = Rz * Rx * Ry; // <-- Up direction is always view-aligned
+					//V = Rx * Ry; // <-- Up direction is reticle-aligned
+					// The transpose is the inverse, so it will align Z+ with the view vector:
+					V.transpose();
+				}
+
+				// Compensate for headset roll
+				for (int i = 0; i < 4; i++)
+				{
+					// Compensate for roll, still in in-game pixel coords and leave the bracket at the
+					// center of the in-game screen:
+					points[i] = R * points[i];
+					// points[i] should now be at the center of the in-game screen
+
+					// Our bracket points should now be back-projected to "infinity". The bracket is at the
+					// center of the screen, so if we back-project it, it will be around the origin after
+					// back-projection.
+					float4 P = { points[i].x, points[i].y, zwBracket, zwBracket };
+					float3 Q = InverseTransformProjectionScreen(P);
+					// Q is now at OPT-scale and it's a back-projection of the current bracket towards infinity.
+					// Let's apply V
+					Vector4 R = V * Vector4(Q.x, Q.y, Q.z, 1.0f);
+					//Vector4 R = Vector4(Q.x, Q.y, Q.z, 1.0f);
+
+					// R is now our bracket, but properly rotated to where it should be. It's still at
+					// infinity, though, so we need to project it to in-game screen coords:
+					float4 S = TransformProjectionScreen(float3(R.x, R.y, R.z));
+					points[i].x = S.x;
+					points[i].y = S.y;
+
+					// Finally, in order for brackets to be rendered properly, they need to be in post-proc coords:
+					points[i] = toScreen * points[i];
+				}
+
+				for (int i = 0; i < 4; i++)
+				{
+					P = points[i];
+					Q = points[(i + 1) % 4];
+
+					rtv->DrawLine(D2D1::Point2F(P.x, P.y), D2D1::Point2F(Q.x, Q.y), s_brush, strokeWidth);
+				}
+
 			}
 		}
 	}
@@ -11932,10 +12321,16 @@ void PrimarySurface::RenderBracket()
 	s_brush = nullptr;
 	g_xwa_bracket.clear();
 
+	//float3 P = InverseTransformProjectionScreen({ W / 2.0f, H / 2.0f, Z, Z }, false);
+	//float3 P = InverseTransformProjectionScreen({ 427.0f, 480.0f, Z, Z }, false);
+	//float3 P = InverseTransformProjectionScreen({ 576.0f, 346.0f, Z, Z }, false);
+	//float3 P = InverseTransformProjectionScreen({ 576.0f, 432.0f, Z, Z }, false);
+	//float3 P = InverseTransformProjectionScreen({ screenCenter.x, screenCenter.y, Z, Z }, false);
+	/*log_debug_vr("PCENTER: %0.3f, %0.3f, %0.3f",
+		P.x * OPT_TO_METERS, P.y * OPT_TO_METERS, P.z * OPT_TO_METERS);*/
+
 	if (g_bUseSteamVR)
 	{
-		const float Zfar = *(float*)0x05B46B4;
-
 		//Matrix4 Heading;
 		//GetHyperspaceEffectMatrix(&Heading);
 		//GetCockpitViewMatrix(&Heading);
@@ -11946,12 +12341,13 @@ void PrimarySurface::RenderBracket()
 		Matrix4 S = Matrix4().scale(-1, -1, 1);
 		ViewMatrix = S * ViewMatrix * S * Heading;
 
-		Vector4 U = ViewMatrix * Vector4(0, 0, -1, 0);
-		g_VRGeometryCBuffer.U.x = U.x;
+		g_VRGeometryCBuffer.bRenderBracket = 0;
+		Vector4 U = ViewMatrix * Vector4(1, 0, 0, 0);
+		/*g_VRGeometryCBuffer.U.x = U.x;
 		g_VRGeometryCBuffer.U.y = U.y;
 		g_VRGeometryCBuffer.U.z = U.z;
-		g_VRGeometryCBuffer.U.w = 0;
-		log_debug_vr("Up: %0.3f, %0.3f, %0.3f", U.x, U.y, U.z);
+		g_VRGeometryCBuffer.U.w = 0;*/
+		//log_debug_vr("Up: %0.3f, %0.3f, %0.3f", U.x, U.y, U.z);
 
 		context->ResolveSubresource(resources->_BracketsAsInput, 0, resources->_BracketsMSAA, 0, BACKBUFFER_FORMAT);
 		if (g_bDumpSSAOBuffers && g_bUseSteamVR)
@@ -11960,17 +12356,14 @@ void PrimarySurface::RenderBracket()
 		}
 
 		g_bracketsVR.clear();
-		float W = g_fCurInGameWidth;
-		float H = g_fCurInGameHeight;
-		float desiredZ = 65536.0f;
-		float X = W / 2.0f, Y = H / 2.0f;
-		float Z = Zfar / (desiredZ * METERS_TO_OPT);
-		float3 P = InverseTransformProjectionScreen({ X, Y, Z, Z });
+
+		float3 P = InverseTransformProjectionScreen({ screenCenterX, screenCenterY, zwBracket, zwBracket }); // RenderBracket
 		P.y = -P.y;
 		P.z = -P.z;
 
-		//float3 Q = InverseTransformProjectionScreen({ X + (0.5f * W / 2.0f), Y + (0.5f * H / 2.0f), Z, Z });
-		float3 Q = InverseTransformProjectionScreen({ W, H, Z, Z });
+		// This is the bottom-right corner of the screen:
+		float3 Q = InverseTransformProjectionScreen({ 2.0f * screenCenterX, 2.0f * screenCenterX, zwBracket, zwBracket}); // RenderBracket
+		//float3 Q = InverseTransformProjectionScreen({ W, H, Z, Z });
 		Q.y = -Q.y;
 		Q.z = -Q.z;
 
@@ -11985,13 +12378,398 @@ void PrimarySurface::RenderBracket()
 		bracketVR.color.y = (brushColor & 0xFF) / 255.0f;
 		g_bracketsVR.push_back(bracketVR);
 
+		// Restore the original projection deltas
+		if (bExternalCamera)
+		{
+			*(float*)0x08C1600 = f0;
+			*(float*)0x0686ACC = f1;
+			*(float*)0x080ACF8 = f2;
+			*(float*)0x07B33C0 = f3;
+			*(float*)0x064D1AC = f4;
+		}
+
 		// This method should only be called in VR mode:
 		EffectsRenderer* renderer = (EffectsRenderer*)g_current_renderer;
 		renderer->RenderVRBrackets();
 	}
 
 	this->_deviceResources->EndAnnotatedEvent();
+}
 
+void PrimarySurface::RenderBracket()
+{
+	static ID2D1RenderTarget* s_d2d1RenderTarget = nullptr;
+	static DWORD s_displayWidth = 0;
+	static DWORD s_displayHeight = 0;
+	// It's probably not necessary to have two brushes, but I don't think it hurts either and
+	// I'm doing this just in case brushes can't be shared between different RTVs
+	static ComPtr<ID2D1SolidColorBrush> s_brushOffscreen, s_brushDC, s_brush;
+	static UINT s_left;
+	static UINT s_top;
+	static float s_scaleX;
+	static float s_scaleY;
+	const float Zfar = *(float*)0x05B46B4;
+
+	if (!g_PrimarySurfaceInitialized)
+	{
+		s_d2d1RenderTarget = nullptr;
+		s_displayWidth = 0;
+		s_displayHeight = 0;
+
+		s_brush.Release();
+		s_brushDC.Release();
+		s_brushOffscreen.Release();
+		return;
+	}
+
+	this->_deviceResources->BeginAnnotatedEvent(L"RenderBracket");
+
+	auto& resources = _deviceResources;
+	auto& context = _deviceResources->_d3dDeviceContext;
+
+	float f0 = *(float*)0x08C1600;
+	float f1 = *(float*)0x0686ACC;
+	float f2 = *(float*)0x080ACF8;
+	float f3 = *(float*)0x07B33C0;
+	float f4 = *(float*)0x064D1AC;
+
+	bool bExternalCamera = g_iPresentCounter > PLAYERDATATABLE_MIN_SAFE_FRAME &&
+		PlayerDataTable[*g_playerIndex].Camera.ExternalCamera;
+
+	const float bracketDepth = 65536.0f * METERS_TO_OPT;
+	const float zwBracket = Zfar / (bracketDepth + Zfar);
+
+	const float W = g_fCurInGameWidth;
+	const float H = g_fCurInGameHeight;
+	const float screenCenterX = W / 2.0f;
+	const float screenCenterY = H / 2.0f;
+
+	// Let's project the origin, at 64km away to get the center of rotation. This should give us
+	// the position of the reticle when inside the cockpit, and the center of the screen, when the
+	// external camera is active.
+	// This is equivalent to finding y_center as done in other parts of the code. Only now we're not
+	// doing anything hacky, just using math to find it.
+	float4 forwardCenter = TransformProjectionScreen(float3(0, 0, 65536.0f * 40.96f));
+
+	if (g_bUseSteamVR)
+	{
+		float bgColor[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
+		context->ClearRenderTargetView(resources->_BracketsRTV, bgColor);
+
+		// Restore the projection deltas used during the regular MainSceneHook() execution.
+		// For some reason, these parameters change when the external camera is activated.
+		if (bExternalCamera)
+		{
+			// These are the constants used when rendering the cockpit. The HUD is not at the center
+			// of the screen when using these:
+			*(float*)0x08C1600 = g_f0x08C1600;
+			*(float*)0x0686ACC = g_f0x0686ACC;
+			*(float*)0x080ACF8 = g_f0x080ACF8;
+			*(float*)0x07B33C0 = g_f0x07B33C0;
+			*(float*)0x064D1AC = g_f0x064D1AC;
+		}
+	}
+
+	const float yaw = g_pSharedDataCockpitLook->Yaw;
+	const float pitch = g_pSharedDataCockpitLook->Pitch;
+	const float roll = g_pSharedDataCockpitLook->Roll;
+	log_debug_vr("ypr: %0.3f, %0.3f, %0.3f", yaw, pitch, roll);
+
+	if (this->_deviceResources->_d2d1RenderTarget != s_d2d1RenderTarget || this->_deviceResources->_displayWidth != s_displayWidth || this->_deviceResources->_displayHeight != s_displayHeight)
+	{
+		s_d2d1RenderTarget = this->_deviceResources->_d2d1RenderTarget;
+		s_displayWidth = this->_deviceResources->_displayWidth;
+		s_displayHeight = this->_deviceResources->_displayHeight;
+
+		UINT w;
+		UINT h;
+
+		if (g_config.AspectRatioPreserved)
+		{
+			if (this->_deviceResources->_backbufferHeight * this->_deviceResources->_displayWidth <= this->_deviceResources->_backbufferWidth * this->_deviceResources->_displayHeight)
+			{
+				w = this->_deviceResources->_backbufferHeight * this->_deviceResources->_displayWidth / this->_deviceResources->_displayHeight;
+				h = this->_deviceResources->_backbufferHeight;
+			}
+			else
+			{
+				w = this->_deviceResources->_backbufferWidth;
+				h = this->_deviceResources->_backbufferWidth * this->_deviceResources->_displayHeight / this->_deviceResources->_displayWidth;
+			}
+		}
+		else
+		{
+			w = this->_deviceResources->_backbufferWidth;
+			h = this->_deviceResources->_backbufferHeight;
+		}
+
+		s_left = (this->_deviceResources->_backbufferWidth - w) / 2;
+		s_top = (this->_deviceResources->_backbufferHeight - h) / 2;
+
+		s_scaleX = (float)w / (float)this->_deviceResources->_displayWidth;
+		s_scaleY = (float)h / (float)this->_deviceResources->_displayHeight;
+
+		this->_deviceResources->_d2d1OffscreenRenderTarget->CreateSolidColorBrush(D2D1::ColorF(0), &s_brushOffscreen);
+		this->_deviceResources->_d2d1DCRenderTarget->CreateSolidColorBrush(D2D1::ColorF(0), &s_brushDC);
+	}
+
+	this->_deviceResources->_d2d1OffscreenRenderTarget->SaveDrawingState(this->_deviceResources->_d2d1DrawingStateBlock);
+	this->_deviceResources->_d2d1OffscreenRenderTarget->BeginDraw();
+
+	this->_deviceResources->_d2d1DCRenderTarget->SaveDrawingState(this->_deviceResources->_d2d1DrawingStateBlock);
+	this->_deviceResources->_d2d1DCRenderTarget->BeginDraw();
+
+	unsigned int brushColor = 0;
+	s_brushOffscreen->SetColor(D2D1::ColorF(brushColor));
+	s_brushDC->SetColor(D2D1::ColorF(brushColor));
+
+	for (const auto& xwaBracket : g_xwa_bracket)
+	{
+		unsigned short si = ((unsigned short*)0x08D9420)[xwaBracket.colorIndex];
+		unsigned int esi;
+
+		if (((bool(*)())0x0050DC50)() != 0)
+		{
+			unsigned short eax = si & 0x001F;
+			unsigned short ecx = si & 0x7C00;
+			unsigned short edx = si & 0x03E0;
+
+			esi = (eax << 3) | (edx << 6) | (ecx << 9);
+		}
+		else
+		{
+			unsigned short eax = si & 0x001F;
+			unsigned short edx = si & 0xF800;
+			unsigned short ecx = si & 0x07E0;
+
+			esi = (eax << 3) | (ecx << 5) | (edx << 8);
+		}
+
+		if (esi != brushColor)
+		{
+			brushColor = esi;
+			s_brushOffscreen->SetColor(D2D1::ColorF(brushColor));
+			s_brushDC->SetColor(D2D1::ColorF(brushColor));
+		}
+
+		// posX,Y is converted to post-proc coords here:
+		float posX = s_left + (float)xwaBracket.positionX * s_scaleX;
+		float posY = s_top + (float)xwaBracket.positionY * s_scaleY;
+		float posW = (float)xwaBracket.width * s_scaleX;
+		float posH = (float)xwaBracket.height * s_scaleY;
+		float posSide = 0.125;
+
+		float strokeWidth = 2.0f * min(s_scaleX, s_scaleY);
+
+		bool fill = xwaBracket.width <= 4 || xwaBracket.height <= 4;
+		// Select the DC RTV if this bracket was classified as belonging to
+		// the Dynamic Cockpit display
+		ID2D1RenderTarget* rtv = xwaBracket.DC ? this->_deviceResources->_d2d1DCRenderTarget : this->_deviceResources->_d2d1OffscreenRenderTarget;
+		s_brush = xwaBracket.DC ? s_brushDC : s_brushOffscreen;
+
+		if (fill)
+		{
+			rtv->FillRectangle(D2D1::RectF(posX, posY, posX + posW, posY + posH), s_brush);
+		}
+		else
+		{
+			if (!g_bUseSteamVR)
+			{
+				// top left
+				rtv->DrawLine(D2D1::Point2F(posX, posY), D2D1::Point2F(posX + posW * posSide, posY), s_brush, strokeWidth);
+				rtv->DrawLine(D2D1::Point2F(posX, posY), D2D1::Point2F(posX, posY + posH * posSide), s_brush, strokeWidth);
+
+				// top right
+				rtv->DrawLine(D2D1::Point2F(posX + posW - posW * posSide, posY), D2D1::Point2F(posX + posW, posY), s_brush, strokeWidth);
+				rtv->DrawLine(D2D1::Point2F(posX + posW, posY), D2D1::Point2F(posX + posW, posY + posH * posSide), s_brush, strokeWidth);
+
+				// bottom left
+				rtv->DrawLine(D2D1::Point2F(posX, posY + posH - posH * posSide), D2D1::Point2F(posX, posY + posH), s_brush, strokeWidth);
+				rtv->DrawLine(D2D1::Point2F(posX, posY + posH), D2D1::Point2F(posX + posW * posSide, posY + posH), s_brush, strokeWidth);
+
+				// bottom right
+				rtv->DrawLine(D2D1::Point2F(posX + posW - posW * posSide, posY + posH), D2D1::Point2F(posX + posW, posY + posH), s_brush, strokeWidth);
+				rtv->DrawLine(D2D1::Point2F(posX + posW, posY + posH - posH * posSide), D2D1::Point2F(posX + posW, posY + posH), s_brush, strokeWidth);
+			}
+			/*
+			else
+			{
+				float x = g_fCurScreenWidth / 2.0f - 50;
+				float y = g_fCurScreenHeight / 2.0f - 50;
+				float w = 100.0f;
+				float h = 100.0f;
+				Vector4 points[4] = { { x, y, 0, 1 },
+									  { x + w, y, 0, 1 },
+									  { x + w, y + h, 0, 1 },
+									  { x, y + h, 0, 1 } };
+
+				for (int i = 0; i < 4; i++)
+				{
+					Vector4 P = points[i];
+					Vector4 Q = points[(i + 1) % 4];
+
+					rtv->DrawLine(D2D1::Point2F(P.x, P.y), D2D1::Point2F(Q.x, Q.y), s_brush, strokeWidth);
+				}
+				break;
+			}
+			*/
+			else
+			{
+				// Brackets are defined in post-proc 2D coords -- not in-game coords. The difference
+				// is that post-proc 2D coords are defined by SteamVR's render size.
+				Vector4 bracketCenter = Vector4(posX + posW / 2.0f, posY + posH / 2.0f, 0, 1.0f);
+				Vector4 points[4] = { { posX, posY, 0, 1 },
+									  { posX + posW, posY, 0, 1 },
+									  { posX + posW, posY + posH, 0, 1 },
+									  { posX, posY + posH, 0, 1 } };
+
+				Matrix4 T    = Matrix4().translate(-bracketCenter.x, -bracketCenter.y, 0);
+				Matrix4 Tinv = Matrix4().translate(bracketCenter.x, bracketCenter.y, 0);
+				Matrix4 Rz   = Matrix4().rotateZ(roll);
+				Matrix4 Ry   = Matrix4().rotateY(yaw);
+				Matrix4 Rx   = Matrix4().rotateX(-pitch);
+				Matrix4 V;
+				// ypr compensation:
+				Matrix4 R = Tinv * Rz * Rx * T;
+
+				// Compensate for headset ypr
+				for (int i = 0; i < 4; i++)
+				{
+					points[i] = R * points[i];
+				}
+
+				for (int i = 0; i < 4; i++)
+				{
+					Vector4 P = points[i];
+					Vector4 Q = points[(i + 1) % 4];
+
+					rtv->DrawLine(D2D1::Point2F(P.x, P.y), D2D1::Point2F(Q.x, Q.y), s_brush, strokeWidth);
+				}
+			}
+
+		}
+	}
+
+	this->_deviceResources->_d2d1DCRenderTarget->EndDraw();
+	this->_deviceResources->_d2d1DCRenderTarget->RestoreDrawingState(this->_deviceResources->_d2d1DrawingStateBlock);
+
+	this->_deviceResources->_d2d1OffscreenRenderTarget->EndDraw();
+	this->_deviceResources->_d2d1OffscreenRenderTarget->RestoreDrawingState(this->_deviceResources->_d2d1DrawingStateBlock);
+
+	/*
+	context->ResolveSubresource(resources->_BracketsAsInput, 0, resources->_BracketsMSAA, 0, BACKBUFFER_FORMAT);
+	if (g_bDumpSSAOBuffers)
+	{
+		DirectX::SaveWICTextureToFile(context, resources->_BracketsAsInput, GUID_ContainerFormatPng,
+			L"C:\\Temp\\_BracketsAsInput.png");
+	}
+	if (g_xwa_bracket.size() > 0)
+		RenderBracketAsHUD(g_xwa_bracket[0].positionX, g_xwa_bracket[0].positionY);
+	*/
+
+	// Need to set s_brush to NULL to avoid dangling references. Otherwise, we may get
+	// crashes when exiting.
+	s_brush = nullptr;
+	g_xwa_bracket.clear();
+
+	//float3 P = InverseTransformProjectionScreen({ W / 2.0f, H / 2.0f, Z, Z }, false);
+	//float3 P = InverseTransformProjectionScreen({ 427.0f, 480.0f, Z, Z }, false);
+	//float3 P = InverseTransformProjectionScreen({ 576.0f, 346.0f, Z, Z }, false);
+	//float3 P = InverseTransformProjectionScreen({ 576.0f, 432.0f, Z, Z }, false);
+	//float3 P = InverseTransformProjectionScreen({ screenCenter.x, screenCenter.y, Z, Z }, false);
+	/*log_debug_vr("PCENTER: %0.3f, %0.3f, %0.3f",
+		P.x * OPT_TO_METERS, P.y * OPT_TO_METERS, P.z * OPT_TO_METERS);*/
+
+	if (g_bUseSteamVR)
+	{
+		//Matrix4 Heading;
+		//GetHyperspaceEffectMatrix(&Heading);
+		//GetCockpitViewMatrix(&Heading);
+		Vector4 Rs, Us, Fs;
+		Matrix4 Heading = GetCurrentHeadingMatrix(Rs, Us, Fs, false);
+		Matrix4 ViewMatrix = g_VSMatrixCB.fullViewMat; // See RenderSpeedEffect() for details
+		ViewMatrix.invert();
+		Matrix4 S = Matrix4().scale(-1, -1, 1);
+		ViewMatrix = S * ViewMatrix * S * Heading;
+
+		g_VRGeometryCBuffer.bRenderBracket = 0;
+		Vector4 U = ViewMatrix * Vector4(1, 0, 0, 0);
+		/*
+		g_VRGeometryCBuffer.U.x = U.x;
+		g_VRGeometryCBuffer.U.y = U.y;
+		g_VRGeometryCBuffer.U.z = U.z;
+		g_VRGeometryCBuffer.U.w = 0;
+		*/
+		//log_debug_vr("Up: %0.3f, %0.3f, %0.3f", U.x, U.y, U.z);
+
+		context->ResolveSubresource(resources->_BracketsAsInput, 0, resources->_BracketsMSAA, 0, BACKBUFFER_FORMAT);
+		if (g_bDumpSSAOBuffers && g_bUseSteamVR)
+		{
+			DirectX::SaveWICTextureToFile(context, resources->_BracketsAsInput, GUID_ContainerFormatPng, L"C:\\Temp\\_BracketsAsInput.png");
+		}
+
+		g_bracketsVR.clear();
+
+		float3 P = InverseTransformProjectionScreen({ screenCenterX, screenCenterY, zwBracket, zwBracket }); // RenderBracket
+		P.y = -P.y;
+		P.z = -P.z;
+
+		// This is the bottom-right corner of the screen:
+		float3 Q = InverseTransformProjectionScreen({ 2.0f * screenCenterX, 2.0f * screenCenterX, zwBracket, zwBracket }); // RenderBracket
+		//float3 Q = InverseTransformProjectionScreen({ W, H, Z, Z });
+		Q.y = -Q.y;
+		Q.z = -Q.z;
+
+		BracketVR bracketVR;
+		bracketVR.posOPT.x = P.x;
+		bracketVR.posOPT.y = P.z;
+		bracketVR.posOPT.z = P.y;
+		bracketVR.halfWidthOPT = fabs(Q.x - P.x);
+		bracketVR.halfHeightOPT = fabs(Q.y - P.y);
+		bracketVR.color.x = ((brushColor >> 16) & 0xFF) / 255.0f;
+		bracketVR.color.y = ((brushColor >> 8) & 0xFF) / 255.0f;
+		bracketVR.color.z = (brushColor & 0xFF) / 255.0f;
+		g_bracketsVR.push_back(bracketVR);
+
+		// Restore the original projection deltas
+		if (bExternalCamera)
+		{
+			*(float*)0x08C1600 = f0;
+			*(float*)0x0686ACC = f1;
+			*(float*)0x080ACF8 = f2;
+			*(float*)0x07B33C0 = f3;
+			*(float*)0x064D1AC = f4;
+		}
+
+		// This method should only be called in VR mode:
+		EffectsRenderer* renderer = (EffectsRenderer*)g_current_renderer;
+		renderer->RenderVRBrackets();
+	}
+
+	this->_deviceResources->EndAnnotatedEvent();
+}
+
+void AddDebugBracket(float X, float Y, float size)
+{
+	const float Zfar = *(float*)0x05B46B4;
+	float desiredZ = 65536.0f;
+	// The following division is correct. Znear is actually greater than Zfar because the
+	// depth is inverted (0 is far, 1 is close). It's also normalized.
+	float Z = Zfar / (desiredZ * METERS_TO_OPT + Zfar);
+
+	float3 V = InverseTransformProjectionScreen({ X, Y, Z, Z }); // CacheBracketsVR
+	V.y = -V.y; V.z = -V.z;
+
+	X += size; Y += size;
+	float3 W = InverseTransformProjectionScreen({ X, Y, Z, Z }); // CacheBracketsVR
+	W.y = -W.y; W.z = -W.z;
+
+	BracketVR bracketVR;
+	bracketVR.posOPT = { V.x, V.z, V.y };
+	bracketVR.halfWidthOPT  = fabs(W.x - V.x);
+	bracketVR.halfHeightOPT = fabs(W.y - V.y);
+	bracketVR.color = { 1, 1, 1 };
+	g_bracketsVR.push_back(bracketVR);
 }
 
 void PrimarySurface::CacheBracketsVR()
@@ -11999,9 +12777,68 @@ void PrimarySurface::CacheBracketsVR()
 	//const float Znear = *(float*)0x08B94CC;
 	const float Zfar = *(float*)0x05B46B4;
 	unsigned int brushColor = 0;
+	const Vector4 screenCenter = Vector4(g_fCurInGameWidth / 2.0f, g_fCurInGameHeight / 2.0f, 0, 1);
+	// Back-project the center of the screen:
+	float X, Y;
+	float desiredZ = 65536.0f;
+	// The following division is correct. Znear is actually greater than Zfar because the
+	// depth is inverted (0 is far, 1 is close). It's also normalized.
+	float Z = Zfar / (desiredZ * METERS_TO_OPT + Zfar);
+	float3 C = InverseTransformProjectionScreen({ screenCenter.x, screenCenter.y, Z, Z }); // CacheBracketsVR
+	C.y = -C.y;
+	C.z = -C.z;
 
-	//log_debug_vr(0xFFFF33, "Znear: %0.3f, Zfar: %0.3f", Znear, Zfar);
-	//log_debug_vr(0xFFFFFF, "brackets: %d", g_xwa_bracket.size());
+	// Let's measure the width of the stroke now:
+	constexpr float STROKE_WIDTH = 1.5f;
+	X = screenCenter.x + STROKE_WIDTH;
+	Y = screenCenter.y + STROKE_WIDTH;
+	float3 U = InverseTransformProjectionScreen({ X, Y, Z, Z }); // CacheBracketsVR
+	// This is the width of the stroke in OPT coordinates at the given depth
+	const float strokeWidthOPT = fabs(C.x - U.x);
+
+	// Put a bracket at the beginning of the list that is always at the reticle.
+	// We'll use this bracket as a reference to correct the roll of the other brackets.
+	if (false)
+	{
+		BracketVR bracketVR;
+		Vector4 screenCenter = Vector4(g_fCurInGameWidth / 2.0f, g_fCurInGameHeight / 2.0f, 0, 1);
+		//screenCenter.x += 180;
+		//screenCenter.y += 180;
+		Matrix4 R = Matrix4().rotateZ(g_pSharedDataCockpitLook->Roll);
+		R = Matrix4().translate(screenCenter.x, screenCenter.y, 0) * R * Matrix4().translate(-screenCenter.x, -screenCenter.y, 0);
+
+		const float desiredZ = 65536.0f;
+		float Z = Zfar / (desiredZ * METERS_TO_OPT + Zfar);
+		float X, Y;
+		float3 V, W;
+		Vector4 P;
+
+
+		X = screenCenter.x;
+		Y = screenCenter.y;
+		P = R * Vector4(X, Y, 0, 1);
+		X = P.x; Y = P.y;
+		V = InverseTransformProjectionScreen({ X, Y, Z, Z }); // CacheBracketsVR
+		V.y = -V.y;
+		V.z = -V.z;
+
+		X += 15.0f;
+		Y += 15.0f;
+		W = InverseTransformProjectionScreen({ X, Y, Z, Z }); // CacheBracketsVR
+		W.y = -W.y;
+		W.z = -W.z;
+
+		bracketVR.posOPT.x = V.x;
+		bracketVR.posOPT.y = V.z;
+		bracketVR.posOPT.z = V.y;
+		bracketVR.halfWidthOPT = fabs(W.x - V.x);
+		bracketVR.halfHeightOPT = fabs(W.y - V.y);
+		bracketVR.color.x = 1.0f;
+		bracketVR.color.y = 1.0f;
+		bracketVR.color.y = 1.0f;
+		g_bracketsVR.push_back(bracketVR);
+	}
+
 	for (const auto& xwaBracket : g_xwa_bracket)
 	{
 		unsigned short si = ((unsigned short*)0x08D9420)[xwaBracket.colorIndex];
@@ -12029,24 +12866,20 @@ void PrimarySurface::CacheBracketsVR()
 			brushColor = esi;
 		}
 
+		// xwaBracket is in in-game coords.
 		// xwaBracket.positionX/Y is the top-left corner, so adding halfWidth/Height gives us
 		// the center of the bracket:
-		float X = (float)(xwaBracket.positionX + xwaBracket.width / 2.0f);
-		float Y = (float)(xwaBracket.positionY + xwaBracket.height / 2.0f);
-		float desiredZ = 250.0f;
-		// The following division is correct. Znear is actually greater than Zfar because the
-		// depth is inverted (0 is far, 1 is close). It's also normalized.
-		float Z = Zfar / (desiredZ * METERS_TO_OPT);
-		float3 V = InverseTransformProjectionScreen({ X, Y, Z, Z });
+		X = (float)(xwaBracket.positionX + xwaBracket.width / 2.0f);
+		Y = (float)(xwaBracket.positionY + xwaBracket.height / 2.0f);
+		float3 V = InverseTransformProjectionScreen({ X, Y, Z, Z }); // CacheBracketsVR
 		V.y = -V.y;
 		V.z = -V.z;
 
-		// This would be the lower-right corner of the bracket:
-		X = (float)(xwaBracket.positionX + xwaBracket.width);
-		Y = (float)(xwaBracket.positionY + xwaBracket.height);
-		// The following division is correct. Znear is actually greater than Zfar because the
-		// depth is inverted (0 is far, 1 is close). It's also normalized.
-		float3 W = InverseTransformProjectionScreen({ X, Y, Z, Z });
+		// This would be the lower-right corner of the bracket. Measuring it from the center
+		// of the screen also works.
+		X = screenCenter.x + xwaBracket.width / 2.0f;
+		Y = screenCenter.y + xwaBracket.height / 2.0f;
+		float3 W = InverseTransformProjectionScreen({ X, Y, Z, Z }); // CacheBracketsVR
 		W.y = -W.y;
 		W.z = -W.z;
 
@@ -12054,23 +12887,45 @@ void PrimarySurface::CacheBracketsVR()
 		bracketVR.posOPT.x = V.x;
 		bracketVR.posOPT.y = V.z;
 		bracketVR.posOPT.z = V.y;
-		bracketVR.halfWidthOPT = fabs(W.x - V.x);
-		bracketVR.halfHeightOPT = fabs(W.y - V.y);
-		bracketVR.color.x = ((brushColor >> 16) & 0xFF) / 255.0f;
-		bracketVR.color.y = ((brushColor >> 8) & 0xFF) / 255.0f;
-		bracketVR.color.y = (brushColor & 0xFF) / 255.0f;
+		bracketVR.halfWidthOPT = fabs(W.x - C.x);
+		bracketVR.halfHeightOPT = fabs(W.y - C.y);
+		bracketVR.strokeWidth = strokeWidthOPT / (2.0f * bracketVR.halfWidthOPT);
+		bracketVR.color.x = (float)((brushColor >> 16) & 0xFF) / 255.0f;
+		bracketVR.color.y = (float)((brushColor >> 8) & 0xFF) / 255.0f;
+		bracketVR.color.z = (float)(brushColor & 0xFF) / 255.0f;
+		/*log_debug_vr("stroke width: %0.3f, col: 0x%x",
+			bracketVR.strokeWidth, brushColor);*/
+			//bracketVR.color.x, bracketVR.color.y, bracketVR.color.z);
 		g_bracketsVR.push_back(bracketVR);
-
-		// Bracket are defined in in-game coords
-		/*log_debug_vr(0xFFFFFF, "(%0.3f, %0.3f) --> (%0.3f, %0.3f, %0.3f)",
-			X, Y,
-			bracketVR.posOPT.x * OPT_TO_METERS,
-			bracketVR.posOPT.y * OPT_TO_METERS,
-			bracketVR.posOPT.z * OPT_TO_METERS);*/
 	}
 
 	g_xwa_bracket.clear();
 
+	if (false)
+	{
+		// Add a couple of small brackets at the end of the list to test the up direction:
+		g_bracketsVR.clear();
+
+		AddDebugBracket(screenCenter.x, screenCenter.y, 20.0f);
+		/*AddDebugBracket(screenCenter.x + 150, screenCenter.y, 30.0f);
+		AddDebugBracket(screenCenter.x - 150, screenCenter.y, 30.0f);
+
+		AddDebugBracket(screenCenter.x + 150, screenCenter.y + 150, 30.0f);
+		AddDebugBracket(screenCenter.x + 150, screenCenter.y - 150, 30.0f);
+
+		AddDebugBracket(screenCenter.x - 150, screenCenter.y + 150, 30.0f);
+		AddDebugBracket(screenCenter.x - 150, screenCenter.y - 150, 30.0f);*/
+
+
+		AddDebugBracket(screenCenter.x + 275, screenCenter.y + 220, 35.0f);
+		AddDebugBracket(screenCenter.x + 275, screenCenter.y - 220, 35.0f);
+
+		AddDebugBracket(screenCenter.x - 275, screenCenter.y + 220, 35.0f);
+		AddDebugBracket(screenCenter.x - 275, screenCenter.y - 220, 35.0f);
+	}
+
+	// Render a single bracket as a Big Canvas:
+	if (false)
 	{
 		g_bracketsVR.clear();
 		float W = g_fCurInGameWidth;
@@ -12078,12 +12933,12 @@ void PrimarySurface::CacheBracketsVR()
 		float desiredZ = 65536.0f;
 		float X = W / 2.0f, Y = H / 2.0f;
 		float Z = Zfar / (desiredZ * METERS_TO_OPT);
-		float3 P = InverseTransformProjectionScreen({ X, Y, Z, Z });
+		float3 P = InverseTransformProjectionScreen({ X, Y, Z, Z }); // CacheBracketsVR
 		P.y = -P.y;
 		P.z = -P.z;
 
-		float3 Q = InverseTransformProjectionScreen({ X + (0.5f * W / 2.0f), Y + (0.5f * H / 2.0f), Z, Z });
-		//float3 Q = InverseTransformProjectionScreen({ X + W, H, Z, Z });
+		float3 Q = InverseTransformProjectionScreen({ X + (0.5f * W / 2.0f), Y + (0.5f * H / 2.0f), Z, Z }); // CacheBracketsVR
+		//float3 Q = InverseTransformProjectionScreen({ X + W, H, Z, Z }, true);
 		Q.y = -Q.y;
 		Q.z = -Q.z;
 
@@ -12099,6 +12954,7 @@ void PrimarySurface::CacheBracketsVR()
 		g_bracketsVR.push_back(bracketVR);
 	}
 
+	//log_debug_vr("g_bracketsVR.size: %d", g_bracketsVR.size());
 	// This method should only be called in VR mode:
 	EffectsRenderer* renderer = (EffectsRenderer*)g_current_renderer;
 	renderer->RenderVRBrackets();

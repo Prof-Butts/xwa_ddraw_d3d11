@@ -729,7 +729,7 @@ void DumpHyperspaceVertexBuffer(float width, float height)
 		input.y = HyperVertices[i].sy;
 		input.z = HyperVertices[i].sz;
 		input.w = HyperVertices[i].rhw;
-		float3 pos = InverseTransformProjectionScreen(input);
+		float3 pos = InverseTransformProjectionScreen(input); // DumpHyperspaceVertexBuffer
 		//pos.x *= OPT_TO_METERS;
 		//pos.y *= OPT_TO_METERS;
 		//pos.z *= OPT_TO_METERS;

@@ -19,15 +19,16 @@ SamplerState sampler0 : register(s0);
 // VRGeometryCBuffer
 cbuffer ConstantBuffer : register(b11)
 {
-	uint  numStickyRegions;
-	uint2 clicked;
-	uint  vr_unused0;
+	uint   numStickyRegions;
+	uint2  clicked;
+	uint   bRenderBracket;
 	// 16 bytes
 	float4 stickyRegions[4];
 	// 80 bytes
 	float4 clickRegions[2];
 	// 112 bytes
-	float4 U;
+	float  strokeWidth;
+	float3 bracketColor;
 	// 128 bytes
 };
 
@@ -74,6 +75,35 @@ float noise(in float3 x)
 				hash(i + float3(1, 1, 1)), f.x), f.y), f.z);
 }
 
+PixelShaderOutput RenderBracket(PixelShaderInput input)
+{
+	PixelShaderOutput output;
+	
+	float alpha =
+		(input.tex.x <= strokeWidth) || (input.tex.x >= 1.0 - strokeWidth) || // Left and right bars
+		(input.tex.y <= strokeWidth) || (input.tex.y >= 1.0 - strokeWidth) ? // Top and bottom bars
+		//(input.tex.x <= 0.4) || (input.tex.x >= 0.6) ? // left-right gaps
+		1 : 0;
+
+	if (alpha < 0.7)
+		discard;
+	
+	// Create the gaps in the bracket:
+	if (input.tex.x >= 0.2 && input.tex.x <= 0.8)
+		discard;
+	
+	if (input.tex.y >= 0.2 && input.tex.y <= 0.8)
+		discard;
+
+	output.color  = float4(bracketColor, alpha);
+	output.bloom  = output.color;
+	output.pos3D  = 0;
+	output.normal = 0;
+	output.ssMask = 0;
+	output.ssaoMask = float4(fSSAOMaskVal, 0.1, 0, alpha);
+	return output;
+}
+
 PixelShaderOutput main(PixelShaderInput input)
 {
 	PixelShaderOutput output;
@@ -81,14 +111,19 @@ PixelShaderOutput main(PixelShaderInput input)
 	const float4 texelColor = texture0.Sample(sampler0, input.tex);
 	const float  alpha      = texelColor.w;
 	const float2 uv         = input.tex;
-	//if (alpha < 0.75)
-	//	discard;
+	
+	if (bRenderBracket)
+		return RenderBracket(input);
+	
+	if (alpha < 0.75)
+		discard;
 
 	output.color = texelColor;
+	//output.color = float4(0, 0, 1, 0.2);
 	// Zero-out the bloom mask.
 	output.bloom = float4(0, 0, 0, 0);
-	uint i;
 
+	uint i;
 	for (i = 0; i < numStickyRegions; i++)
 	{
 		const float4 region = stickyRegions[i];
@@ -120,8 +155,8 @@ PixelShaderOutput main(PixelShaderInput input)
 	float3 P = input.pos3D.xyz;
 	output.pos3D = float4(P, 1);
 
-	const float3 V = normalize(P);
-	const float Vdist = dot(V, U.xyz);
+	//const float3 V = normalize(P);
+	//const float Vdist = dot(V, U.xyz);
 
 	float3 N = normalize(input.normal.xyz);
 	N.y = -N.y; // Invert the Y axis, originally Y+ is down
@@ -154,8 +189,13 @@ PixelShaderOutput main(PixelShaderInput input)
 	//output.color.b  = 2.0 * input.tex.y;
 	//output.color.a += 0.25;
 
-	output.color.rb = 0.5 * Vdist;
-	output.color.a = pow(Vdist, 4.0);
+	//if (V.x >= 0)
+	//	output.color.r += 0.5 * Vdist;
+	//else
+	//	output.color.g += 0.5 * Vdist;
+	//if (V.y >= 0)
+	//	output.color.b += 0.5 * Vdist;
+	//output.color.a = pow(Vdist, 4.0);
 
 	if (output.color.a < 0.2)
 		discard;

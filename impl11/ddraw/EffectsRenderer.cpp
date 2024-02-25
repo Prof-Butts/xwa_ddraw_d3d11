@@ -23,6 +23,13 @@ extern LONG g_directBuilderNextInnerNode;
 
 bool g_bUseCentroids = true;
 
+static bool s_captureProjectionDeltas = true;
+float g_projectionDeltaX, g_projectionDeltaY;
+float g_f0x08C1600, g_f0x0686ACC;
+float g_f0x080ACF8, g_f0x07B33C0, g_f0x064D1AC;
+
+float g_fBracketRollComp = 0.0f;
+
 RTCDevice g_rtcDevice = nullptr;
 RTCScene g_rtcScene = nullptr;
 
@@ -125,6 +132,7 @@ inline float sign(float val)
 	return (val >= 0.0f) ? 1.0f : -1.0f;
 }
 
+Matrix4 GetCurrentHeadingMatrix(Vector4& Rs, Vector4& Us, Vector4& Fs, bool invert = false, bool debug=false);
 void InitializePlayerYawPitchRoll();
 void ApplyYawPitchRoll(float yaw_deg, float pitch_deg, float roll_deg);
 Matrix4 GetSimpleDirectionMatrix(Vector4 Fs, bool invert);
@@ -230,6 +238,10 @@ float4 TransformProjection(float3 input)
 
 /// <summary>
 /// Same as TransformProjection(), but returns in-game screen coordinates + depth buffer
+/// Coordinate system is OPT-scale:
+/// X+ Right
+/// Y+ Up
+/// Z+ Forwards
 /// </summary>
 float4 TransformProjectionScreen(float3 input)
 {
@@ -288,7 +300,20 @@ float3 InverseTransformProjection(float4 input)
  * Converts 2D into metric 3D at OPT-scale (you get 100% metric 3D by multiplying with OPT_TO_METERS after this)
  * The formulas used here work with the engine glow and with the explosions because w == z in that case.
  * It may not work in other cases.
+ *
  * Confirmed cases: Engine glow, Explosions.
+ *
+ * NOTE 1: This is not the direct inverse of TransformProjection anymore (there's g_config settings that have yet
+ * to be ported over here).
+ * NOTE 2: The OPT universe is centered around the HUD. If the input coords are the center of the HUD, then the
+ * resulting OPT value will be (0, 0, depth). The center of the HUD is usually not the same as the screen center!
+ * NOTE 3: In external view, the HUD may not be centered on the screen if inertia is enabled, but the center of the
+ * screen corresponds to (0, 0, depth)
+ * NOTE 4: The output is OPT scale but the axes are... unconventional:
+ *
+ * X+: Right
+ * Y+: DOWN
+ * Z+: FORWARDS
  */
 float3 InverseTransformProjectionScreen(float4 input)
 {
@@ -365,7 +390,6 @@ float3 InverseTransformProjectionScreen(float4 input)
 	// P is now metric * OPT-scale
 	return P;
 }
-
 
 void IncreaseD3DExecuteCounterSkipHi(int Delta) {
 	g_iD3DExecuteCounterSkipHi += Delta;
@@ -489,160 +513,6 @@ int AABB::DumpLimitsToOBJ(FILE* D3DDumpOBJFile, const std::string &name, int Ver
 int AABB::DumpLimitsToOBJ(FILE *D3DDumpOBJFile, int OBJGroupId, int VerticesCountOffset)
 {
 	return DumpLimitsToOBJ(D3DDumpOBJFile, std::string("aabb-") + std::to_string(OBJGroupId), VerticesCountOffset);
-}
-
-/// <summary>
-/// Get the AABB for the current camera space by gathering all
-/// the frustrum limits. The resulting AABB is in OPT-scale coords,
-/// to get meters, multiply the AABB by OPT_TO_METERS.
-/// </summary>
-/// <returns></returns>
-AABB GetCameraSpaceAABBFromFrustrum()
-{
-	// Calc and dump the 8 corners of the frustrum
-	float Znear = *(float*)0x08B94CC;
-	float Zfar = *(float*)0x05B46B4;
-	AABB aabb;
-	float3 V;
-	float4 v;
-	float Z;
-
-	const float Z_MAX = 5000.0f, Z_MIN = 25.0f;
-	const float marginX = g_fCurInGameWidth * 0.05f;
-	const float marginY = g_fCurInGameHeight * 0.05f;
-	const float left = -marginX, right = g_fCurInGameWidth + marginX;
-	const float top = -marginY, bottom = g_fCurInGameHeight + marginY;
-
-	Z = Zfar / (Z_MAX * METERS_TO_OPT);
-
-	v.x = left; v.y = top; v.z = v.w = Z;
-	V = InverseTransformProjectionScreen(v);
-	aabb.Expand(V);
-
-	v.x = right; v.y = top; v.z = v.w = Z;
-	V = InverseTransformProjectionScreen(v);
-	aabb.Expand(V);
-
-	v.x = right; v.y = bottom; v.z = v.w = Z;
-	V = InverseTransformProjectionScreen(v);
-	aabb.Expand(V);
-
-	v.x = left; v.y = bottom; v.z = v.w = Z;
-	V = InverseTransformProjectionScreen(v);
-	aabb.Expand(V);
-
-	// ------------------------------------------------------------------
-
-	Z = Zfar / (Z_MIN * METERS_TO_OPT);
-
-	v.x = left; v.y = top; v.z = v.w = Z;
-	V = InverseTransformProjectionScreen(v);
-	aabb.Expand(V);
-
-	v.x = right; v.y = top; v.z = v.w = Z;
-	V = InverseTransformProjectionScreen(v);
-	aabb.Expand(V);
-
-	v.x = right; v.y = bottom; v.z = v.w = Z;
-	V = InverseTransformProjectionScreen(v);
-	aabb.Expand(V);
-
-	v.x = left; v.y = bottom; v.z = v.w = Z;
-	V = InverseTransformProjectionScreen(v);
-	aabb.Expand(V);
-
-	return aabb;
-}
-
-void DumpFrustrumToOBJ()
-{
-	FILE* D3DDumpOBJFile = NULL;
-	fopen_s(&D3DDumpOBJFile, "./frustrum.obj", "wt");
-	fprintf(D3DDumpOBJFile, "o frustrum\n");
-
-	// Calc and dump the 8 corners of the frustrum
-	float Znear = *(float*)0x08B94CC;
-	float Zfar = *(float*)0x05B46B4;
-	// [18780] [DBG] [BVH] Znear: 765.382812, Zfar: 64.000000
-	fprintf(D3DDumpOBJFile, "# Znear: %0.6f, Zfar: %0.6f\n", Znear, Zfar);
-	float3 V;
-	float4 v;
-	// ------------------------------------------------------------------
-	float Z = 0.0002f; // Zfar, 0 causes inf, smaller = farther
-	const float Z_MAX = 10000.0f, Z_MIN = 10.0f;
-	const float marginX = g_fCurInGameWidth * 0.05f;
-	const float marginY = g_fCurInGameHeight * 0.05f;
-	const float left = -marginX, right = g_fCurInGameWidth + marginX;
-	const float top = -marginY, bottom = g_fCurInGameHeight + marginY;
-
-	// Inverting the formulas for P.z in InverseTransformProjection yields:
-	// Z = (Zfar / w) * OPT_TO_METERS;
-	// w = Zfar / (Z * METERS_TO_OPT);
-	Z = Zfar / (Z_MAX * METERS_TO_OPT);
-	//log_debug("[DBG] [BVH] Z max: %0.6f", Z);
-
-	v.x = left; v.y = top; v.z = v.w = Z;
-	V = InverseTransformProjectionScreen(v);
-	V.x *= OPT_TO_METERS; V.y *= OPT_TO_METERS; V.z *= OPT_TO_METERS;
-	fprintf(D3DDumpOBJFile, "v %0.6f %0.6f %0.6f\n", V.x, V.y, V.z);
-
-	v.x = right; v.y = top; v.z = v.w = Z;
-	V = InverseTransformProjectionScreen(v);
-	V.x *= OPT_TO_METERS; V.y *= OPT_TO_METERS; V.z *= OPT_TO_METERS;
-	fprintf(D3DDumpOBJFile, "v %0.6f %0.6f %0.6f\n", V.x, V.y, V.z);
-
-	v.x = right; v.y = bottom; v.z = v.w = Z;
-	V = InverseTransformProjectionScreen(v);
-	V.x *= OPT_TO_METERS; V.y *= OPT_TO_METERS; V.z *= OPT_TO_METERS;
-	fprintf(D3DDumpOBJFile, "v %0.6f %0.6f %0.6f\n", V.x, V.y, V.z);
-
-	v.x = left; v.y = bottom; v.z = v.w = Z;
-	V = InverseTransformProjectionScreen(v);
-	V.x *= OPT_TO_METERS; V.y *= OPT_TO_METERS; V.z *= OPT_TO_METERS;
-	fprintf(D3DDumpOBJFile, "v %0.6f %0.6f %0.6f\n", V.x, V.y, V.z);
-	// ------------------------------------------------------------------
-	// Z = 0.25f; // Znear, the bigger, the closer to the origin.
-	Z = Zfar / (Z_MIN * METERS_TO_OPT);
-	//log_debug("[DBG] [BVH] Z min: %0.6f", Z);
-
-	v.x = left; v.y = top; v.z = v.w = Z; // 0 causes inf, use 0.00001
-	V = InverseTransformProjectionScreen(v);
-	V.x *= OPT_TO_METERS; V.y *= OPT_TO_METERS; V.z *= OPT_TO_METERS;
-	fprintf(D3DDumpOBJFile, "v %0.6f %0.6f %0.6f\n", V.x, V.y, V.z);
-
-	v.x = right; v.y = top; v.z = v.w = Z;
-	V = InverseTransformProjectionScreen(v);
-	V.x *= OPT_TO_METERS; V.y *= OPT_TO_METERS; V.z *= OPT_TO_METERS;
-	fprintf(D3DDumpOBJFile, "v %0.6f %0.6f %0.6f\n", V.x, V.y, V.z);
-
-	v.x = right; v.y = bottom; v.z = v.w = Z;
-	V = InverseTransformProjectionScreen(v);
-	V.x *= OPT_TO_METERS; V.y *= OPT_TO_METERS; V.z *= OPT_TO_METERS;
-	fprintf(D3DDumpOBJFile, "v %0.6f %0.6f %0.6f\n", V.x, V.y, V.z);
-
-	v.x = left; v.y = bottom; v.z = v.w = Z;
-	V = InverseTransformProjectionScreen(v);
-	V.x *= OPT_TO_METERS; V.y *= OPT_TO_METERS; V.z *= OPT_TO_METERS;
-	fprintf(D3DDumpOBJFile, "v %0.6f %0.6f %0.6f\n", V.x, V.y, V.z);
-
-	const int VerticesCountOffset = 1;
-	fprintf(D3DDumpOBJFile, "f %d %d\n", VerticesCountOffset + 0, VerticesCountOffset + 1);
-	fprintf(D3DDumpOBJFile, "f %d %d\n", VerticesCountOffset + 1, VerticesCountOffset + 2);
-	fprintf(D3DDumpOBJFile, "f %d %d\n", VerticesCountOffset + 2, VerticesCountOffset + 3);
-	fprintf(D3DDumpOBJFile, "f %d %d\n", VerticesCountOffset + 3, VerticesCountOffset + 0);
-
-	fprintf(D3DDumpOBJFile, "f %d %d\n", VerticesCountOffset + 4, VerticesCountOffset + 5);
-	fprintf(D3DDumpOBJFile, "f %d %d\n", VerticesCountOffset + 5, VerticesCountOffset + 6);
-	fprintf(D3DDumpOBJFile, "f %d %d\n", VerticesCountOffset + 6, VerticesCountOffset + 7);
-	fprintf(D3DDumpOBJFile, "f %d %d\n", VerticesCountOffset + 7, VerticesCountOffset + 4);
-
-	fprintf(D3DDumpOBJFile, "f %d %d\n", VerticesCountOffset + 0, VerticesCountOffset + 4);
-	fprintf(D3DDumpOBJFile, "f %d %d\n", VerticesCountOffset + 1, VerticesCountOffset + 5);
-	fprintf(D3DDumpOBJFile, "f %d %d\n", VerticesCountOffset + 2, VerticesCountOffset + 6);
-	fprintf(D3DDumpOBJFile, "f %d %d\n", VerticesCountOffset + 3, VerticesCountOffset + 7);
-	fprintf(D3DDumpOBJFile, "\n");
-
-	fclose(D3DDumpOBJFile);
 }
 
 void DumpTLASLeaves(std::vector<TLASLeafItem> &tlasLeaves, char *fileName)
@@ -1239,6 +1109,7 @@ void EffectsRenderer::OBJDumpD3dVertices(const SceneCompData *scene, const Matri
 		LastMeshVerticesCount = 0;
 		LastMeshNormalsCount = 0;
 	}
+	log_debug("[DBG] OBJDumpD3dVertices()");
 
 	// DEPTH-BUFFER-CHANGE DONE
 	float *Znear = (float *)0x08B94CC;
@@ -2302,10 +2173,6 @@ void EffectsRenderer::SceneBegin(DeviceResources* deviceResources)
 
 		if (g_bRTCaptureCameraAABB && g_iPresentCounter > 2) {
 			/* Get the Frustrum and Camera Space global AABB */
-			g_CameraAABB = GetCameraSpaceAABBFromFrustrum();
-			g_CameraRange.x = g_CameraAABB.max.x - g_CameraAABB.min.x;
-			g_CameraRange.y = g_CameraAABB.max.y - g_CameraAABB.min.y;
-			g_CameraRange.z = g_CameraAABB.max.z - g_CameraAABB.min.z;
 			/*
 			log_debug("[DBG] [BVH] cameraAABB: (%0.3f, %0.3f, %0.3f)-(%0.3f, %0.3f, %0.3f)",
 				cameraAABB.min.x * OPT_TO_METERS, cameraAABB.min.y * OPT_TO_METERS, cameraAABB.min.z * OPT_TO_METERS,
@@ -2969,6 +2836,7 @@ void EffectsRenderer::SceneEnd()
 {
 	//EndCascadedShadowMap();
 	D3dRenderer::SceneEnd();
+	s_captureProjectionDeltas = true;
 
 	if (_BLASNeedsUpdate)
 	{
@@ -5244,6 +5112,17 @@ void EffectsRenderer::MainSceneHook(const SceneCompData* scene)
 	ComPtr<ID3D11Buffer> oldPSConstantBuffer;
 	ComPtr<ID3D11ShaderResourceView> oldVSSRV[3];
 
+	if (s_captureProjectionDeltas)
+	{
+		g_f0x08C1600 = *(float*)0x08C1600;
+		g_f0x0686ACC = *(float*)0x0686ACC;
+		g_f0x080ACF8 = *(float*)0x080ACF8;
+		g_f0x07B33C0 = *(float*)0x07B33C0;
+		g_f0x064D1AC = *(float*)0x064D1AC;
+		//log_debug_vr(0xFFFF00, "MainSceneHook DX,DY: %0.3f, %0.3f", g_projectionDeltaX, g_projectionDeltaY);
+		s_captureProjectionDeltas = false;
+	}
+
 	context->VSGetConstantBuffers(0, 1, oldVSConstantBuffer.GetAddressOf());
 	context->PSGetConstantBuffers(0, 1, oldPSConstantBuffer.GetAddressOf());
 	context->VSGetShaderResources(0, 3, oldVSSRV[0].GetAddressOf());
@@ -6314,6 +6193,7 @@ void EffectsRenderer::RenderVRDots()
 	// bInHyperspace ?
 
 	g_VRGeometryCBuffer.numStickyRegions = 0;
+	g_VRGeometryCBuffer.bRenderBracket = 0;
 	// Disable region highlighting
 	g_VRGeometryCBuffer.clicked[0] = false;
 	g_VRGeometryCBuffer.clicked[1] = false;
@@ -6413,9 +6293,13 @@ void EffectsRenderer::RenderVRDots()
 			// This is what the brackets do right now.
 			// Removing Rz keeps the up direction aligned with the reticle: this is probably
 			// what we want to do if we want to replace the brackets/reticle/pips
-			//Matrix4 Rz = Matrix4().rotateZ(g_pSharedDataCockpitLook->Roll);
+			Matrix4 Rz = Matrix4().rotateZ(g_pSharedDataCockpitLook->Roll);
+			//Matrix4 E = Rx * Ry;
+			//Matrix4 Einv = E; Einv.transpose();
 			//V = Rz * Rx * Ry; // <-- Up direction is always view-aligned
-			V = Rx * Ry; // <-- Up direction is reticle-aligned
+			//V = (E * Rz * Einv) * E; // <-- Up direction is always view-aligned
+			V = Rx * Ry * Rz;
+			//V = Rx * Ry; // <-- Up direction is reticle-aligned
 			// The transpose is the inverse, so it will align Z+ with the view vector:
 			V.transpose();
 			V = swap * V * swap;
@@ -6463,10 +6347,76 @@ void EffectsRenderer::RenderVRDots()
 	_deviceResources->EndAnnotatedEvent();
 }
 
+float GetBracketRoll(const Matrix4& DotTransform, const Vector4& P0, const Vector4& P3)
+{
+	Vector4 Q0 = DotTransform * P0;
+	Vector4 Q3 = DotTransform * P3;
+	// X+: Right
+	// Y+: Up?
+	// Z+: Forwards
+
+	/*log_debug_vr("Q0: %0.3f, %0.3f, %0.3f", Q0.x, Q0.y, Q0.z);
+	log_debug_vr("Q3: %0.3f, %0.3f, %0.3f", Q3.x, Q3.y, Q3.z);*/
+
+	float4 q3 = TransformProjectionScreen({ Q3.x, Q3.y, Q3.z });
+	float4 q0 = TransformProjectionScreen({ Q0.x, Q0.y, Q0.z });
+	log_debug_vr("q0: %0.3f, %0.3f", q0.x, q0.y);
+	log_debug_vr("q3: %0.3f, %0.3f", q3.x, q3.y);
+
+	Vector4 up = Vector4(q0.x - q3.x, q0.y - q3.y, 0, 0);
+	float roll = RAD_TO_DEG * atan2(up.x, up.y);
+	log_debug_vr("roll: %0.3f", roll);
+	log_debug_vr("-----------------------");
+	return roll;
+}
+
+/// <summary>
+/// Returns the signed angle between A and B. Both vectors are assumed to be normalized unless
+/// 'normalize' is set to true.
+/// </summary>
+float SignedAngleBetweenVectors(Vector4 A, Vector4 B, bool normalize=false)
+{
+	if (normalize)
+	{
+		A.normalize();
+		B.normalize();
+	}
+	Vector3 a = Vector4ToVector3(A);
+	Vector3 b = Vector4ToVector3(B);
+	Vector3 C = a.cross(b);
+	C.normalize();
+
+	// Project B onto A:
+	const float x = A.dot(B);
+	// Create an orthogonal vector by going from the projection to B:
+	// The projected vector is: x * A
+	// Therefore: (x * A) + Y = B
+	// where Y is orthogonal to (x * A)
+	Vector3 X = x * a;
+	Vector3 Y = b - X;
+	const float y = Y.length();
+	Vector3 N = X.cross(Y);
+	N.normalize();
+	const float s = sign(C.dot(N));
+	return RAD_TO_DEG * atan2(s * y, x);
+}
+
+// Lens distortion value, positive values of k1 & k2 give barrel distortion, negative give pincushion.
+Vector4 GenericBarrelDistortion(Vector4 p, Vector4 LC, float k1, float k2, float k3)
+{
+	Vector4 q = p - LC;
+	float r = q.length();
+	float r2 = pow(r, 2.0f);
+
+	float newRadius = (1.0f + r2 * k1) + (k2 * pow(r, 4.0f)) + (k3 * pow(r, 6.0f));
+	return newRadius * q + LC;
+}
+
 void EffectsRenderer::RenderVRBrackets()
 {
 	// TODO: This method should work even when the Active Cockpit is disabled.
-	if (!g_bUseSteamVR || !g_bRendering3D || !g_bActiveCockpitEnabled || _bBracketsRendered || !_bCockpitConstantsCaptured)
+	//if (!g_bUseSteamVR || !g_bRendering3D || !g_bActiveCockpitEnabled || _bBracketsRendered || !_bCockpitConstantsCaptured)
+	if (!g_bUseSteamVR || !g_bRendering3D || _bBracketsRendered)
 		return;
 
 	_deviceResources->BeginAnnotatedEvent(L"RenderVRBrackets");
@@ -6477,6 +6427,56 @@ void EffectsRenderer::RenderVRBrackets()
 		PlayerDataTable[*g_playerIndex].gunnerTurretActive : false;
 
 	SaveContext();
+
+	// Find the correct Up vector for the brackets:
+	float upAngle = 0.0f;
+	Vector4 Up  = Vector4( 0, 0, 1, 0);
+	Vector4 UpT = Vector4(-1, 0, 0, 0);
+	if (false)
+	{
+		const float Zfar = *(float*)0x05B46B4;
+		Vector4 screenCenter = Vector4(g_fCurInGameWidth / 2.0f, g_fCurInGameHeight / 2.0f, 0, 1);
+		Matrix4 R    = Matrix4().rotateZ(g_pSharedDataCockpitLook->Roll);
+		Matrix4 T    = Matrix4().translate(-screenCenter.x, -screenCenter.y, 0);
+		Matrix4 Tinv = Matrix4().translate(screenCenter.x, screenCenter.y, 0);
+		R = Tinv * R * T;
+
+		const float desiredZ = 65536.0f;
+		float Z = Zfar / (desiredZ * METERS_TO_OPT + Zfar);
+		float X, Y;
+		Vector4 P;
+
+		// Create an up vector in screen coords, rotate it by the current roll and back-project it.
+		X = screenCenter.x;
+		Y = screenCenter.y;
+		P = R * Vector4(X, Y, 0, 1);
+		X = P.x; Y = P.y;
+		float3 V = InverseTransformProjectionScreen({ X, Y, Z, Z }); // RenderVRBrackets()
+		V.y = -V.y;
+		V.z = -V.z;
+
+		X = screenCenter.x;
+		Y = screenCenter.y - 40.0f;
+		P = R * Vector4(X, Y, 0, 1);
+		X = P.x; Y = P.y;
+		float3 W = InverseTransformProjectionScreen({ X, Y, Z, Z }); // CacheBracketsVR
+		W.y = -W.y;
+		W.z = -W.z;
+
+		// V and W are now OPT-scale and pointing in the Up direction.
+		Up = Vector4(W.x - V.x, W.y - V.y, 0, 0);
+		Up.normalize();
+		UpT = Up;
+		// Make an ortho vector:
+		std::swap(UpT.x, UpT.y);
+		UpT.x = -UpT.x;
+
+		// Because Z+ is up in this game...
+		std::swap(Up.y, Up.z);
+		std::swap(UpT.y, UpT.z);
+		//upAngle = RAD_TO_DEG * atan2(Up.x, Up.y);
+	}
+	//log_debug_vr("upAngle: %0.3f", upAngle);
 
 	context->VSSetConstantBuffers(0, 1, _constantBuffer.GetAddressOf());
 	context->PSSetConstantBuffers(0, 1, _constantBuffer.GetAddressOf());
@@ -6500,6 +6500,7 @@ void EffectsRenderer::RenderVRBrackets()
 	g_PSCBuffer.fSSAOMaskVal = SHADELESS_MAT;
 
 	g_VRGeometryCBuffer.numStickyRegions = 0;
+	g_VRGeometryCBuffer.bRenderBracket = 1;
 	// Disable region highlighting
 	g_VRGeometryCBuffer.clicked[0] = false;
 	g_VRGeometryCBuffer.clicked[1] = false;
@@ -6510,8 +6511,10 @@ void EffectsRenderer::RenderVRBrackets()
 	_bIsBlastMark = false;
 
 	// Set the textures
-	//_deviceResources->InitPSShaderResourceView(_vrGreenCirclesSRV.Get(), nullptr);
-	_deviceResources->InitPSShaderResourceView(resources->_BracketsSRV.Get(), nullptr);
+	// Use this to render each bracket individually:
+	_deviceResources->InitPSShaderResourceView(_vrGreenCirclesSRV.Get(), nullptr);
+	// Use this to render 2D brackets on a big canvas:
+	//_deviceResources->InitPSShaderResourceView(resources->_BracketsSRV.Get(), nullptr);
 
 	// Set the mesh buffers
 	ID3D11ShaderResourceView* vsSSRV[4] = { _vrDotMeshVerticesSRV.Get(), nullptr, _vrDotMeshTexCoordsSRV.Get(), nullptr };
@@ -6525,7 +6528,6 @@ void EffectsRenderer::RenderVRBrackets()
 
 	// Apply the VS and PS constants
 	resources->InitPSConstantBuffer3D(resources->_PSConstantBuffer.GetAddressOf(), &g_PSCBuffer);
-	resources->InitVRGeometryCBuffer(resources->_VRGeometryCBuffer.GetAddressOf(), &g_VRGeometryCBuffer);
 	_deviceResources->InitPixelShader(resources->_pixelShaderVRGeom);
 
 	// Set the constants buffer
@@ -6540,23 +6542,77 @@ void EffectsRenderer::RenderVRBrackets()
 	context->UpdateSubresource(_constantBuffer, 0, nullptr, &_CockpitConstants, 0, 0);
 	_trianglesCount = g_vrDotNumTriangles;
 
-	Matrix4 V, swap({ 1,0,0,0,  0,0,1,0,  0,1,0,0,  0,0,0,1 });
+	Matrix4 V, Vinner;
+	Matrix4 swap({ 1,0,0,0,  0,0,1,0,  0,1,0,0,  0,0,0,1 });
 
 	// Get the width in OPT-scale of the mesh that will be rendered:
 	// 0 -> 1
-	// |
-	// 3
+	// |    |
+	// 3 -> 2
 	const float meshWidth = g_vrDotMeshVertices[1].x - g_vrDotMeshVertices[0].x;
-	//log_debug_vr("meshWidth: %0.3f", meshWidth);
+	Vector4 meshRight = Vector4(
+		g_vrDotMeshVertices[0].x - g_vrDotMeshVertices[1].x,
+		g_vrDotMeshVertices[0].y - g_vrDotMeshVertices[1].y,
+		g_vrDotMeshVertices[0].z - g_vrDotMeshVertices[1].z, 0);
+	meshRight.normalize();
+	Vector4 meshUp = Vector4(
+		g_vrDotMeshVertices[0].x - g_vrDotMeshVertices[3].x,
+		g_vrDotMeshVertices[0].y - g_vrDotMeshVertices[3].y,
+		g_vrDotMeshVertices[0].z - g_vrDotMeshVertices[3].z, 0);
+	meshUp.normalize();
+	Vector4 P0 = XwaVector3ToVector4(g_vrDotMeshVertices[0]); P0.w = 1.0f;
+	Vector4 P1 = XwaVector3ToVector4(g_vrDotMeshVertices[1]); P1.w = 1.0f;
+	Vector4 P2 = XwaVector3ToVector4(g_vrDotMeshVertices[2]); P2.w = 1.0f;
+	Vector4 P3 = XwaVector3ToVector4(g_vrDotMeshVertices[3]); P3.w = 1.0f;
+	Matrix4 swapScale({ 1,0,0,0,  0,0,-1,0,  0,-1,0,0,  0,0,0,1 });
+	//log_debug_vr("Rt: %0.3f, %0.3f, %0.3f", meshRight.x, meshRight.y, meshRight.z);
+	//log_debug_vr("Up: %0.3f, %0.3f, %0.3f", meshUp.x, meshUp.y, meshUp.z);
 
-	for (const auto& bracketVR : g_bracketsVR)
+	Matrix4 Roll = Matrix4().translate(0, -65536.0f * METERS_TO_OPT, 0) *
+	               Matrix4().rotateY(g_pSharedDataCockpitLook->Roll);
+	Vector4 Q0 = Roll * P0;
+	Vector4 Q1 = Roll * P1;
+	float4 q0 = TransformProjectionScreen({ Q0.x, -Q0.z, -Q0.y });
+	float4 q1 = TransformProjectionScreen({ Q1.x, -Q1.z, -Q1.y });
+
+	Vector4 U;
+	float UpRoll = 0.0f;
 	{
+		// O is the headset's center, in SteamVR coords:
+		//Vector4 O = g_VSMatrixCB.fullViewMat * Vector4(0, 0, 0, 0);
+		// U is the headset's up vector, in SteamVR coords:
+		U = g_VSMatrixCB.fullViewMat * Vector4(0, 1, 0, 0);
+		// Now compare U against Y+
+		Vector4 Up = U;
+		Up.z = 0;
+		Up.normalize();
+		float y = Vector4(0, 1, 0, 0).dot(Up);
+		float x = Vector4(1, 0, 0, 0).dot(Up);
+		UpRoll = RAD_TO_DEG * atan2(x, y);
+
+		//log_debug_vr("U: %0.3f, %0.3f, %0.3f, roll: %0.3f", U.x, U.y, U.z, UpRoll);
+	}
+
+	float refRoll = 0.0f;
+	log_debug_vr_set_row(5);
+	//log_debug_vr("numBrackets: %d", g_bracketsVR.size());
+	Vector4 right = Q1 - Q0; right.y = right.w = 0; right.normalize();
+	float rollAng = RAD_TO_DEG * atan2(right.z, right.x);
+	/*log_debug_vr("Roll angle: %0.3f, g_fBracketRollComp: %0.3f",
+		g_pSharedDataCockpitLook->Roll, g_fBracketRollComp);*/
+	for (uint32_t i = 0; i < g_bracketsVR.size(); i++)
+	{
+		const auto& bracketVR = g_bracketsVR[i];
 		Vector4 dotPosSteamVR;
 		dotPosSteamVR.x = bracketVR.posOPT.x * OPT_TO_METERS;
 		dotPosSteamVR.y = bracketVR.posOPT.z * OPT_TO_METERS;
 		dotPosSteamVR.z = bracketVR.posOPT.y * OPT_TO_METERS;
 		dotPosSteamVR.w = 1.0f;
 		const float meshScale = (bracketVR.halfWidthOPT * 2.0f) / meshWidth;
+		g_VRGeometryCBuffer.strokeWidth = bracketVR.strokeWidth;
+		g_VRGeometryCBuffer.bracketColor = bracketVR.color;
+		resources->InitVRGeometryCBuffer(resources->_VRGeometryCBuffer.GetAddressOf(), &g_VRGeometryCBuffer);
+		//log_debug_vr("meshScale: %0.3f", meshScale);
 
 		/*log_debug_vr("pos: %0.3f, %0.3f, %0.3f | width: %0.3f, scale: %0.3f",
 			dotPosSteamVR.x, dotPosSteamVR.y, dotPosSteamVR.z,
@@ -6565,24 +6621,75 @@ void EffectsRenderer::RenderVRBrackets()
 			// Compute a new matrix for the dot by using the origin -> intersection point view vector.
 			// First we'll align this vector with Z+ and then we'll use the inverse of this matrix to
 			// rotate the dot so that it always faces the origin.
+		float Yang = 0, Xang = 0;
+		Vector4 N;
 		{
+			Matrix4 Rx, Ry, Rz, Rortho, E, Einv;
 			Vector4 P = dotPosSteamVR;
+
+			Rx = Matrix4().rotateX(g_pSharedDataCockpitLook->Pitch);
+			Ry = Matrix4().rotateY(g_pSharedDataCockpitLook->Yaw);
+			Rz = Matrix4().rotateZ(g_pSharedDataCockpitLook->Roll);
+			//E = Ry * Rx;
+			//Einv = E; Einv.transpose();
+			//V = Rz * Ry * Rx;
+			//V = (E * Rz * Einv) * Ry * Rx;
+			// This transform displays the brackets as if they were placed on a big screen that is
+			// always facing the camera
+			//Rortho = Ry * Rx * Rz;
+			//Rortho = Rx.transpose() * Ry.transpose() * Rortho;
+			Rortho = Rz;
+			//Matrix4 tmpR = Rortho; tmpR.transpose();
+			//Vector4 meshN = tmpR * Vector4(0, 0, -1, 0); // in SteamVR coords, pointing forwards
+			Matrix4 Vinv = g_VSMatrixCB.fullViewMat;
+			Vinv.invert();
+			Vector4 meshN = Vinv * Vector4(0, 0, -1, 0);
+			//log_debug_vr("meshN: %0.3f, %0.3f, %0.3f", meshN.x, meshN.y, meshN.z);
+
+			/*
+			Vector4 refUp = V * swap * meshUp;
+			Vector4 refRight = V * swap * meshRight;
+
+			refUp.z = 0;
+			refUp.normalize();
+			*/
 
 			// O is the headset's center, in SteamVR coords:
 			Vector4 O = g_VSMatrixCB.fullViewMat * Vector4(0, 0, 0, 1);
 			// N goes from the intersection point to the headset's origin: it's the view vector now
-			Vector4 N = P - O;
-			//log_debug_vr(50 + contIdx * 25, FONT_WHITE_COLOR, "P[%d]: %0.3f, %0.3f, %0.3f", contIdx, P.x, P.y, P.z);
-
+			N = P - O;
+			//N = P;
 			N.normalize();
+
+			/*
+			{
+				// Project onto the X-Z plane...
+				Vector4 Np = N; Np.y = 0; Np.normalize();
+				Vector4 meshNp = meshN; meshNp.y = 0; meshNp.normalize();
+				// Compute the angle between these vectors
+				float y = Np.dot(meshNp);
+				float x = (meshNp - (y * Np)).length();
+				float angY = RAD_TO_DEG * atan2(x, y);
+				Ry = Matrix4().rotateY(-angY);
+			}
+			*/
+
 			// Rotate N into the Y-Z plane --> make x == 0
-			const float Yang = atan2(N.x, N.z) * RAD_TO_DEG;
-			Matrix4 Ry = Matrix4().rotateY(-Yang);
+			//Vector4 Np = N;
+			//Np.y = 0;
+			//Np.normalize();
+			Yang = atan2(N.x, N.z) * RAD_TO_DEG;
+			Ry = Matrix4().rotateY(-Yang);
 			N = Ry * N;
 
 			// Rotate N into the X-Z plane --> make y == 0. N should now be equal to Z+
-			const float Xang = atan2(N.y, N.z) * RAD_TO_DEG;
-			Matrix4 Rx = Matrix4().rotateX(Xang);
+			//Np = N;
+			//Np.x = 0;
+			//Np.normalize();
+			Xang = atan2(N.y, N.z) * RAD_TO_DEG;
+			/*log_debug_vr("Yang: %0.3f, Xang: %0.3f, meshScale: %0.3f",
+				Yang, Xang, meshScale);*/
+			Rx = Matrix4().rotateX(Xang);
 			//N = Rx * N;
 			//log_debug_vr(50 + contIdx * 25, FONT_WHITE_COLOR, "[%d]: %0.3f, %0.3f, %0.3f", contIdx, N.x, N.y, N.z);
 			// The transform chain is now Rx * Ry: this will align the view vector going from the
@@ -6591,29 +6698,168 @@ void EffectsRenderer::RenderVRBrackets()
 			// This is what the brackets do right now.
 			// Removing Rz keeps the up direction aligned with the reticle: this is probably
 			// what we want to do if we want to replace the brackets/reticle/pips
-			Matrix4 Rz = Matrix4().rotateZ(-g_pSharedDataCockpitLook->Roll);
-			V = Rz * Rx * Ry; // <-- Up direction is always view-aligned
+			Rz = Matrix4().rotateZ(g_pSharedDataCockpitLook->Roll);
+			//Rz = Matrix4().rotateZ(upAngle);
+			//Rz = Matrix4().rotate(-g_pSharedDataCockpitLook->Roll, N.x, N.y, N.z);
+
+
+
+#ifdef DISABLED
+			//Vector4 Up0 = swap * Up; // Up0 is in SteamVR coords
+			//Vector4 Up0T = swap * UpT;
+			Vector4 tmpUp = Rx * Ry * swap * meshUp; // tmpUp is in SteamVR coords
+			tmpUp.z = 0;
+			tmpUp.normalize();
+			// Project refUp onto tmpUp
+			float yUp = refUp.dot(tmpUp);
+			Vector4 tmpRight = refUp - (yUp * tmpUp);
+			tmpRight.normalize();
+
+			// Compare tmpUp with Up to find the roll:
+			//float yUp = tmpUp.dot(tmpUp);
+			float xUp = refRight.dot(tmpUp);
+			float roll = RAD_TO_DEG * atan2(xUp, yUp);
+			//float roll = RAD_TO_DEG * acos(yUp);
+			Rz = Matrix4().rotateZ(roll);
+			//Vector4 A = P;
+			//A.normalize();
+			//Rz = Matrix4().rotate(roll, N.x, N.y, N.z);
+#endif
+
+			/*
+			V = Rx * Ry;
+			Vector4 Q0 = V * swap * P0;
+			Vector4 Q3 = V * swap * P3;
+			Vector4 QUp = Q0 - Q3;
+			// Q0 - Q3 is now the Up vector for this mesh in SteamVR coords where N is aligned with Z.
+			// Now we need to transform the U vector into the same frame of reference:
+			Vector4 Up = V * U; // No need to swap since U is already in SteamVR coords.
+			// Now we just need to find the rotation about Z that aligns QUp and Up
+			// We can make z=0 for both vectors since that is equivalent to projecting them to the X-Y plane
+			QUp.z = Up.z = 0.0f;
+			QUp.normalize(); Up.normalize();
+			// Project QUp onto Up:
+			//float y = Up.dot(QUp);
+			float y = Vector4(0, 1, 0, 0).dot(Up);
+			// y * Up + X = Up
+			//float x = (Up - y * Up).length();
+			float x = Vector4(1, 0, 0, 0).dot(Up);
+			float roll = RAD_TO_DEG * atan2(x, y);
+			log_debug_vr("Up: %0.3f, %0.3f -- QUp: %0.3f, %0.3f -- roll: %0.3f", Up.x, Up.y, QUp.x, QUp.y, roll);
+			//log_debug_vr("QUp: %0.3f, %0.3f, %0.3f", QUp.x, QUp.y, QUp.z);
+			Rz = Matrix4().rotateZ(-roll);
+			*/
+
+			//Rz = Matrix4().rotateZ(-UpRoll);
+
+			//Vinner = (Rx * Ry * Rz * (Rx * Ry).transpose()) * Rx * Ry; // <-- Up direction is always view-aligned
+			V = Rx * Ry * Rz;
+			//V = Rx * Ry;
+			//Vinner = Ry;
 			//V = Rx * Ry; // <-- Up direction is reticle-aligned
+			//V = Rz;
 			// The transpose is the inverse, so it will align Z+ with the view vector:
+			//Vinner.transpose();
+			//V = swap * Vinner * swap;
+
+			//V = Ry * Rortho;
+			//V = Rx * Ry * Rortho;
+			// This transpose inverts the rotation:
 			V.transpose();
 			V = swap * V * swap;
 		}
 
 		Matrix4 DotTransform;
 		{
-			Matrix4 swapScale({ 1,0,0,0,  0,0,-1,0,  0,-1,0,0,  0,0,0,1 });
-
 			DotTransform.identity();
 			// This transform will put the dot in the center of the screen, no matter where we look.
 			// but bInHangar must be forced to true:
 			//T = Matrix4().translate(0, -15.0f, 0.0f);
 			Vector3 posOPT = { dotPosSteamVR.x * METERS_TO_OPT,
-			                   dotPosSteamVR.z * METERS_TO_OPT,
-			                   dotPosSteamVR.y * METERS_TO_OPT };
+							   dotPosSteamVR.z * METERS_TO_OPT,
+							   dotPosSteamVR.y * METERS_TO_OPT };
+			//log_debug_vr("posOPT: %0.3f, %0.3f, %0.3f", posOPT.x, posOPT.y, posOPT.z);
 			Matrix4 T = Matrix4().translate(posOPT);
-			//DotTransform = swapScale * T * Matrix4().scale(meshScale) * V;
-			DotTransform = swapScale * T * Matrix4().scale(meshScale);
+			// Use this to render individual brackets and apply billboard correction:
+			Matrix4 chain = T * Matrix4().scale(meshScale) * V;
+			Vector4 Center = chain * (0.5f * (P0 + P2));
+			Vector4 R0 = chain * P0;
+			Vector4 R1 = chain * P1;
+
+			float4 r0 = TransformProjectionScreen({ R0.x, -R0.z, R0.y });
+			float4 r1 = TransformProjectionScreen({ R1.x, -R1.z, R1.y });
+			float roll = g_pSharedDataCockpitLook->Roll;
+			Vector4 horz = { r1.x - r0.x, r1.y - r0.y, 0, 0 };
+			horz.normalize();
+			float horzAngle = RAD_TO_DEG * atan2(horz.y, horz.x);
+			float diff = -(-horzAngle + roll);
+			/*log_debug_vr("r:(%0.3f, %0.3f)-(%0.3f, %0.3f). Angle: %0.3f",
+				r0.x, r0.y, r1.x, r1.y, horzAngle);*/
+			/*log_debug_vr("R0: %0.3f, %0.3f, %0.3f",
+				R0.x * OPT_TO_METERS, R0.y * OPT_TO_METERS, R0.z * OPT_TO_METERS);*/
+
+			//float rAngle = SignedAngleBetweenVectors((R0 - R1), Vector4(1, 0, 0, 0), true);
+			//float vAngle = SignedAngleBetweenVectors((R0 - R1), (Q0 - Q1), true);
+			//log_debug_vr("rAngle: %0.3f, vAngle: %0.3f", rAngle, vAngle);
+			//Vector3 A = Vector4ToVector3((R1 - R0)); A.y = 0; A.normalize();
+			//Vector3 B = Vector4ToVector3((Q1 - Q0)); B.y = 0; B.normalize();
+			//Vector3 Bp = Vector3(-B.z, 0, B.x);
+			//float x = B.dot(A);
+			//float y = Bp.dot(A);
+			//float vAngle = RAD_TO_DEG * atan2(y, x);
+			//log_debug_vr("vAngle: %0.3f", vAngle);
+			//Matrix4 comp = Matrix4().rotate(vAngle, C.x, C.y, C.z);
+			//Matrix4 comp = Matrix4().rotateY(-vAngle);
+
+			Vector3 axis = posOPT; axis.normalize();
+			//Matrix4 comp = Matrix4().rotate(-0.5f * diff, axis.x, axis.y, axis.z);
+			//Matrix4 comp = Matrix4().rotateY(-diff);
+			DotTransform = swapScale * chain;
+
+			/*
+			Vector4 O0, O1;
+			Matrix4 Ry = Matrix4().translate(0, -65536.0f * METERS_TO_OPT, 0) *
+						 Matrix4().rotateY(g_pSharedDataCockpitLook->Roll) * // This keeps the brackets aligned with the horizon
+						 Matrix4().scale(meshScale);
+			O0 = Ry * P0;
+			O1 = Ry * P1;
+			float4 rA0 = TransformProjectionScreen({ O0.x, -O0.z, -O0.y });
+			float4 rA1 = TransformProjectionScreen({ O1.x, -O1.z, -O1.y });
+			Matrix4 V = Matrix4().rotateX(-Xang) *
+						Matrix4().rotateZ(Yang) *
+						//Matrix4().translate(0, posOPT.y, 0) *
+						Ry;
+			Vector4 right2 = V * (P0 - P1);
+			Vector4 O = V * P0;
+			float4 r1 = TransformProjectionScreen({ O.x, -O.z, -O.y });
+			log_debug_vr("r1: %0.3f, %0.3f", r1.x, r1.y);
+			// Compensate roll
+			right.y = right2.y = 0;
+			right.normalize(); right2.normalize();
+			float x = right.dot(right2);
+			float y = (right2 - (x * right)).length();
+			float compRoll = RAD_TO_DEG * atan2(y, x);
+			//log_debug_vr("compRoll: %0.3f", compRoll);
+			
+			DotTransform = swapScale * V;
+			*/
+				
+			// Use this to render a Big Canvas. There's no billboard correction here:
+			//DotTransform = swapScale * T * Matrix4().scale(meshScale);
+
+			//float roll = GetBracketRoll(DotTransform, P0, P3);
+			//if (i == 0)
+			//{
+			//	refRoll = roll;
+			//	// Skip the reference bracket
+			//	continue;
+			//}
+			//else
+			//{
+			//	DotTransform = swapScale * T * Matrix4().scale(meshScale) * (swap * Matrix4().rotateZ(-2.0f * (roll - refRoll)) * Vinner * swap);
+			//}
 		}
+
 		// The Vertex Shader does post-multiplication, so we need to transpose the matrix:
 		DotTransform.transpose();
 		g_OPTMeshTransformCB.MeshTransform = DotTransform;
@@ -6667,6 +6913,7 @@ void EffectsRenderer::RenderVRHUD()
 	g_PSCBuffer.fSSAOMaskVal = SHADELESS_MAT;
 
 	g_VRGeometryCBuffer.numStickyRegions = 0;
+	g_VRGeometryCBuffer.bRenderBracket = 0;
 	// Disable region highlighting
 	g_VRGeometryCBuffer.clicked[0] = false;
 	g_VRGeometryCBuffer.clicked[1] = false;
@@ -6969,6 +7216,7 @@ void EffectsRenderer::RenderVRKeyboard()
 		g_VRGeometryCBuffer.stickyRegions[i] = g_vrKeybState.stickyRegions[i];
 	}
 	g_VRGeometryCBuffer.numStickyRegions = g_vrKeybState.iNumStickyRegions;
+	g_VRGeometryCBuffer.bRenderBracket = 0;
 
 	// Highlight regular clicks
 	for (int i = 0; i < 2; i++)
@@ -7063,6 +7311,7 @@ void EffectsRenderer::RenderVRGloves()
 	// bInHyperspace ?
 
 	g_VRGeometryCBuffer.numStickyRegions = 0;
+	g_VRGeometryCBuffer.bRenderBracket = 0;
 	// Disable region highlighting on the gloves for now...
 	g_VRGeometryCBuffer.clicked[0] = false;
 	g_VRGeometryCBuffer.clicked[1] = false;

@@ -392,13 +392,14 @@ typedef struct RTConstantsBufferStruct {
 struct VRGeometryCBuffer {
 	uint32_t numStickyRegions;
 	uint32_t clicked[2];
-	uint32_t unused1;
+	uint32_t bRenderBracket;
 	// 16 bytes
 	float4   stickyRegions[MAX_VRKEYB_REGIONS];
 	// 80 bytes
 	float4   clickRegions[2];
 	// 112 bytes
-	float4   U;
+	float    strokeWidth;
+	float3   bracketColor;
 	// 128 bytes
 };
 

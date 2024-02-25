@@ -316,6 +316,7 @@ struct BracketVR
 {
 	Vector3 posOPT;
 	float halfWidthOPT, halfHeightOPT;
+	float strokeWidth;
 	Vector3 color;
 };
 extern std::vector<BracketVR> g_bracketsVR;

@@ -69,6 +69,19 @@ Matrix2& Matrix2::invert()
     return *this;
 }
 
+///////////////////////////////////////////////////////////////////////////////
+Matrix2& Matrix2::rotate(float angle)
+{
+    float c = cosf(angle * DEG2RAD);
+    float s = sinf(angle * DEG2RAD);
+
+    m[0] = c;
+    m[1] = s;
+    m[2] = -s;
+    m[3] = c;
+
+    return *this;
+}
 
 
 ///////////////////////////////////////////////////////////////////////////////

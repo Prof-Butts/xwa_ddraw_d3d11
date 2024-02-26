@@ -400,6 +400,10 @@ struct VRGeometryCBuffer {
 	// 112 bytes
 	float4   U;
 	// 128 bytes
+	float4   R;
+	// 144 bytes
+	float4   F;
+	// 160 bytes
 };
 
 typedef struct {

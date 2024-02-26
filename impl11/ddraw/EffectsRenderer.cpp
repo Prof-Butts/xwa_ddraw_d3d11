@@ -26,6 +26,14 @@ bool g_bUseCentroids = true;
 RTCDevice g_rtcDevice = nullptr;
 RTCScene g_rtcScene = nullptr;
 
+bool g_bProjectionValuesCaptured = false;
+float g_f0x08B94CC;
+float g_f0x08C1600;
+float g_f0x0686ACC;
+float g_f0x080ACF8;
+float g_f0x07B33C0;
+float g_f0x064D1AC;
+
 char* g_sBLASBuilderTypeNames[(int)BLASBuilderType::MAX] = {
 	"      BVH2",
 	"      QBVH",
@@ -2100,6 +2108,8 @@ void ApplyGimbalLockFix(float elapsedTime, CraftInstance *craftInstance)
 void EffectsRenderer::SceneBegin(DeviceResources* deviceResources)
 {
 	D3dRenderer::SceneBegin(deviceResources);
+
+	g_bProjectionValuesCaptured = false;
 
 #ifdef DISABLED
 	{
@@ -5254,6 +5264,17 @@ void EffectsRenderer::MainSceneHook(const SceneCompData* scene)
 	_deviceResources->InitRasterizerState(_rasterizerState);
 	_deviceResources->InitSamplerState(_samplerState.GetAddressOf(), nullptr);
 
+	if (!g_bProjectionValuesCaptured)
+	{
+		g_f0x08B94CC = *(float*)0x08B94CC;
+		g_f0x08C1600 = *(float*)0x08C1600;
+		g_f0x0686ACC = *(float*)0x0686ACC;
+		g_f0x080ACF8 = *(float*)0x080ACF8;
+		g_f0x07B33C0 = *(float*)0x07B33C0;
+		g_f0x064D1AC = *(float*)0x064D1AC;
+		g_bProjectionValuesCaptured = true;
+	}
+
 	if (scene->TextureAlphaMask == 0)
 	{
 		_deviceResources->InitBlendState(_solidBlendState, nullptr);
@@ -6466,7 +6487,8 @@ void EffectsRenderer::RenderVRDots()
 void EffectsRenderer::RenderVRBrackets()
 {
 	// TODO: This method should work even when the Active Cockpit is disabled.
-	if (!g_bUseSteamVR || !g_bRendering3D || !g_bActiveCockpitEnabled || _bBracketsRendered || !_bCockpitConstantsCaptured)
+	//if (!g_bUseSteamVR || !g_bRendering3D || !g_bActiveCockpitEnabled || _bBracketsRendered || !_bCockpitConstantsCaptured)
+	if (!g_bUseSteamVR || !g_bRendering3D || _bBracketsRendered)
 		return;
 
 	_deviceResources->BeginAnnotatedEvent(L"RenderVRBrackets");

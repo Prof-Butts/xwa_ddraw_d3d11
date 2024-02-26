@@ -4911,6 +4911,7 @@ HRESULT Direct3DDevice::Execute(
 					g_PSCBuffer.special_control.ExclusiveMask = SPECIAL_CONTROL_BACKGROUND;
 					// Suns are pushed to infinity too:
 					//if (bIsSun) log_debug("[DBG] Sun pushed to infinity");
+					//goto out;
 				}
 
 				// Apply specific material properties for the current texture

@@ -31,6 +31,13 @@ extern D3dRenderer* g_current_renderer;
 extern LBVH* g_ACTLASTree;
 //extern float g_HMDYaw, g_HMDPitch, g_HMDRoll;
 
+extern float g_f0x08B94CC;
+extern float g_f0x08C1600;
+extern float g_f0x0686ACC;
+extern float g_f0x080ACF8;
+extern float g_f0x07B33C0;
+extern float g_f0x064D1AC;
+
 // Text Rendering
 TimedMessage g_TimedMessages[MAX_TIMED_MESSAGES];
 
@@ -11757,6 +11764,9 @@ void PrimarySurface::RenderBracket()
 	static float s_scaleX;
 	static float s_scaleY;
 
+	bool bExternalCamera = (g_iPresentCounter > PLAYERDATATABLE_MIN_SAFE_FRAME) ?
+		PlayerDataTable[*g_playerIndex].Camera.ExternalCamera : false;
+
 	auto& resources = _deviceResources;
 	auto& context = _deviceResources->_d3dDeviceContext;
 	if (g_bUseSteamVR)
@@ -11936,6 +11946,16 @@ void PrimarySurface::RenderBracket()
 	{
 		const float Zfar = *(float*)0x05B46B4;
 
+		if (bExternalCamera)
+		{
+			*(float*)0x08B94CC = g_f0x08B94CC;
+			*(float*)0x08C1600 = g_f0x08C1600;
+			*(float*)0x0686ACC = g_f0x0686ACC;
+			*(float*)0x080ACF8 = g_f0x080ACF8;
+			*(float*)0x07B33C0 = g_f0x07B33C0;
+			*(float*)0x064D1AC = g_f0x064D1AC;
+		}
+
 		//Matrix4 Heading;
 		//GetHyperspaceEffectMatrix(&Heading);
 		//GetCockpitViewMatrix(&Heading);
@@ -11946,12 +11966,19 @@ void PrimarySurface::RenderBracket()
 		Matrix4 S = Matrix4().scale(-1, -1, 1);
 		ViewMatrix = S * ViewMatrix * S * Heading;
 
-		Vector4 U = ViewMatrix * Vector4(0, 0, -1, 0);
-		g_VRGeometryCBuffer.U.x = U.x;
-		g_VRGeometryCBuffer.U.y = U.y;
-		g_VRGeometryCBuffer.U.z = U.z;
-		g_VRGeometryCBuffer.U.w = 0;
-		log_debug_vr("Up: %0.3f, %0.3f, %0.3f", U.x, U.y, U.z);
+		// Adding ViewMatrix to these formulas renders a pattern that is fixed to the stellar background
+		Vector4 U = ViewMatrix * Vector4(0, 0, 1, 0); U.normalize();
+		Vector4 R = ViewMatrix * Vector4(1, 0, 0, 0); R.normalize();
+		Vector4 F = ViewMatrix * Vector4(0, 1, 0, 0); F.normalize();
+
+		// Removing ViewMatrix from the formulas creates a pattern that is fixed to the camera:
+		/*Vector4 U = Vector4(0, 0, 1, 0); U.normalize();
+		Vector4 R = Vector4(1, 0, 0, 0); R.normalize();
+		Vector4 F = Vector4(0, 1, 0, 0); F.normalize();*/
+
+		g_VRGeometryCBuffer.U = { U.x, U.y, U.z, 0 };
+		g_VRGeometryCBuffer.R = { R.x, R.y, R.z, 0 };
+		g_VRGeometryCBuffer.F = { F.x, F.y, F.z, 0 };
 
 		context->ResolveSubresource(resources->_BracketsAsInput, 0, resources->_BracketsMSAA, 0, BACKBUFFER_FORMAT);
 		if (g_bDumpSSAOBuffers && g_bUseSteamVR)
@@ -11988,6 +12015,16 @@ void PrimarySurface::RenderBracket()
 		// This method should only be called in VR mode:
 		EffectsRenderer* renderer = (EffectsRenderer*)g_current_renderer;
 		renderer->RenderVRBrackets();
+
+		if (bExternalCamera)
+		{
+			g_f0x08B94CC = *(float*)0x08B94CC;
+			g_f0x08C1600 = *(float*)0x08C1600;
+			g_f0x0686ACC = *(float*)0x0686ACC;
+			g_f0x080ACF8 = *(float*)0x080ACF8;
+			g_f0x07B33C0 = *(float*)0x07B33C0;
+			g_f0x064D1AC = *(float*)0x064D1AC;
+		}
 	}
 
 	this->_deviceResources->EndAnnotatedEvent();
@@ -12058,7 +12095,7 @@ void PrimarySurface::CacheBracketsVR()
 		bracketVR.halfHeightOPT = fabs(W.y - V.y);
 		bracketVR.color.x = ((brushColor >> 16) & 0xFF) / 255.0f;
 		bracketVR.color.y = ((brushColor >> 8) & 0xFF) / 255.0f;
-		bracketVR.color.y = (brushColor & 0xFF) / 255.0f;
+		bracketVR.color.z = (brushColor & 0xFF) / 255.0f;
 		g_bracketsVR.push_back(bracketVR);
 
 		// Bracket are defined in in-game coords

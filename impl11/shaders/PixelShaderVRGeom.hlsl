@@ -29,6 +29,10 @@ cbuffer ConstantBuffer : register(b11)
 	// 112 bytes
 	float4 U;
 	// 128 bytes
+	float4 R;
+	// 144 bytes
+	float4 F;
+	// 160 bytes
 };
 
 // New PixelShaderInput needed for the D3DRendererHook
@@ -120,9 +124,6 @@ PixelShaderOutput main(PixelShaderInput input)
 	float3 P = input.pos3D.xyz;
 	output.pos3D = float4(P, 1);
 
-	const float3 V = normalize(P);
-	const float Vdist = dot(V, U.xyz);
-
 	float3 N = normalize(input.normal.xyz);
 	N.y = -N.y; // Invert the Y axis, originally Y+ is down
 	N.z = -N.z;
@@ -154,8 +155,32 @@ PixelShaderOutput main(PixelShaderInput input)
 	//output.color.b  = 2.0 * input.tex.y;
 	//output.color.a += 0.25;
 
-	output.color.rb = 0.5 * Vdist;
-	output.color.a = pow(Vdist, 4.0);
+	output.color.a = 0;
+
+	const float3 V = normalize(input.pos3D.xyz);
+	const float Vdist = dot(V, U.xyz);
+	output.color.rb += 0.5 * Vdist;
+	output.color.a = max(output.color.a, pow(Vdist, 4.0));
+
+	float inc = 2.0 / 8;
+	float p = -1.0;
+	for (i = 0; i < 8; i++)
+	{
+		const float Hdist = abs(dot(V, U.xyz) - p) < 0.005 ? 1 : 0;
+		const float Rdist = abs(dot(V, R.xyz) - p) < 0.005 ? 1 : 0;
+		const float Fdist = abs(dot(V, F.xyz) - p) < 0.005 ? 1 : 0;
+
+		output.color.gb += 0.9 * Hdist;
+		output.color.a = max(output.color.a, pow(Hdist, 4.0));
+
+		output.color.r += 0.9 * Rdist;
+		output.color.a = max(output.color.a, pow(Rdist, 4.0));
+
+		output.color.rg += 0.9 * Fdist;
+		output.color.a = max(output.color.a, pow(Fdist, 4.0));
+
+		p += inc;
+	}
 
 	if (output.color.a < 0.2)
 		discard;

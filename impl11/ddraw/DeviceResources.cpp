@@ -4883,8 +4883,8 @@ HRESULT DeviceResources::LoadResources()
 	// Create the constant buffer for the VR Geometry
 	if (g_bUseSteamVR)
 	{
-		constantBufferDesc.ByteWidth = 128;
-		static_assert(sizeof(VRGeometryCBuffer) == 128, "sizeof(VRGeometryCBuffer) must be 128");
+		constantBufferDesc.ByteWidth = 160;
+		static_assert(sizeof(VRGeometryCBuffer) == 160, "sizeof(VRGeometryCBuffer) must be 160");
 		if (FAILED(hr = this->_d3dDevice->CreateBuffer(&constantBufferDesc, nullptr, &_VRGeometryCBuffer)))
 			return hr;
 	}

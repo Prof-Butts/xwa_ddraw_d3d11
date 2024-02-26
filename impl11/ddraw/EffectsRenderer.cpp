@@ -6587,6 +6587,7 @@ void EffectsRenderer::RenderVRBrackets()
 			// Compute a new matrix for the dot by using the origin -> intersection point view vector.
 			// First we'll align this vector with Z+ and then we'll use the inverse of this matrix to
 			// rotate the dot so that it always faces the origin.
+		if (false)
 		{
 			Vector4 P = dotPosSteamVR;
 

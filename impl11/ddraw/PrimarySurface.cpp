@@ -11904,30 +11904,6 @@ void PrimarySurface::RenderBracket()
 				rtv->DrawLine(D2D1::Point2F(posX + posW - posW * posSide, posY + posH), D2D1::Point2F(posX + posW, posY + posH), s_brush, strokeWidth);
 				rtv->DrawLine(D2D1::Point2F(posX + posW, posY + posH - posH * posSide), D2D1::Point2F(posX + posW, posY + posH), s_brush, strokeWidth);
 			}
-			else
-			{
-				const float roll = g_pSharedDataCockpitLook->Roll;
-				const float c = cos(roll * DEG2RAD);
-				const float s = sin(roll * DEG2RAD);
-				Vector2 X = Vector2(c, s);
-				Vector2 Y = Vector2(-s, c);
-				Vector2 C, P, Q;
-				C = { posX + posW / 2.0f, posY + posH / 2.0f };
-
-				// top left
-				P = { posX, posY };
-				Q = P + (posW * posSide) * X;
-				rtv->DrawLine(D2D1::Point2F(P.x, P.y), D2D1::Point2F(Q.x, Q.y), s_brush, strokeWidth);
-				Q = P + (posH * posSide) * Y;
-				rtv->DrawLine(D2D1::Point2F(P.x, P.y), D2D1::Point2F(Q.x, Q.y), s_brush, strokeWidth);
-
-				// top right
-				P = { posX + posW - posW * posSide, posY };
-				Q = P - (posW * posSide) * X;
-				rtv->DrawLine(D2D1::Point2F(P.x, P.y), D2D1::Point2F(Q.x, Q.y), s_brush, strokeWidth);
-				Q = P + (posH * posSide) * Y;
-				rtv->DrawLine(D2D1::Point2F(P.x, P.y), D2D1::Point2F(Q.x, Q.y), s_brush, strokeWidth);
-			}
 		}
 	}
 
@@ -11967,14 +11943,16 @@ void PrimarySurface::RenderBracket()
 		ViewMatrix = S * ViewMatrix * S * Heading;
 
 		// Adding ViewMatrix to these formulas renders a pattern that is fixed to the stellar background
-		Vector4 U = ViewMatrix * Vector4(0, 0, 1, 0); U.normalize();
+		/*Vector4 U = ViewMatrix * Vector4(0, 0, 1, 0); U.normalize();
 		Vector4 R = ViewMatrix * Vector4(1, 0, 0, 0); R.normalize();
-		Vector4 F = ViewMatrix * Vector4(0, 1, 0, 0); F.normalize();
+		Vector4 F = ViewMatrix * Vector4(0, 1, 0, 0); F.normalize();*/
 
-		// Removing ViewMatrix from the formulas creates a pattern that is fixed to the camera:
-		/*Vector4 U = Vector4(0, 0, 1, 0); U.normalize();
-		Vector4 R = Vector4(1, 0, 0, 0); R.normalize();
-		Vector4 F = Vector4(0, 1, 0, 0); F.normalize();*/
+		// Removing ViewMatrix from the formulas creates a pattern that is fixed to the camera.
+		// To fix it to the local horizon, we must compensate for roll:
+		Matrix4 roll = Matrix4().rotateZ(-g_pSharedDataCockpitLook->Roll);
+		Vector4 U = roll * Vector4(0, 0, 1, 0); U.normalize();
+		Vector4 R = roll * Vector4(1, 0, 0, 0); R.normalize();
+		Vector4 F = roll * Vector4(0, 1, 0, 0); F.normalize();
 
 		g_VRGeometryCBuffer.U = { U.x, U.y, U.z, 0 };
 		g_VRGeometryCBuffer.R = { R.x, R.y, R.z, 0 };
@@ -11991,7 +11969,7 @@ void PrimarySurface::RenderBracket()
 		float H = g_fCurInGameHeight;
 		float desiredZ = 65536.0f;
 		float X = W / 2.0f, Y = H / 2.0f;
-		float Z = Zfar / (desiredZ * METERS_TO_OPT);
+		float Z = Zfar / (desiredZ * METERS_TO_OPT + Zfar);
 		float3 P = InverseTransformProjectionScreen({ X, Y, Z, Z });
 		P.y = -P.y;
 		P.z = -P.z;
@@ -12005,11 +11983,11 @@ void PrimarySurface::RenderBracket()
 		bracketVR.posOPT.x = P.x;
 		bracketVR.posOPT.y = P.z;
 		bracketVR.posOPT.z = P.y;
-		bracketVR.halfWidthOPT = fabs(Q.x - P.x);
+		bracketVR.halfWidthOPT  = fabs(Q.x - P.x);
 		bracketVR.halfHeightOPT = fabs(Q.y - P.y);
-		bracketVR.color.x = ((brushColor >> 16) & 0xFF) / 255.0f;
-		bracketVR.color.y = ((brushColor >> 8) & 0xFF) / 255.0f;
-		bracketVR.color.y = (brushColor & 0xFF) / 255.0f;
+		bracketVR.color.x = (float)((brushColor >> 16) & 0xFF) / 255.0f;
+		bracketVR.color.y = (float)((brushColor >>  8) & 0xFF) / 255.0f;
+		bracketVR.color.z = (float)((brushColor >>  0) & 0xFF) / 255.0f;
 		g_bracketsVR.push_back(bracketVR);
 
 		// This method should only be called in VR mode:

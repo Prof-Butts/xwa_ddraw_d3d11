@@ -78,6 +78,17 @@ float noise(in float3 x)
 				hash(i + float3(1, 1, 1)), f.x), f.y), f.z);
 }
 
+float3 genericDistortion(float2 p, float2 LC, float k1, float k2, float k3)
+{
+	// Lens distortion value, positive values of k1 & k2 give barrel distortion, negative give pincushion.
+	float2 q = p - LC;
+	float r = length(q);
+	float r2 = pow(r, 2.0f);
+
+	float newRadius = (1.0f + r2 * k1) + (k2 * pow(r, 4.0f)) + (k3 * pow(r, 6.0f));
+	return float3(newRadius * q + LC, r);
+}
+
 PixelShaderOutput main(PixelShaderInput input)
 {
 	PixelShaderOutput output;
@@ -157,21 +168,29 @@ PixelShaderOutput main(PixelShaderInput input)
 
 	output.color.a = 0;
 
-	const float3 V = normalize(input.pos3D.xyz);
-	const float Vdist = dot(V, U.xyz);
-	output.color.rb += 0.5 * Vdist;
-	output.color.a = max(output.color.a, pow(Vdist, 4.0));
+	float3 V = normalize(input.pos3D.xyz);
 
-	float inc = 2.0 / 8;
+	// Remove the pincushion effect
+	float3 q = genericDistortion(V.xy, 0, 0.5, 0.5, 0);
+	V.xy = q.xy;
+	normalize(V);
+
+	// Colorize the cap:
+	//const float Vdist = dot(V, U.xyz);
+	//output.color.rb += 0.5 * Vdist;
+	//output.color.a = max(output.color.a, pow(Vdist, 4.0));
+
+	float inc = 2.0 / 16;
 	float p = -1.0;
-	for (i = 0; i < 8; i++)
+	for (i = 0; i < 16; i++)
 	{
-		const float Hdist = abs(dot(V, U.xyz) - p) < 0.005 ? 1 : 0;
-		const float Rdist = abs(dot(V, R.xyz) - p) < 0.005 ? 1 : 0;
-		const float Fdist = abs(dot(V, F.xyz) - p) < 0.005 ? 1 : 0;
+		const float Hdist = abs(dot(V, U.xyz) - p) < 0.0025 ? 1 : 0;
+		const float Rdist = abs(dot(V, R.xyz) - p) < 0.0025 ? 1 : 0;
+		const float Fdist = abs(dot(V, F.xyz) - p) < 0.0025 ? 1 : 0;
 
-		output.color.gb += 0.9 * Hdist;
-		output.color.a = max(output.color.a, pow(Hdist, 4.0));
+		// Horizon lines appear as circles when ViewMatrix is set to identity
+		//output.color.gb += 0.9 * Hdist;
+		//output.color.a = max(output.color.a, pow(Hdist, 4.0));
 
 		output.color.r += 0.9 * Rdist;
 		output.color.a = max(output.color.a, pow(Rdist, 4.0));

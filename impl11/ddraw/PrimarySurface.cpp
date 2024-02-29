@@ -12749,13 +12749,71 @@ void PrimarySurface::RenderBracket()
 	this->_deviceResources->EndAnnotatedEvent();
 }
 
+float CalcRollCompensation(float X, float Y)
+{
+	float centerX = g_fCurInGameWidth / 2.0f;
+	float centerY = g_fCurInGameHeight / 2.0f;
+	float rollCompensation = 0.0f;
+
+	Vector4 P = Vector4(X - centerX, Y - centerY, 0, 0);
+	float L = P.length();
+	float refL = Vector4(g_fCurInGameWidth - centerX, g_fCurInGameHeight - centerY, 0, 0).length();
+	float c = P.x / L, s = P.y / L;
+	float as = (abs(s) * abs(c));
+	as = (as * as) / 0.5f;
+	L /= refL;
+
+	// This creates a function that looks like a cross: it's zero along the
+	// X and Y axes multiplied by a radial function that is 0 near the center.
+	// In other words: only the edges of the screen are affected.
+	float compIntensity = (L * 2.0f) * as;
+	float compAngle = 0.0f;
+
+	/*float angle = acos(fabs(c));
+	compAngle = angle * 0.5f;
+	if (P.x < 0.0f)
+	{
+		if (P.y < 0.0f)
+		{
+			compAngle = -compAngle;
+		}
+	}
+	else
+	{
+		if (P.y > 0.0f)
+		{
+			compAngle = -compAngle;
+		}
+	}*/
+
+	float angle = asin(fabs(s));
+	compAngle = angle * 0.5f;
+	if (P.x > 0.0f)
+	{
+		if (P.y > 0.0f)
+		{
+			compAngle = -compAngle;
+		}
+	}
+	else
+	{
+		if (P.y < 0.0f)
+		{
+			compAngle = -compAngle;
+		}
+	}
+
+	return compIntensity * (RAD_TO_DEG * compAngle);
+}
+
 void AddDebugBracket(float X, float Y, float size)
 {
 	const float Zfar = *(float*)0x05B46B4;
 	float desiredZ = 65536.0f;
 	// The following division is correct. Znear is actually greater than Zfar because the
 	// depth is inverted (0 is far, 1 is close). It's also normalized.
-	float Z = Zfar / (desiredZ * METERS_TO_OPT + Zfar);
+	//float Z = Zfar / (desiredZ * METERS_TO_OPT + Zfar);
+	float Z = Zfar / (desiredZ * METERS_TO_OPT);
 
 	float3 V = InverseTransformProjectionScreen({ X, Y, Z, Z }); // CacheBracketsVR
 	V.y = -V.y; V.z = -V.z;
@@ -12765,10 +12823,12 @@ void AddDebugBracket(float X, float Y, float size)
 	W.y = -W.y; W.z = -W.z;
 
 	BracketVR bracketVR;
+	bracketVR.pos2D = { X, Y, 0 };
 	bracketVR.posOPT = { V.x, V.z, V.y };
 	bracketVR.halfWidthOPT  = fabs(W.x - V.x);
 	bracketVR.halfHeightOPT = fabs(W.y - V.y);
 	bracketVR.color = { 1, 1, 1 };
+	bracketVR.rollCompensation = CalcRollCompensation(X, Y);
 	g_bracketsVR.push_back(bracketVR);
 }
 
@@ -12789,55 +12849,12 @@ void PrimarySurface::CacheBracketsVR()
 	C.z = -C.z;
 
 	// Let's measure the width of the stroke now:
-	constexpr float STROKE_WIDTH = 1.5f;
+	constexpr float STROKE_WIDTH = 1.75f;
 	X = screenCenter.x + STROKE_WIDTH;
 	Y = screenCenter.y + STROKE_WIDTH;
 	float3 U = InverseTransformProjectionScreen({ X, Y, Z, Z }); // CacheBracketsVR
 	// This is the width of the stroke in OPT coordinates at the given depth
 	const float strokeWidthOPT = fabs(C.x - U.x);
-
-	// Put a bracket at the beginning of the list that is always at the reticle.
-	// We'll use this bracket as a reference to correct the roll of the other brackets.
-	if (false)
-	{
-		BracketVR bracketVR;
-		Vector4 screenCenter = Vector4(g_fCurInGameWidth / 2.0f, g_fCurInGameHeight / 2.0f, 0, 1);
-		//screenCenter.x += 180;
-		//screenCenter.y += 180;
-		Matrix4 R = Matrix4().rotateZ(g_pSharedDataCockpitLook->Roll);
-		R = Matrix4().translate(screenCenter.x, screenCenter.y, 0) * R * Matrix4().translate(-screenCenter.x, -screenCenter.y, 0);
-
-		const float desiredZ = 65536.0f;
-		float Z = Zfar / (desiredZ * METERS_TO_OPT + Zfar);
-		float X, Y;
-		float3 V, W;
-		Vector4 P;
-
-
-		X = screenCenter.x;
-		Y = screenCenter.y;
-		P = R * Vector4(X, Y, 0, 1);
-		X = P.x; Y = P.y;
-		V = InverseTransformProjectionScreen({ X, Y, Z, Z }); // CacheBracketsVR
-		V.y = -V.y;
-		V.z = -V.z;
-
-		X += 15.0f;
-		Y += 15.0f;
-		W = InverseTransformProjectionScreen({ X, Y, Z, Z }); // CacheBracketsVR
-		W.y = -W.y;
-		W.z = -W.z;
-
-		bracketVR.posOPT.x = V.x;
-		bracketVR.posOPT.y = V.z;
-		bracketVR.posOPT.z = V.y;
-		bracketVR.halfWidthOPT = fabs(W.x - V.x);
-		bracketVR.halfHeightOPT = fabs(W.y - V.y);
-		bracketVR.color.x = 1.0f;
-		bracketVR.color.y = 1.0f;
-		bracketVR.color.y = 1.0f;
-		g_bracketsVR.push_back(bracketVR);
-	}
 
 	for (const auto& xwaBracket : g_xwa_bracket)
 	{
@@ -12866,6 +12883,10 @@ void PrimarySurface::CacheBracketsVR()
 			brushColor = esi;
 		}
 
+		// Skip brackets that should be rendered in the CMD:
+		//if (xwaBracket.DC)
+		//	continue;
+
 		// xwaBracket is in in-game coords.
 		// xwaBracket.positionX/Y is the top-left corner, so adding halfWidth/Height gives us
 		// the center of the bracket:
@@ -12884,18 +12905,24 @@ void PrimarySurface::CacheBracketsVR()
 		W.z = -W.z;
 
 		BracketVR bracketVR;
+		bracketVR.pos2D = Vector3((float)xwaBracket.positionX, (float)xwaBracket.positionY, 0.0f);
 		bracketVR.posOPT.x = V.x;
 		bracketVR.posOPT.y = V.z;
 		bracketVR.posOPT.z = V.y;
-		bracketVR.halfWidthOPT = fabs(W.x - C.x);
+		bracketVR.halfWidthOPT  = fabs(W.x - C.x);
 		bracketVR.halfHeightOPT = fabs(W.y - C.y);
-		bracketVR.strokeWidth = strokeWidthOPT / (2.0f * bracketVR.halfWidthOPT);
+		bracketVR.strokeWidth   = strokeWidthOPT / (2.0f * bracketVR.halfWidthOPT);
+		bracketVR.rollCompensation = CalcRollCompensation(bracketVR.pos2D.x, bracketVR.pos2D.y);
 		bracketVR.color.x = (float)((brushColor >> 16) & 0xFF) / 255.0f;
-		bracketVR.color.y = (float)((brushColor >> 8) & 0xFF) / 255.0f;
-		bracketVR.color.z = (float)(brushColor & 0xFF) / 255.0f;
+		bracketVR.color.y = (float)((brushColor >>  8) & 0xFF) / 255.0f;
+		bracketVR.color.z = (float)((brushColor >>  0) & 0xFF) / 255.0f;
 		/*log_debug_vr("stroke width: %0.3f, col: 0x%x",
 			bracketVR.strokeWidth, brushColor);*/
 			//bracketVR.color.x, bracketVR.color.y, bracketVR.color.z);
+
+		/*log_debug_vr("(%0.3f, %0.3f)-(%0.3f, %0.3f):0x%x",
+			(float)xwaBracket.positionX, (float)xwaBracket.positionY,
+			(float)xwaBracket.width, (float)xwaBracket.height, brushColor);*/
 		g_bracketsVR.push_back(bracketVR);
 	}
 
@@ -12922,6 +12949,44 @@ void PrimarySurface::CacheBracketsVR()
 
 		AddDebugBracket(screenCenter.x - 275, screenCenter.y + 220, 35.0f);
 		AddDebugBracket(screenCenter.x - 275, screenCenter.y - 220, 35.0f);
+	}
+
+	// Draw a grid of squares
+	if (false)
+	{
+		g_bracketsVR.clear();
+
+		float x = 0.0f, y = 0.0f;
+		float incX = 80.0f, incY = 80.0f;
+		for (int i = 0; i < 4; i++)
+		{
+			x = 0.0f;
+			for (int j = 0; j < 5; j++)
+			{
+				if (x < 0.1f)
+				{
+					AddDebugBracket(screenCenter.x, screenCenter.y + y, 35.0f);
+					AddDebugBracket(screenCenter.x, screenCenter.y - y, 35.0f);
+				}
+
+				if (y < 0.01f)
+				{
+					AddDebugBracket(screenCenter.x - x, screenCenter.y, 35.0f);
+					AddDebugBracket(screenCenter.x + x, screenCenter.y, 35.0f);
+				}
+
+				if (x > 0.01f && y > 0.01f)
+				{
+					AddDebugBracket(screenCenter.x - x, screenCenter.y + y, 35.0f);
+					AddDebugBracket(screenCenter.x + x, screenCenter.y + y, 35.0f);
+
+					AddDebugBracket(screenCenter.x - x, screenCenter.y - y, 35.0f);
+					AddDebugBracket(screenCenter.x + x, screenCenter.y - y, 35.0f);
+				}
+				x += incX;
+			}
+			y += incY;
+		}
 	}
 
 	// Render a single bracket as a Big Canvas:

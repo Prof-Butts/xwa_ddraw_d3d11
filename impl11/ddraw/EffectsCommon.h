@@ -401,6 +401,11 @@ struct VRGeometryCBuffer {
 	float    strokeWidth;
 	float3   bracketColor;
 	// 128 bytes
+	float    rollCompensation;
+	float3   unused0;
+	// 144 bytes
+	float4   U;
+	// 160 bytes
 };
 
 typedef struct {

@@ -315,9 +315,11 @@ extern bool g_bCleanupZIPDirs;
 struct BracketVR
 {
 	Vector3 posOPT;
+	Vector3 pos2D;
 	float halfWidthOPT, halfHeightOPT;
 	float strokeWidth;
 	Vector3 color;
+	float rollCompensation;
 };
 extern std::vector<BracketVR> g_bracketsVR;
 

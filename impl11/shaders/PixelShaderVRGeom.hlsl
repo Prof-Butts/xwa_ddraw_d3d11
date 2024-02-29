@@ -30,6 +30,11 @@ cbuffer ConstantBuffer : register(b11)
 	float  strokeWidth;
 	float3 bracketColor;
 	// 128 bytes
+	float rollCompensation;
+	float3 unused0;
+	// 144 bytes
+	float4 U;
+	// 160 bytes
 };
 
 // New PixelShaderInput needed for the D3DRendererHook
@@ -78,7 +83,7 @@ float noise(in float3 x)
 PixelShaderOutput RenderBracket(PixelShaderInput input)
 {
 	PixelShaderOutput output;
-	
+
 	float alpha =
 		(input.tex.x <= strokeWidth) || (input.tex.x >= 1.0 - strokeWidth) || // Left and right bars
 		(input.tex.y <= strokeWidth) || (input.tex.y >= 1.0 - strokeWidth) ? // Top and bottom bars
@@ -87,16 +92,17 @@ PixelShaderOutput RenderBracket(PixelShaderInput input)
 
 	if (alpha < 0.7)
 		discard;
-	
+
 	// Create the gaps in the bracket:
 	if (input.tex.x >= 0.2 && input.tex.x <= 0.8)
 		discard;
-	
+
 	if (input.tex.y >= 0.2 && input.tex.y <= 0.8)
 		discard;
 
 	output.color  = float4(bracketColor, alpha);
-	output.bloom  = output.color;
+	//output.bloom  = output.color;
+	output.bloom  = 0;
 	output.pos3D  = 0;
 	output.normal = 0;
 	output.ssMask = 0;
@@ -106,15 +112,15 @@ PixelShaderOutput RenderBracket(PixelShaderInput input)
 
 PixelShaderOutput main(PixelShaderInput input)
 {
+	if (bRenderBracket)
+		return RenderBracket(input);
+
 	PixelShaderOutput output;
 
 	const float4 texelColor = texture0.Sample(sampler0, input.tex);
 	const float  alpha      = texelColor.w;
 	const float2 uv         = input.tex;
-	
-	if (bRenderBracket)
-		return RenderBracket(input);
-	
+
 	if (alpha < 0.75)
 		discard;
 
@@ -196,6 +202,17 @@ PixelShaderOutput main(PixelShaderInput input)
 	//if (V.y >= 0)
 	//	output.color.b += 0.5 * Vdist;
 	//output.color.a = pow(Vdist, 4.0);
+
+	//output.color.rgb = float3(rollCompensation, 0, 0);
+
+	//float3 V = input.pos3D;
+	//normalize(V);
+	//float UDist = dot(U.xyz, V);
+	//if (abs(UDist) < 0.01)
+	//{
+	//	output.color.gb += 0.5;
+	//	output.color.a = 1;
+	//}
 
 	if (output.color.a < 0.2)
 		discard;

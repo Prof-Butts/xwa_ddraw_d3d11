@@ -6432,51 +6432,6 @@ void EffectsRenderer::RenderVRBrackets()
 	float upAngle = 0.0f;
 	Vector4 Up  = Vector4( 0, 0, 1, 0);
 	Vector4 UpT = Vector4(-1, 0, 0, 0);
-	if (false)
-	{
-		const float Zfar = *(float*)0x05B46B4;
-		Vector4 screenCenter = Vector4(g_fCurInGameWidth / 2.0f, g_fCurInGameHeight / 2.0f, 0, 1);
-		Matrix4 R    = Matrix4().rotateZ(g_pSharedDataCockpitLook->Roll);
-		Matrix4 T    = Matrix4().translate(-screenCenter.x, -screenCenter.y, 0);
-		Matrix4 Tinv = Matrix4().translate(screenCenter.x, screenCenter.y, 0);
-		R = Tinv * R * T;
-
-		const float desiredZ = 65536.0f;
-		float Z = Zfar / (desiredZ * METERS_TO_OPT + Zfar);
-		float X, Y;
-		Vector4 P;
-
-		// Create an up vector in screen coords, rotate it by the current roll and back-project it.
-		X = screenCenter.x;
-		Y = screenCenter.y;
-		P = R * Vector4(X, Y, 0, 1);
-		X = P.x; Y = P.y;
-		float3 V = InverseTransformProjectionScreen({ X, Y, Z, Z }); // RenderVRBrackets()
-		V.y = -V.y;
-		V.z = -V.z;
-
-		X = screenCenter.x;
-		Y = screenCenter.y - 40.0f;
-		P = R * Vector4(X, Y, 0, 1);
-		X = P.x; Y = P.y;
-		float3 W = InverseTransformProjectionScreen({ X, Y, Z, Z }); // CacheBracketsVR
-		W.y = -W.y;
-		W.z = -W.z;
-
-		// V and W are now OPT-scale and pointing in the Up direction.
-		Up = Vector4(W.x - V.x, W.y - V.y, 0, 0);
-		Up.normalize();
-		UpT = Up;
-		// Make an ortho vector:
-		std::swap(UpT.x, UpT.y);
-		UpT.x = -UpT.x;
-
-		// Because Z+ is up in this game...
-		std::swap(Up.y, Up.z);
-		std::swap(UpT.y, UpT.z);
-		//upAngle = RAD_TO_DEG * atan2(Up.x, Up.y);
-	}
-	//log_debug_vr("upAngle: %0.3f", upAngle);
 
 	context->VSSetConstantBuffers(0, 1, _constantBuffer.GetAddressOf());
 	context->PSSetConstantBuffers(0, 1, _constantBuffer.GetAddressOf());
@@ -6577,11 +6532,33 @@ void EffectsRenderer::RenderVRBrackets()
 
 	Vector4 U;
 	float UpRoll = 0.0f;
+
+	Vector4 Rs, Us, Fs;
+	Matrix4 Heading = GetCurrentHeadingMatrix(Rs, Us, Fs, false);
+	Matrix4 ViewMatrix = g_VSMatrixCB.fullViewMat; // See RenderSpeedEffect() for details
+	ViewMatrix.invert();
+	// Subtle difference here: we do -1, -1, -1 instead of -1, -1, 1 because we want to transform
+	// everything into SteamVR coords:
+	//Matrix4 S = Matrix4().scale(-1, -1, 1);
+	//ViewMatrix = S * ViewMatrix * S * Heading;
+	//ViewMatrix = ViewMatrix * swapScale * Heading;
+	ViewMatrix = ViewMatrix * Heading; // This matrix converts OPT global coords into SteamVR coords
+
+	//F = ViewMatrix * Vector4(0, -1, 0, 0); // Forward vector, global OPT coords --> Converted to SteamVR Forward
+	Vector4 Fd = ViewMatrix * Vector4(0, -1, 0, 0);
+	Up = ViewMatrix * Vector4(0, 0, 1, 0); // Up vector, global OPT coords --> Converted to SteamVR Up
+	Vector4 Rt = ViewMatrix * Vector4(1, 0, 0, 0);
+	//log_debug_vr("U: %0.3f, %0.3f, %0.3f", U.x, U.y, U.z);
+	//log_debug("[DBG] U: %0.3f, %0.3f, %0.3f", U.x, U.y, U.z);
+
+#ifdef DISABLED
 	{
 		// O is the headset's center, in SteamVR coords:
 		//Vector4 O = g_VSMatrixCB.fullViewMat * Vector4(0, 0, 0, 0);
 		// U is the headset's up vector, in SteamVR coords:
-		U = g_VSMatrixCB.fullViewMat * Vector4(0, 1, 0, 0);
+		Matrix4 Vinv = g_VSMatrixCB.fullViewMat;
+		Vinv.invert();
+		U = Vinv * Vector4(0, 1, 0, 0);
 		// Now compare U against Y+
 		Vector4 Up = U;
 		Up.z = 0;
@@ -6590,8 +6567,9 @@ void EffectsRenderer::RenderVRBrackets()
 		float x = Vector4(1, 0, 0, 0).dot(Up);
 		UpRoll = RAD_TO_DEG * atan2(x, y);
 
-		//log_debug_vr("U: %0.3f, %0.3f, %0.3f, roll: %0.3f", U.x, U.y, U.z, UpRoll);
+		log_debug_vr("U: %0.3f, %0.3f, %0.3f, roll: %0.3f", U.x, U.y, U.z, UpRoll);
 	}
+#endif
 
 	float refRoll = 0.0f;
 	log_debug_vr_set_row(5);
@@ -6600,6 +6578,7 @@ void EffectsRenderer::RenderVRBrackets()
 	float rollAng = RAD_TO_DEG * atan2(right.z, right.x);
 	/*log_debug_vr("Roll angle: %0.3f, g_fBracketRollComp: %0.3f",
 		g_pSharedDataCockpitLook->Roll, g_fBracketRollComp);*/
+	Vector3 screenCenter = { g_fCurInGameWidth / 2.0f, g_fCurInGameHeight / 2.0f, 0 };
 	for (uint32_t i = 0; i < g_bracketsVR.size(); i++)
 	{
 		const auto& bracketVR = g_bracketsVR[i];
@@ -6611,25 +6590,31 @@ void EffectsRenderer::RenderVRBrackets()
 		const float meshScale = (bracketVR.halfWidthOPT * 2.0f) / meshWidth;
 		g_VRGeometryCBuffer.strokeWidth = bracketVR.strokeWidth;
 		g_VRGeometryCBuffer.bracketColor = bracketVR.color;
+		g_VRGeometryCBuffer.rollCompensation = bracketVR.rollCompensation;
 		resources->InitVRGeometryCBuffer(resources->_VRGeometryCBuffer.GetAddressOf(), &g_VRGeometryCBuffer);
-		//log_debug_vr("meshScale: %0.3f", meshScale);
 
-		/*log_debug_vr("pos: %0.3f, %0.3f, %0.3f | width: %0.3f, scale: %0.3f",
-			dotPosSteamVR.x, dotPosSteamVR.y, dotPosSteamVR.z,
-			bracketVR.halfWidthOPT * 2.0f, meshScale);*/
+		float rollDistort;
+		Vector3 radial = bracketVR.pos2D - screenCenter;
+		float r = radial.length();
+		float rNorm = (Vector3(g_fCurInGameWidth, g_fCurInGameHeight, 0) - screenCenter).length();
+		if (radial.x < 0)
+			rollDistort = RAD_TO_DEG * 0.5f * (-r / rNorm) * atan2(radial.y, radial.x);
+		else
+			rollDistort = RAD_TO_DEG * 0.5f * (r / rNorm) * atan2(radial.y, -radial.x);
+		rollDistort = 0;
 
-			// Compute a new matrix for the dot by using the origin -> intersection point view vector.
-			// First we'll align this vector with Z+ and then we'll use the inverse of this matrix to
-			// rotate the dot so that it always faces the origin.
 		float Yang = 0, Xang = 0;
 		Vector4 N;
 		{
+			// Compute a new matrix for the dot by using the origin -> intersection point view vector.
+			// First we'll align this vector with Z+ and then we'll use the inverse of this matrix to
+			// rotate the dot so that it always faces the origin.
 			Matrix4 Rx, Ry, Rz, Rortho, E, Einv;
 			Vector4 P = dotPosSteamVR;
 
-			Rx = Matrix4().rotateX(g_pSharedDataCockpitLook->Pitch);
+			/*Rx = Matrix4().rotateX(g_pSharedDataCockpitLook->Pitch);
 			Ry = Matrix4().rotateY(g_pSharedDataCockpitLook->Yaw);
-			Rz = Matrix4().rotateZ(g_pSharedDataCockpitLook->Roll);
+			Rz = Matrix4().rotateZ(g_pSharedDataCockpitLook->Roll);*/
 			//E = Ry * Rx;
 			//Einv = E; Einv.transpose();
 			//V = Rz * Ry * Rx;
@@ -6657,8 +6642,8 @@ void EffectsRenderer::RenderVRBrackets()
 			// O is the headset's center, in SteamVR coords:
 			Vector4 O = g_VSMatrixCB.fullViewMat * Vector4(0, 0, 0, 1);
 			// N goes from the intersection point to the headset's origin: it's the view vector now
-			N = P - O;
-			//N = P;
+			//N = P - O;
+			N = P;
 			N.normalize();
 
 			/*
@@ -6702,30 +6687,6 @@ void EffectsRenderer::RenderVRBrackets()
 			//Rz = Matrix4().rotateZ(upAngle);
 			//Rz = Matrix4().rotate(-g_pSharedDataCockpitLook->Roll, N.x, N.y, N.z);
 
-
-
-#ifdef DISABLED
-			//Vector4 Up0 = swap * Up; // Up0 is in SteamVR coords
-			//Vector4 Up0T = swap * UpT;
-			Vector4 tmpUp = Rx * Ry * swap * meshUp; // tmpUp is in SteamVR coords
-			tmpUp.z = 0;
-			tmpUp.normalize();
-			// Project refUp onto tmpUp
-			float yUp = refUp.dot(tmpUp);
-			Vector4 tmpRight = refUp - (yUp * tmpUp);
-			tmpRight.normalize();
-
-			// Compare tmpUp with Up to find the roll:
-			//float yUp = tmpUp.dot(tmpUp);
-			float xUp = refRight.dot(tmpUp);
-			float roll = RAD_TO_DEG * atan2(xUp, yUp);
-			//float roll = RAD_TO_DEG * acos(yUp);
-			Rz = Matrix4().rotateZ(roll);
-			//Vector4 A = P;
-			//A.normalize();
-			//Rz = Matrix4().rotate(roll, N.x, N.y, N.z);
-#endif
-
 			/*
 			V = Rx * Ry;
 			Vector4 Q0 = V * swap * P0;
@@ -6752,8 +6713,50 @@ void EffectsRenderer::RenderVRBrackets()
 
 			//Rz = Matrix4().rotateZ(-UpRoll);
 
+			//Up = Vector4(0, 1, 0, 0) * Matrix4().rotateZ(g_pSharedDataCockpitLook->Roll);
+
+			// U points to the North Pole
+			// F points towards the bracket
+			// U x F = R
+			{
+				Vector3 F = { P.x, P.y, P.z }; F.normalize();
+				float distUp = 1.0f - fabs(F.dot(Vector4ToVector3(Up)));
+				float distFd = 1.0f - fabs(F.dot(Vector4ToVector3(Fd)));
+				float distRt = 1.0f - fabs(F.dot(Vector4ToVector3(Rt)));
+				Vector3 U = Vector4ToVector3(Up);
+				/*float maxDist = distUp;
+				if (distFd > maxDist)
+				{
+					U = Vector4ToVector3(Fd);
+					maxDist = distFd;
+				}
+				if (distRt > maxDist)
+				{
+					U = Vector4ToVector3(Rt);
+					maxDist = distRt;
+				}*/
+				U.normalize();
+				Vector3 R = F.cross(U); R.normalize();
+				// Re-compute the Up vector
+				U = R.cross(F); U.normalize();
+				float m[16] = { R.x, U.x, F.x, 0,  R.y, U.y, F.y, 0,  R.z, U.z, F.z, 0,  0, 0, 0, 1 };
+				V.set(m);
+			}
+			//Vector4 mRt = (Rx * Ry).transpose() * swap * meshRight;
+			//Vector4 mUp = (Rx * Ry).transpose() * swap * meshUp;
+			//float rollCompensation = RAD_TO_DEG * acos(mRt.dot(right));
+			//float s = sign(mUp.dot(U));
+			//log_debug_vr("rollCompensation: %0.3f", rollCompensation);
+			/*log_debug_vr("F: %0.3f, %0.3f, %0.3f, R: %0.3f, %0.3f, %0.3f :: %0.3f",
+				F.x, F.y, F.z,
+				right.x, right.y, right.z, rollCompensation);*/
+
 			//Vinner = (Rx * Ry * Rz * (Rx * Ry).transpose()) * Rx * Ry; // <-- Up direction is always view-aligned
-			V = Rx * Ry * Rz;
+			//V = Rx * Ry * Matrix4().rotateZ(-s * rollCompensation);
+			//V = Matrix4().rotate(-s * rollCompensation, F.x, F.y, F.z) * Rx * Ry;
+			//V = Rx * Ry * Rz;
+			//V = Rx * Ry * Rz * Matrix4().rotateZ(bracketVR.rollCompensation);
+			//V = Rx * Ry * Rz * Matrix4().rotateZ(-0.5f * rollDistort);
 			//V = Rx * Ry;
 			//Vinner = Ry;
 			//V = Rx * Ry; // <-- Up direction is reticle-aligned

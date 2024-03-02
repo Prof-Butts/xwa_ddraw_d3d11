@@ -1,20 +1,12 @@
-// Copyright (c) 2019 Leo Reyes
+// Copyright (c) 2024 Leo Reyes
 // Licensed under the MIT license. See LICENSE.txt
 // This shader is currently used to render the VR keyboard and gloves.
-//#include "HSV.h"
 #include "shader_common.h"
 #include "shading_system.h"
 #include "PixelShaderTextureCommon.h"
 
 Texture2D texture0 : register(t0);
 SamplerState sampler0 : register(s0);
-
-//Texture2D texture1 : register(t1);
-//SamplerState sampler1 : register(s1);
-
-// When the Dynamic Cockpit is active:
-// texture0 == regular texture
-// texture1 == ??? illumination texture?
 
 // VRGeometryCBuffer
 cbuffer ConstantBuffer : register(b11)
@@ -30,11 +22,6 @@ cbuffer ConstantBuffer : register(b11)
 	float  strokeWidth;
 	float3 bracketColor;
 	// 128 bytes
-	float rollCompensation;
-	float3 unused0;
-	// 144 bytes
-	float4 U;
-	// 160 bytes
 };
 
 // New PixelShaderInput needed for the D3DRendererHook
@@ -87,7 +74,6 @@ PixelShaderOutput RenderBracket(PixelShaderInput input)
 	float alpha =
 		(input.tex.x <= strokeWidth) || (input.tex.x >= 1.0 - strokeWidth) || // Left and right bars
 		(input.tex.y <= strokeWidth) || (input.tex.y >= 1.0 - strokeWidth) ? // Top and bottom bars
-		//(input.tex.x <= 0.4) || (input.tex.x >= 0.6) ? // left-right gaps
 		1 : 0;
 
 	if (alpha < 0.7)
@@ -101,8 +87,10 @@ PixelShaderOutput RenderBracket(PixelShaderInput input)
 		discard;
 
 	output.color  = float4(bracketColor, alpha);
-	//output.bloom  = output.color;
-	output.bloom  = 0;
+	//output.color = float4(0,0,1, alpha);
+	//output.color.rgb = debug0 * float3(1, 0, 0) + debug1 * float3(0, 1, 0);
+	output.bloom  = float4(output.color.rgb, alpha * 0.5f);
+	//output.bloom  = 0;
 	output.pos3D  = 0;
 	output.normal = 0;
 	output.ssMask = 0;
@@ -116,7 +104,6 @@ PixelShaderOutput main(PixelShaderInput input)
 		return RenderBracket(input);
 
 	PixelShaderOutput output;
-
 	const float4 texelColor = texture0.Sample(sampler0, input.tex);
 	const float  alpha      = texelColor.w;
 	const float2 uv         = input.tex;
@@ -125,7 +112,6 @@ PixelShaderOutput main(PixelShaderInput input)
 		discard;
 
 	output.color = texelColor;
-	//output.color = float4(0, 0, 1, 0.2);
 	// Zero-out the bloom mask.
 	output.bloom = float4(0, 0, 0, 0);
 
@@ -139,7 +125,6 @@ PixelShaderOutput main(PixelShaderInput input)
 			output.color.rgb = 1 - output.color.rgb;
 			output.bloom.rgb = output.color.rgb;
 			output.bloom.a   = 0.75;
-			//output.color.r += 0.3;
 		}
 	}
 
@@ -160,9 +145,6 @@ PixelShaderOutput main(PixelShaderInput input)
 
 	float3 P = input.pos3D.xyz;
 	output.pos3D = float4(P, 1);
-
-	//const float3 V = normalize(P);
-	//const float Vdist = dot(V, U.xyz);
 
 	float3 N = normalize(input.normal.xyz);
 	N.y = -N.y; // Invert the Y axis, originally Y+ is down
@@ -191,30 +173,8 @@ PixelShaderOutput main(PixelShaderInput input)
 		output.ssMask.a = min(output.ssMask.a, output.color.a);
 	}
 
-	//output.color.r  = 2.0 * input.tex.x;
-	//output.color.b  = 2.0 * input.tex.y;
-	//output.color.a += 0.25;
+	//if (output.color.a < 0.2)
+	//	discard;
 
-	//if (V.x >= 0)
-	//	output.color.r += 0.5 * Vdist;
-	//else
-	//	output.color.g += 0.5 * Vdist;
-	//if (V.y >= 0)
-	//	output.color.b += 0.5 * Vdist;
-	//output.color.a = pow(Vdist, 4.0);
-
-	//output.color.rgb = float3(rollCompensation, 0, 0);
-
-	//float3 V = input.pos3D;
-	//normalize(V);
-	//float UDist = dot(U.xyz, V);
-	//if (abs(UDist) < 0.01)
-	//{
-	//	output.color.gb += 0.5;
-	//	output.color.a = 1;
-	//}
-
-	if (output.color.a < 0.2)
-		discard;
 	return output;
 }

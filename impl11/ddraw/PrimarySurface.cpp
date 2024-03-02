@@ -12912,114 +12912,13 @@ void PrimarySurface::CacheBracketsVR()
 		bracketVR.halfWidthOPT  = fabs(W.x - C.x);
 		bracketVR.halfHeightOPT = fabs(W.y - C.y);
 		bracketVR.strokeWidth   = strokeWidthOPT / (2.0f * bracketVR.halfWidthOPT);
-		bracketVR.rollCompensation = CalcRollCompensation(bracketVR.pos2D.x, bracketVR.pos2D.y);
 		bracketVR.color.x = (float)((brushColor >> 16) & 0xFF) / 255.0f;
 		bracketVR.color.y = (float)((brushColor >>  8) & 0xFF) / 255.0f;
 		bracketVR.color.z = (float)((brushColor >>  0) & 0xFF) / 255.0f;
-		/*log_debug_vr("stroke width: %0.3f, col: 0x%x",
-			bracketVR.strokeWidth, brushColor);*/
-			//bracketVR.color.x, bracketVR.color.y, bracketVR.color.z);
-
-		/*log_debug_vr("(%0.3f, %0.3f)-(%0.3f, %0.3f):0x%x",
-			(float)xwaBracket.positionX, (float)xwaBracket.positionY,
-			(float)xwaBracket.width, (float)xwaBracket.height, brushColor);*/
 		g_bracketsVR.push_back(bracketVR);
 	}
-
 	g_xwa_bracket.clear();
 
-	if (false)
-	{
-		// Add a couple of small brackets at the end of the list to test the up direction:
-		g_bracketsVR.clear();
-
-		AddDebugBracket(screenCenter.x, screenCenter.y, 20.0f);
-		/*AddDebugBracket(screenCenter.x + 150, screenCenter.y, 30.0f);
-		AddDebugBracket(screenCenter.x - 150, screenCenter.y, 30.0f);
-
-		AddDebugBracket(screenCenter.x + 150, screenCenter.y + 150, 30.0f);
-		AddDebugBracket(screenCenter.x + 150, screenCenter.y - 150, 30.0f);
-
-		AddDebugBracket(screenCenter.x - 150, screenCenter.y + 150, 30.0f);
-		AddDebugBracket(screenCenter.x - 150, screenCenter.y - 150, 30.0f);*/
-
-
-		AddDebugBracket(screenCenter.x + 275, screenCenter.y + 220, 35.0f);
-		AddDebugBracket(screenCenter.x + 275, screenCenter.y - 220, 35.0f);
-
-		AddDebugBracket(screenCenter.x - 275, screenCenter.y + 220, 35.0f);
-		AddDebugBracket(screenCenter.x - 275, screenCenter.y - 220, 35.0f);
-	}
-
-	// Draw a grid of squares
-	if (false)
-	{
-		g_bracketsVR.clear();
-
-		float x = 0.0f, y = 0.0f;
-		float incX = 80.0f, incY = 80.0f;
-		for (int i = 0; i < 4; i++)
-		{
-			x = 0.0f;
-			for (int j = 0; j < 5; j++)
-			{
-				if (x < 0.1f)
-				{
-					AddDebugBracket(screenCenter.x, screenCenter.y + y, 35.0f);
-					AddDebugBracket(screenCenter.x, screenCenter.y - y, 35.0f);
-				}
-
-				if (y < 0.01f)
-				{
-					AddDebugBracket(screenCenter.x - x, screenCenter.y, 35.0f);
-					AddDebugBracket(screenCenter.x + x, screenCenter.y, 35.0f);
-				}
-
-				if (x > 0.01f && y > 0.01f)
-				{
-					AddDebugBracket(screenCenter.x - x, screenCenter.y + y, 35.0f);
-					AddDebugBracket(screenCenter.x + x, screenCenter.y + y, 35.0f);
-
-					AddDebugBracket(screenCenter.x - x, screenCenter.y - y, 35.0f);
-					AddDebugBracket(screenCenter.x + x, screenCenter.y - y, 35.0f);
-				}
-				x += incX;
-			}
-			y += incY;
-		}
-	}
-
-	// Render a single bracket as a Big Canvas:
-	if (false)
-	{
-		g_bracketsVR.clear();
-		float W = g_fCurInGameWidth;
-		float H = g_fCurInGameHeight;
-		float desiredZ = 65536.0f;
-		float X = W / 2.0f, Y = H / 2.0f;
-		float Z = Zfar / (desiredZ * METERS_TO_OPT);
-		float3 P = InverseTransformProjectionScreen({ X, Y, Z, Z }); // CacheBracketsVR
-		P.y = -P.y;
-		P.z = -P.z;
-
-		float3 Q = InverseTransformProjectionScreen({ X + (0.5f * W / 2.0f), Y + (0.5f * H / 2.0f), Z, Z }); // CacheBracketsVR
-		//float3 Q = InverseTransformProjectionScreen({ X + W, H, Z, Z }, true);
-		Q.y = -Q.y;
-		Q.z = -Q.z;
-
-		BracketVR bracketVR;
-		bracketVR.posOPT.x = P.x;
-		bracketVR.posOPT.y = P.z;
-		bracketVR.posOPT.z = P.y;
-		bracketVR.halfWidthOPT = fabs(Q.x - P.x);
-		bracketVR.halfHeightOPT = fabs(Q.y - P.y);
-		bracketVR.color.x = ((brushColor >> 16) & 0xFF) / 255.0f;
-		bracketVR.color.y = ((brushColor >> 8) & 0xFF) / 255.0f;
-		bracketVR.color.y = (brushColor & 0xFF) / 255.0f;
-		g_bracketsVR.push_back(bracketVR);
-	}
-
-	//log_debug_vr("g_bracketsVR.size: %d", g_bracketsVR.size());
 	// This method should only be called in VR mode:
 	EffectsRenderer* renderer = (EffectsRenderer*)g_current_renderer;
 	renderer->RenderVRBrackets();

@@ -2125,6 +2125,7 @@ void EffectsRenderer::SceneBegin(DeviceResources* deviceResources)
 	_TransparentDrawCommands.clear();
 	_ShadowMapDrawCommands.clear();
 	_bCockpitConstantsCaptured = false;
+	_bExteriorConstantsCaptured = false;
 	_bShadowsRenderedInCurrentFrame = false;
 	_bHangarShadowsRenderedInCurrentFrame = false;
 	// Initialize the joystick mesh transform on this frame
@@ -5423,6 +5424,12 @@ void EffectsRenderer::MainSceneHook(const SceneCompData* scene)
 		_CockpitWorldView = scene->WorldViewTransform;
 	}
 
+	if (!_bExteriorConstantsCaptured && _bIsExterior)
+	{
+		_bExteriorConstantsCaptured = true;
+		_ExteriorConstants = _constants;
+	}
+
 	// Procedural Lava
 	if (g_bProceduralLava && _bLastTextureSelectedNotNULL && _bHasMaterial && _lastTextureSelected->material.IsLava)
 		ApplyProceduralLava();
@@ -6414,8 +6421,6 @@ Vector4 GenericBarrelDistortion(Vector4 p, Vector4 LC, float k1, float k2, float
 
 void EffectsRenderer::RenderVRBrackets()
 {
-	// TODO: This method should work even when the Active Cockpit is disabled.
-	//if (!g_bUseSteamVR || !g_bRendering3D || !g_bActiveCockpitEnabled || _bBracketsRendered || !_bCockpitConstantsCaptured)
 	if (!g_bUseSteamVR || !g_bRendering3D || _bBracketsRendered)
 		return;
 
@@ -6480,40 +6485,56 @@ void EffectsRenderer::RenderVRBrackets()
 	resources->InitPSConstantBuffer3D(resources->_PSConstantBuffer.GetAddressOf(), &g_PSCBuffer);
 	_deviceResources->InitPixelShader(resources->_pixelShaderVRGeom);
 
-	// TODO: Select a different Up direction when the external camera is active.
-	// Cockpit's up direction:
-	Matrix4 cockpitTransform = Matrix4(_CockpitConstants.transformWorldView);
-	// Because transforms are post-multiplied in the VS, but here we do pre-multiplication:
-	cockpitTransform.transpose();
-	// These signs make an Up vector in SteamVR coords:
-	Vector4 cUp = cockpitTransform * Vector4(0, 0, -1, 0);
-	cUp.x = -cUp.x;
-	Vector4 cDn = -1.0f * cUp;
-	// This produces a backwards vector in SteamVR coords:
-	Vector4 cBk = cockpitTransform * Vector4(0, -1, 0, 0);
-	cBk.x = -cBk.x;
-	Vector4 cFd = -1.0f * cBk;
-
-	Matrix4 V, swap({ 1,0,0,0,  0,0,1,0,  0,1,0,0,  0,0,0,1 });
+	const bool bExternalCamera = PlayerDataTable[*g_playerIndex].Camera.ExternalCamera;
+	Vector4 cUp, cBk, cDn, cFd;
+	Matrix4 V;
+	Matrix4 swap({ 1,0,0,0,  0,0,1,0,  0,1,0,0,  0,0,0,1 });
 	Matrix4 swapScale({ 1,0,0,0,  0,0,-1,0,  0,-1,0,0,  0,0,0,1 });
-	Vector4 U, Rs, Us, Fs;
-	Matrix4 Heading = GetCurrentHeadingMatrix(Rs, Us, Fs, false);
-	Matrix4 ViewMatrix = g_VSMatrixCB.fullViewMat; // See RenderSpeedEffect() for details
-	ViewMatrix.invert();
-	ViewMatrix = ViewMatrix * Heading; // This matrix converts OPT global coords into SteamVR coords
+	if (!bExternalCamera)
+	{
+		// TODO: Select a different Up direction when the external camera is active.
+		// Cockpit's up direction:
+		Matrix4 cockpitTransform = Matrix4(_CockpitConstants.transformWorldView);
+		// Because transforms are post-multiplied in the VS, but here we do pre-multiplication:
+		cockpitTransform.transpose();
+		// These signs make an Up vector in SteamVR coords:
+		cUp = cockpitTransform * Vector4(0, 0, -1, 0);
+		cUp.x = -cUp.x;
+		cDn = -1.0f * cUp;
+		// This produces a backwards vector in SteamVR coords:
+		cBk = cockpitTransform * Vector4(0, -1, 0, 0);
+		cBk.x = -cBk.x;
+		cFd = -1.0f * cBk;
+	}
+	else
+	{
+		Matrix4 ViewMatrix = g_VSMatrixCB.fullViewMat;
+		ViewMatrix.invert();
 
-	//F = ViewMatrix * Vector4(0, -1, 0, 0); // Forward vector, global OPT coords --> Converted to SteamVR Forward
-	Vector4 Bk = ViewMatrix * Vector4(0, 1, 0, 0);
-	Vector4 Up = ViewMatrix * Vector4(0, 0, 1, 0); // Up vector, global OPT coords --> Converted to SteamVR Up
+		cUp = ViewMatrix * Vector4(0, 1, 0, 0); // Forward vector, SteamVR coords. Compensated for HMD rotation
+		cDn = -1.0f * cUp;
+		// This produces a backwards vector in SteamVR coords:
+		cBk = ViewMatrix * Vector4(0, 0, 1, 0);
+		cFd = -1.0f * cBk;
+	}
+	//log_debug("[DBG] cUp: %0.3f, %0.3f, %0.3f", cUp.x, cUp.y, cUp.z);
+	//log_debug("[DBG] cBk: %0.3f, %0.3f, %0.3f", cBk.x, cBk.y, cBk.z);
 
 	// Let's replace transformWorldView with the identity matrix:
 	Matrix4 Id;
 	const float* m = Id.get();
-	for (int i = 0; i < 16; i++) _CockpitConstants.transformWorldView[i] = m[i];
+	if (!bExternalCamera)
+	{
+		for (int i = 0; i < 16; i++) _CockpitConstants.transformWorldView[i] = m[i];
+		context->UpdateSubresource(_constantBuffer, 0, nullptr, &_CockpitConstants, 0, 0);
+	}
+	else
+	{
+		for (int i = 0; i < 16; i++) _ExteriorConstants.transformWorldView[i] = m[i];
+		context->UpdateSubresource(_constantBuffer, 0, nullptr, &_ExteriorConstants, 0, 0);
+	}
 
-	context->UpdateSubresource(_constantBuffer, 0, nullptr, &_CockpitConstants, 0, 0);
 	_trianglesCount = g_vrDotNumTriangles;
-
 	// Get the width in OPT-scale of the mesh that will be rendered:
 	// 0 -> 1
 	// |    |
@@ -6523,11 +6544,17 @@ void EffectsRenderer::RenderVRBrackets()
 	for (uint32_t i = 0; i < g_bracketsVR.size(); i++)
 	{
 		const auto& bracketVR = g_bracketsVR[i];
-		Vector4 dotPosSteamVR;
+		Vector4 dotPosSteamVR, dotPosUpSteamVR;
 		dotPosSteamVR.x = bracketVR.posOPT.x * OPT_TO_METERS;
 		dotPosSteamVR.y = bracketVR.posOPT.z * OPT_TO_METERS;
 		dotPosSteamVR.z = bracketVR.posOPT.y * OPT_TO_METERS;
 		dotPosSteamVR.w = 1.0f;
+
+		dotPosUpSteamVR.x = bracketVR.posOPTUp.x * OPT_TO_METERS;
+		dotPosUpSteamVR.y = bracketVR.posOPTUp.z * OPT_TO_METERS;
+		dotPosUpSteamVR.z = bracketVR.posOPTUp.y * OPT_TO_METERS;
+		dotPosUpSteamVR.w = 1.0f;
+
 		const float meshScale = (bracketVR.halfWidthOPT * 2.0f) / meshWidth;
 		g_VRGeometryCBuffer.strokeWidth = bracketVR.strokeWidth;
 		g_VRGeometryCBuffer.bracketColor = bracketVR.color;
@@ -6559,6 +6586,30 @@ void EffectsRenderer::RenderVRBrackets()
 				            R.y, U.y, F.y, 0,
 					        R.z, U.z, F.z, 0,
 				            0, 0, 0, 1 };
+			V.set(m);
+			// This transpose inverts the rotation:
+			V.transpose();
+			V = swap * V * swap;
+		}
+
+		if (false)
+		{
+			Vector4 P = dotPosSteamVR;
+			Vector4 Up = dotPosUpSteamVR - dotPosSteamVR;
+			Up.normalize();
+
+			// U points to the local Up direction, as defined by the current Cockpit transform
+			// F points towards the bracket
+			Vector3 F = { P.x, P.y, P.z }; F.normalize();
+
+			Vector3 U = Vector4ToVector3(Up);
+			Vector3 R = F.cross(U); R.normalize();
+			// Re-compute the Up vector
+			U = F.cross(R); U.normalize();
+			float m[16] = { R.x, U.x, F.x, 0,
+							R.y, U.y, F.y, 0,
+							R.z, U.z, F.z, 0,
+							0, 0, 0, 1 };
 			V.set(m);
 			// This transpose inverts the rotation:
 			V.transpose();

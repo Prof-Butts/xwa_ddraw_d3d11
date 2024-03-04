@@ -315,6 +315,7 @@ extern bool g_bCleanupZIPDirs;
 struct BracketVR
 {
 	Vector3 posOPT;
+	Vector3 posOPTUp;
 	Vector3 pos2D;
 	float halfWidthOPT, halfHeightOPT;
 	float strokeWidth;

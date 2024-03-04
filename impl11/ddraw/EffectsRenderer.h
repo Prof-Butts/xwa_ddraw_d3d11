@@ -145,7 +145,9 @@ protected:
 
 public:
 	bool _bCockpitConstantsCaptured;
+	bool _bExteriorConstantsCaptured;
 	D3dConstants _CockpitConstants;
+	D3dConstants _ExteriorConstants;
 	XwaTransform _CockpitWorldView;
 
 	EffectsRenderer();

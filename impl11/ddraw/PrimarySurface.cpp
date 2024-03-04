@@ -12834,6 +12834,27 @@ void AddDebugBracket(float X, float Y, float size)
 
 void PrimarySurface::CacheBracketsVR()
 {
+	const bool bExternalCamera = g_iPresentCounter > PLAYERDATATABLE_MIN_SAFE_FRAME &&
+	                             PlayerDataTable[*g_playerIndex].Camera.ExternalCamera;
+
+	// Save the current projection constants
+	float f0 = *(float*)0x08C1600;
+	float f1 = *(float*)0x0686ACC;
+	float f2 = *(float*)0x080ACF8;
+	float f3 = *(float*)0x07B33C0;
+	float f4 = *(float*)0x064D1AC;
+
+	if (bExternalCamera)
+	{
+		// These are the constants used when rendering the cockpit. The HUD is not at the center
+		// of the screen when using these:
+		*(float*)0x08C1600 = g_f0x08C1600;
+		*(float*)0x0686ACC = g_f0x0686ACC;
+		*(float*)0x080ACF8 = g_f0x080ACF8;
+		*(float*)0x07B33C0 = g_f0x07B33C0;
+		*(float*)0x064D1AC = g_f0x064D1AC;
+	}
+
 	//const float Znear = *(float*)0x08B94CC;
 	const float Zfar = *(float*)0x05B46B4;
 	unsigned int brushColor = 0;
@@ -12904,11 +12925,25 @@ void PrimarySurface::CacheBracketsVR()
 		W.y = -W.y;
 		W.z = -W.z;
 
+		// This is the local up direction for this bracket. We just move it upwards a little bit:
+		float roll = DEG_TO_RAD * (g_pSharedDataCockpitLook->Roll + 90.0f);
+		float s = sin(roll), c = cos(roll);
+		X = (float)(xwaBracket.positionX + xwaBracket.width / 2.0f) + 30.0f * c;
+		Y = (float)(xwaBracket.positionY + xwaBracket.height / 2.0f) + 30.0f * s;
+		float3 U = InverseTransformProjectionScreen({ X, Y, Z, Z }); // CacheBracketsVR
+		U.y = -U.y;
+		U.z = -U.z;
+
 		BracketVR bracketVR;
 		bracketVR.pos2D = Vector3((float)xwaBracket.positionX, (float)xwaBracket.positionY, 0.0f);
 		bracketVR.posOPT.x = V.x;
 		bracketVR.posOPT.y = V.z;
 		bracketVR.posOPT.z = V.y;
+
+		bracketVR.posOPTUp.x = U.x;
+		bracketVR.posOPTUp.y = U.z;
+		bracketVR.posOPTUp.z = U.y;
+
 		bracketVR.halfWidthOPT  = fabs(W.x - C.x);
 		bracketVR.halfHeightOPT = fabs(W.y - C.y);
 		bracketVR.strokeWidth   = strokeWidthOPT / (2.0f * bracketVR.halfWidthOPT);
@@ -12918,6 +12953,16 @@ void PrimarySurface::CacheBracketsVR()
 		g_bracketsVR.push_back(bracketVR);
 	}
 	g_xwa_bracket.clear();
+
+	// Restore the original projection deltas
+	if (bExternalCamera)
+	{
+		*(float*)0x08C1600 = f0;
+		*(float*)0x0686ACC = f1;
+		*(float*)0x080ACF8 = f2;
+		*(float*)0x07B33C0 = f3;
+		*(float*)0x064D1AC = f4;
+	}
 
 	// This method should only be called in VR mode:
 	EffectsRenderer* renderer = (EffectsRenderer*)g_current_renderer;

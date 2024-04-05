@@ -28,6 +28,8 @@
 #include "EffectsRenderer.h"
 #include "LBVH.h"
 
+#include <DDSTextureLoader.h>
+
 extern D3dRenderer* g_current_renderer;
 extern LBVH* g_ACTLASTree;
 
@@ -3381,6 +3383,14 @@ void PrimarySurface::DeferredPass()
 				resources->_ReticleSRV.Get(), // 20
 			};
 			context->PSSetShaderResources(18, 3, srvs);
+		}
+
+		if (g_bUseTextureCube)
+		{
+			ID3D11ShaderResourceView* srvs[] = {
+				resources->_textureCubeSRV /* .Get() */, // 21
+			};
+			context->PSSetShaderResources(21, 1, srvs);
 		}
 
 		if (g_bUseSteamVR)

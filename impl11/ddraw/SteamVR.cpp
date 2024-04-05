@@ -21,6 +21,7 @@ uint32_t g_steamVRWidth = 0, g_steamVRHeight = 0; // The resolution recommended 
 bool g_bSteamVREnabled = false; // The user sets this flag to true to request support for SteamVR.
 bool g_bSteamVRInitialized = false; // The system will set this flag after SteamVR has been initialized
 bool g_bUseSteamVR = false; // The system will set this flag if the user requested SteamVR and SteamVR was initialized properly
+bool g_bUseTextureCube = false;
 const bool DEFAULT_INTERLEAVED_REPROJECTION = false;
 const bool DEFAULT_STEAMVR_POS_FROM_FREEPIE = false;
 bool g_bInterleavedReprojection = DEFAULT_INTERLEAVED_REPROJECTION;

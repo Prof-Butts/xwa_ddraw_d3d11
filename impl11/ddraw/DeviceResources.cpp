@@ -196,6 +196,7 @@
 #endif
 
 #include <WICTextureLoader.h>
+#include <DDSTextureLoader.h>
 #include <openvr.h>
 #include <vector>
 #include "SteamVR.h"
@@ -1743,6 +1744,7 @@ HRESULT DeviceResources::OnSizeChanged(HWND hWnd, DWORD dwWidth, DWORD dwHeight)
 	this->_backgroundBufferSRV.Release();
 	this->_transp1SRV.Release();
 	this->_transp2SRV.Release();
+	//if (g_bUseTextureCube) this->_textureCubeSRV.Release();
 	this->_offscreenBuffer.Release();
 	this->_offscreenBufferHdBackground.Release();
 	this->_offscreenBufferAsInput.Release();
@@ -1753,6 +1755,7 @@ HRESULT DeviceResources::OnSizeChanged(HWND hWnd, DWORD dwWidth, DWORD dwHeight)
 	this->_transpBuffer2.Release();
 	this->_transpBufferAsInput1.Release();
 	this->_transpBufferAsInput2.Release();
+	//if (g_bUseTextureCube) this->_textureCube.Release();
 	if (this->_useMultisampling)
 		this->_shadertoyBufMSAA.Release();
 	this->_shadertoyBuf.Release();
@@ -2573,6 +2576,29 @@ HRESULT DeviceResources::OnSizeChanged(HWND hWnd, DWORD dwWidth, DWORD dwHeight)
 			if (FAILED(hr))
 				goto out;
 
+			if (g_bUseTextureCube)
+			{
+				CD3D11_TEXTURE2D_DESC tmpDesc = desc;
+
+				/*
+				desc.ArraySize = 6;
+				desc.MiscFlags |= D3D11_RESOURCE_MISC_TEXTURECUBE;
+				desc.MipLevels = 1;
+				desc.Width = desc.Height = 2048;
+
+				step = "textureCube";
+				hr = this->_d3dDevice->CreateTexture2D(&desc, nullptr, &this->_textureCube);
+				if (FAILED(hr))
+					goto out;
+				*/
+
+				//HRESULT res = DirectX::CreateDDSTextureFromFile(this->_d3dDevice, L"C:\\temp\\skymap.dds", NULL, &_textureCubeSRV);
+				HRESULT res = DirectX::CreateDDSTextureFromFile(this->_d3dDevice, L".\\Effects\\blue_nebula.dds", NULL, &_textureCubeSRV);
+				log_debug("[DBG] [CUBE] Loaded DDS for texture cube. res = 0x%x", res);
+
+				desc = tmpDesc;
+			}
+
 			// ReticleBufAsInput
 			// Not rendered in stereo.
 			desc.ArraySize = 1;
@@ -3108,6 +3134,22 @@ HRESULT DeviceResources::OnSizeChanged(HWND hWnd, DWORD dwWidth, DWORD dwHeight)
 			if (FAILED(this->_d3dDevice->CreateShaderResourceView(this->_transpBufferAsInput2,
 				&shaderResourceViewDesc, &this->_transp2SRV)))
 				goto out;
+
+			//if (g_bUseTextureCube)
+			if (false)
+			{
+				step = "_textureCubeSRV";
+
+				D3D11_SHADER_RESOURCE_VIEW_DESC tmpDesc = shaderResourceViewDesc;
+				shaderResourceViewDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURECUBE;
+				shaderResourceViewDesc.TextureCube.MipLevels = 1;
+				shaderResourceViewDesc.TextureCube.MostDetailedMip = 0;
+
+				if (FAILED(this->_d3dDevice->CreateShaderResourceView(this->_textureCube,
+					&shaderResourceViewDesc, &this->_textureCubeSRV)))
+					goto out;
+				shaderResourceViewDesc = tmpDesc;
+			}
 
 			step = "_shadertoySRV";
 			hr = this->_d3dDevice->CreateShaderResourceView(this->_shadertoyBuf, &shaderResourceViewDesc, &this->_shadertoySRV);

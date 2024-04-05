@@ -2980,6 +2980,12 @@ bool LoadSSAOParams() {
 					log_debug("[DBG] [BVH] Excluding Satellites");
 				}
 			}
+
+			if (_stricmp(param, "use_skybox") == 0)
+			{
+				g_bUseTextureCube = (bool)fValue;
+				if (g_bUseTextureCube) log_debug("[DBG] [CUBE] Using Texture Cubes");
+			}
 		}
 	}
 	fclose(file);

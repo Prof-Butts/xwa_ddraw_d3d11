@@ -98,6 +98,8 @@ Texture2D reticleTex : register(t20);
 Texture2DArray<float> texShadowMap : register(t7);
 SamplerComparisonState cmpSampler : register(s7);
 
+TextureCube skybox : register(t21);
+
 // We're reusing the same constant buffer used to blur bloom; but here
 // we really only use the amplifyFactor to upscale the SSAO buffer (if
 // it was rendered at half the resolution, for instance)
@@ -295,7 +297,8 @@ PixelShaderOutput main(PixelShaderInput input)
 	float4 Normal         = texNormal.Sample(samplerNormal, input.uv);
 	float3 pos3D          = texPos.Sample(sampPos, input.uv).xyz;
 	float3 ssdo           = texSSDO.Sample(samplerSSDO, input_uv_sub).rgb;
-	float3 background     = texBackground.Sample(sampColor, input.uv).rgb;
+	//float3 background     = texBackground.Sample(sampColor, input.uv).rgb;
+	float3 background     = 0;
 	float3 ssaoMask       = texSSAOMask.Sample(samplerSSAOMask, input.uv).xyz;
 	float3 ssMask         = texSSMask.Sample(samplerSSMask, input.uv).xyz;
 	float4 transpColor1   = transp1.Sample(sampColor, input.uv);
@@ -336,6 +339,11 @@ PixelShaderOutput main(PixelShaderInput input)
 	// normals.
 	const float3 P = pos3D.xyz;
 	pos3D.z = -pos3D.z;
+
+	const float3 viewDir = normalize(float3(input.uv - 0.5, 1.0));
+	background = skybox.Sample(sampColor, viewDir).rgb;
+	//background = viewDir;
+
 	//if (pos3D.z > INFINITY_Z1 || mask > 0.9) // the test with INFINITY_Z1 always adds an ugly cutout line
 	// we should either fade gradually between INFINITY_Z0 and INFINITY_Z1, or avoid this test completely.
 

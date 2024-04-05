@@ -223,6 +223,8 @@ public:
 
 	void CacheBracketsVR();
 
+	void RenderSkyBox(bool debug);
+
 	void RenderSynthDCElems();
 
 	ULONG _refCount;

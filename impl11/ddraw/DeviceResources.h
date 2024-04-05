@@ -21,7 +21,8 @@ enum TransparentLayerSelector
 {
 	TRANSP_LYR_NONE,
 	TRANSP_LYR_1,
-	TRANSP_LYR_2
+	TRANSP_LYR_2,
+	BACKGROUND_LYR,
 };
 
 class PrimarySurface;
@@ -328,6 +329,7 @@ public:
 	ComPtr<ID3D11RenderTargetView> _ReticleRTV;
 	ComPtr<ID3D11RenderTargetView> _transp1RTV;
 	ComPtr<ID3D11RenderTargetView> _transp2RTV;
+	ComPtr<ID3D11RenderTargetView> _backgroundRTV;
 	TransparentLayerSelector       _overrideRTV;
 	// Barrel Effect
 	ComPtr<ID3D11RenderTargetView> _renderTargetViewPost;  // Used for the barrel effect

@@ -1887,6 +1887,7 @@ HRESULT DeviceResources::OnSizeChanged(HWND hWnd, DWORD dwWidth, DWORD dwHeight)
 		this->_renderTargetViewSSMask.Release();
 		this->_transp1RTV.Release();
 		this->_transp2RTV.Release();
+		this->_backgroundRTV.Release();
 		//this->_renderTargetViewEmissionMask.Release();
 		if (g_bUseSteamVR) {
 			this->_offscreenBufferBloomMaskR.Release();
@@ -2592,8 +2593,8 @@ HRESULT DeviceResources::OnSizeChanged(HWND hWnd, DWORD dwWidth, DWORD dwHeight)
 					goto out;
 				*/
 
-				//HRESULT res = DirectX::CreateDDSTextureFromFile(this->_d3dDevice, L"C:\\temp\\skymap.dds", NULL, &_textureCubeSRV);
-				HRESULT res = DirectX::CreateDDSTextureFromFile(this->_d3dDevice, L".\\Effects\\blue_nebula.dds", NULL, &_textureCubeSRV);
+				HRESULT res = DirectX::CreateDDSTextureFromFile(this->_d3dDevice, L"C:\\temp\\skymap.dds", NULL, &_textureCubeSRV);
+				//HRESULT res = DirectX::CreateDDSTextureFromFile(this->_d3dDevice, L".\\Effects\\blue_nebula.dds", NULL, &_textureCubeSRV);
 				log_debug("[DBG] [CUBE] Loaded DDS for texture cube. res = 0x%x", res);
 
 				desc = tmpDesc;
@@ -3607,6 +3608,11 @@ HRESULT DeviceResources::OnSizeChanged(HWND hWnd, DWORD dwWidth, DWORD dwHeight)
 		step = "_transp2RTV";
 		if (FAILED(this->_d3dDevice->CreateRenderTargetView(this->_transpBuffer2,
 			&GetRtvDesc(this->_useMultisampling, g_bUseSteamVR), &this->_transp2RTV)))
+			goto out;
+
+		step = "_backgroundRTV";
+		if (FAILED(this->_d3dDevice->CreateRenderTargetView(this->_backgroundBuffer,
+			&GetRtvDesc(this->_useMultisampling, g_bUseSteamVR), &this->_backgroundRTV)))
 			goto out;
 
 		// _ReticleRTV
@@ -4975,8 +4981,8 @@ HRESULT DeviceResources::LoadResources()
 	// Create the constant buffer for the VR Geometry
 	if (g_bUseSteamVR)
 	{
-		constantBufferDesc.ByteWidth = 128;
-		static_assert(sizeof(VRGeometryCBuffer) == 128, "sizeof(VRGeometryCBuffer) must be 128");
+		constantBufferDesc.ByteWidth = 224;
+		static_assert(sizeof(VRGeometryCBuffer) == 224, "sizeof(VRGeometryCBuffer) must be 224");
 		if (FAILED(hr = this->_d3dDevice->CreateBuffer(&constantBufferDesc, nullptr, &_VRGeometryCBuffer)))
 			return hr;
 	}

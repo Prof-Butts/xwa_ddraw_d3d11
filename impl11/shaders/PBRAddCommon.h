@@ -297,8 +297,8 @@ PixelShaderOutput main(PixelShaderInput input)
 	float4 Normal         = texNormal.Sample(samplerNormal, input.uv);
 	float3 pos3D          = texPos.Sample(sampPos, input.uv).xyz;
 	float3 ssdo           = texSSDO.Sample(samplerSSDO, input_uv_sub).rgb;
-	//float3 background     = texBackground.Sample(sampColor, input.uv).rgb;
-	float3 background     = 0;
+	float3 background     = texBackground.Sample(sampColor, input.uv).rgb;
+	//float3 background     = 0;
 	float3 ssaoMask       = texSSAOMask.Sample(samplerSSAOMask, input.uv).xyz;
 	float3 ssMask         = texSSMask.Sample(samplerSSMask, input.uv).xyz;
 	float4 transpColor1   = transp1.Sample(sampColor, input.uv);
@@ -340,8 +340,17 @@ PixelShaderOutput main(PixelShaderInput input)
 	const float3 P = pos3D.xyz;
 	pos3D.z = -pos3D.z;
 
-	const float3 viewDir = normalize(float3(input.uv - 0.5, 1.0));
-	background = skybox.Sample(sampColor, viewDir).rgb;
+	//vec2 fragCoord = input.uv * iResolution.xy;
+	const float3 viewDir = normalize(float3(2.0 * input.uv.x - 1.0, -2.0 * input.uv.y + 1.0, 1));
+	//const float3 viewDir = normalize(-pos3D);
+	matrix swap;
+	swap[0] = float4(1,  0,  0,  0);
+	swap[1] = float4(0,  1,  0,  0);
+	swap[2] = float4(0,  0,  1,  0);
+	swap[3] = float4(0,  0,  0,  1);
+	matrix CubeV = swap * Camera * swap;
+	const float4 view2 = mul(CubeV, float4(viewDir, 0));
+	//background = skybox.Sample(sampColor, view2.xyz).rgb;
 	//background = viewDir;
 
 	//if (pos3D.z > INFINITY_Z1 || mask > 0.9) // the test with INFINITY_Z1 always adds an ugly cutout line

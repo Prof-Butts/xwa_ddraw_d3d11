@@ -217,6 +217,7 @@ public:
 	void RenderVRDots();
 	void RenderVRBrackets();
 	void RenderVRHUD();
+	void RenderVRSkyBox(bool debug);
 	void RenderVRKeyboard();
 	void RenderVRGloves();
 	void RenderCockpitShadowMap();

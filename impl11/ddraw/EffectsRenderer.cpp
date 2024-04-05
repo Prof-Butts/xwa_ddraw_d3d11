@@ -5654,6 +5654,7 @@ inline ID3D11RenderTargetView *EffectsRenderer::SelectOffscreenBuffer() {
 	// the cockpit on the regularRTV
 	if (_overrideRTV == TRANSP_LYR_1) return resources->_transp1RTV;
 	if (_overrideRTV == TRANSP_LYR_2) return resources->_transp2RTV;
+	if (_overrideRTV == BACKGROUND_LYR) return resources->_backgroundRTV;
 	// Normal output buffer (_offscreenBuffer)
 	return regularRTV;
 }
@@ -6757,6 +6758,139 @@ void EffectsRenderer::RenderVRHUD()
 
 	_bHUDRendered = true;
 	RestoreContext();
+	_deviceResources->EndAnnotatedEvent();
+}
+
+void EffectsRenderer::RenderVRSkyBox(bool debug)
+{
+	if (!g_bUseSteamVR || !g_bRendering3D /* || _bExteriorConstantsCaptured || _bCockpitConstantsCaptured */)
+		return;
+
+	_deviceResources->BeginAnnotatedEvent(L"RenderVRSkyBox");
+
+	log_debug_vr("Render Skybox Test");
+	auto& resources = _deviceResources;
+	auto& context = resources->_d3dDeviceContext;
+	const bool bGunnerTurret = (g_iPresentCounter > PLAYERDATATABLE_MIN_SAFE_FRAME) ?
+		PlayerDataTable[*g_playerIndex].gunnerTurretActive : false;
+
+	SaveContext();
+
+	context->VSSetConstantBuffers(0, 1, _constantBuffer.GetAddressOf());
+	context->PSSetConstantBuffers(0, 1, _constantBuffer.GetAddressOf());
+	// Set the proper rastersizer and depth stencil states for transparency
+	_deviceResources->InitBlendState(_transparentBlendState, nullptr);
+	//_deviceResources->InitDepthStencilState(_transparentDepthState, nullptr);
+	// _mainDepthState is COMPARE_ALWAYS, so the VR dots are always displayed
+	_deviceResources->InitDepthStencilState(_deviceResources->_mainDepthState, nullptr);
+
+	_deviceResources->InitViewport(&_viewport);
+	_deviceResources->InitTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+	_deviceResources->InitInputLayout(_inputLayout);
+	_deviceResources->InitVertexShader(_vertexShader);
+
+	// Other stuff that is common in the loop below
+	UINT vertexBufferStride = sizeof(D3dVertex);
+	UINT vertexBufferOffset = 0;
+
+	ZeroMemory(&g_PSCBuffer, sizeof(g_PSCBuffer));
+	g_PSCBuffer.bIsShadeless = 2;
+
+	g_VRGeometryCBuffer.numStickyRegions = 0;
+	// Disable region highlighting
+	g_VRGeometryCBuffer.clicked[0] = false;
+	g_VRGeometryCBuffer.clicked[1] = false;
+
+	// Flags used in RenderScene():
+	_bIsCockpit = !bGunnerTurret;
+	_bIsGunner = bGunnerTurret;
+	_bIsBlastMark = false;
+
+	// Set the textures
+	//_deviceResources->InitPSShaderResourceView(_vrGreenCirclesSRV.Get(), nullptr);
+	//_deviceResources->InitPSShaderResourceView(resources->_BracketsSRV.Get(), nullptr);
+
+	// Set the mesh buffers
+	ID3D11ShaderResourceView* vsSSRV[4] = { _vrDotMeshVerticesSRV.Get(), nullptr, _vrDotMeshTexCoordsSRV.Get(), nullptr };
+	context->VSSetShaderResources(0, 4, vsSSRV);
+
+	// Set the index and vertex buffers
+	_deviceResources->InitVertexBuffer(nullptr, nullptr, nullptr);
+	_deviceResources->InitVertexBuffer(_vrDotVertexBuffer.GetAddressOf(), &vertexBufferStride, &vertexBufferOffset);
+	_deviceResources->InitIndexBuffer(nullptr, true);
+	_deviceResources->InitIndexBuffer(_vrDotIndexBuffer.Get(), true);
+
+	// Apply the VS and PS constants
+	resources->InitPSConstantBuffer3D(resources->_PSConstantBuffer.GetAddressOf(), &g_PSCBuffer);
+	resources->InitVRGeometryCBuffer(resources->_VRGeometryCBuffer.GetAddressOf(), &g_VRGeometryCBuffer);
+	_deviceResources->InitPixelShader(resources->_pixelShaderVRGeom);
+
+	// Set the constants buffer
+	//Matrix4 Vinv = g_VSMatrixCB.fullViewMat;
+	//Vinv.invert();
+
+	// Let's replace transformWorldView with the identity matrix:
+	Matrix4 Id;
+	const float* m = Id.get();
+	for (int i = 0; i < 16; i++) _CockpitConstants.transformWorldView[i] = m[i];
+
+	context->UpdateSubresource(_constantBuffer, 0, nullptr, &_CockpitConstants, 0, 0);
+	_trianglesCount = g_vrDotNumTriangles;
+
+	Matrix4 V, swap({ 1,0,0,0,  0,0,1,0,  0,1,0,0,  0,0,0,1 });
+
+	// Get the width in OPT-scale of the mesh that will be rendered:
+	// 0 -> 1
+	// |
+	// 3
+	const float meshWidth = g_vrDotMeshVertices[1].x - g_vrDotMeshVertices[0].x;
+	//log_debug_vr("meshWidth: %0.3f", meshWidth);
+
+	ID3D11ShaderResourceView* srvs[] = {
+		resources->_textureCubeSRV /* .Get() */, // 21
+	};
+	context->PSSetShaderResources(21, 1, srvs);
+
+	if (!debug)
+	{
+		_overrideRTV = BACKGROUND_LYR;
+		float black[4] = { 0, 0, 0, 1 };
+		context->ClearRenderTargetView(resources->_backgroundRTV, black);
+	}
+
+	for (const auto& bracketVR : g_bracketsVR)
+	{
+		Vector4 dotPosSteamVR;
+		dotPosSteamVR.x = bracketVR.posOPT.x * OPT_TO_METERS;
+		dotPosSteamVR.y = bracketVR.posOPT.z * OPT_TO_METERS;
+		dotPosSteamVR.z = bracketVR.posOPT.y * OPT_TO_METERS;
+		dotPosSteamVR.w = 1.0f;
+		const float meshScale = (bracketVR.halfWidthOPT * 2.0f) / meshWidth;
+
+		Matrix4 DotTransform;
+		{
+			Matrix4 swapScale({ 1,0,0,0,  0,0,-1,0,  0,-1,0,0,  0,0,0,1 });
+
+			DotTransform.identity();
+			Vector3 posOPT = { dotPosSteamVR.x * METERS_TO_OPT,
+							   dotPosSteamVR.z * METERS_TO_OPT,
+							   dotPosSteamVR.y * METERS_TO_OPT };
+			Matrix4 T = Matrix4().translate(posOPT);
+			DotTransform = swapScale * T * Matrix4().scale(meshScale);
+		}
+		// The Vertex Shader does post-multiplication, so we need to transpose the matrix:
+		DotTransform.transpose();
+		g_OPTMeshTransformCB.MeshTransform = DotTransform;
+
+		// Apply the VS and PS constants
+		resources->InitVSConstantOPTMeshTransform(resources->_OPTMeshTransformCB.GetAddressOf(), &g_OPTMeshTransformCB);
+
+		RenderScene(false);
+	}
+
+	RestoreContext();
+	_overrideRTV = TRANSP_LYR_NONE;
+	g_bracketsVR.clear();
 	_deviceResources->EndAnnotatedEvent();
 }
 

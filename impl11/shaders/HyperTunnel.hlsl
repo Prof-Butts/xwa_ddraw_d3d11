@@ -117,6 +117,10 @@ PixelShaderOutput main(PixelShaderInput input)
 	float v_xy = length(v.xy);
 	float z = v.z / v_xy;
 
+	// The following worked just fine to sample the texture cube:
+	//output.color = skybox.Sample(samplerColor, v);
+	//return output;
+
 	// The focal_depth controls how "deep" the tunnel looks. Lower values
 	// provide more depth.
 	float focal_depth  = mix(0.15, 0.015, smoothstep(0.65, 0.9, t));

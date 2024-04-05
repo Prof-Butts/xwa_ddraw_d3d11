@@ -106,11 +106,17 @@
     </Link>
     <PostBuildEvent />
     <PostBuildEvent>
-      <Command>copy /Y $(TargetPath) "C:\Program Files (x86)\GOG Galaxy\Games\Star Wars - X-Wing Alliance 6.0"
-copy /Y $(TargetPath) "C:\Program Files (x86)\GOG Galaxy\Games\Star Wars - X-Wing Alliance 5.6.2"
-
+      <Command>copy /Y $(TargetPath) "C:\Program Files (x86)\GOG Galaxy\Games\Star Wars - X-Wing Alliance 6.0.2"
 </Command>
     </PostBuildEvent>
+    <PreBuildEvent>
+      <Command>
+      </Command>
+    </PreBuildEvent>
+    <CustomBuildStep>
+      <Command>
+      </Command>
+    </CustomBuildStep>
   </ItemDefinitionGroup>
   <ItemGroup>
     <None Include="ddraw.cfg">

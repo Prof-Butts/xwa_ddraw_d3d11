@@ -2187,6 +2187,12 @@ void SetLights(DeviceResources *resources, float fSSDOEnabled) {
 		//DumpGlobalLights();
 	}
 
+	if (g_bUseTextureCube)
+	{
+		g_ShadowMapVSCBuffer.Camera = g_CurrentHeadingViewMatrix;
+		g_ShadowMapVSCBuffer.Camera.invert();
+	}
+
 	if (g_HyperspacePhaseFSM != HS_HYPER_TUNNEL_ST)
 	{
 		for (int i = 0; i < maxLights; i++)
@@ -9909,6 +9915,15 @@ HRESULT PrimarySurface::Flip(
 						resources->_depthBuf, D3D11CalcSubresource(0, 1, 1), AO_DEPTH_BUFFER_FORMAT);
 			}
 
+			// Overwrite the backdrop with a texture cube:
+			if (g_bUseSteamVR && g_bUseTextureCube && !g_bMapMode)
+			{
+				RenderSkyBox(false);
+				g_bBackgroundCaptured = true;
+				if (g_bDumpSSAOBuffers)
+					DirectX::SaveDDSTextureToFile(context, resources->_backgroundBuffer, L"c:\\temp\\_backgroundBufferAfterSkybox.dds");
+			}
+
 			if (!g_bBackgroundCaptured)
 			{
 				g_bBackgroundCaptured = true;
@@ -9923,7 +9938,7 @@ HRESULT PrimarySurface::Flip(
 				}
 
 				if (g_bDumpSSAOBuffers)
-					DirectX::SaveDDSTextureToFile(context, resources->_offscreenBuffer, L"c:\\temp\\_backgroundBufferP.dds");
+					DirectX::SaveDDSTextureToFile(context, resources->_backgroundBuffer, L"c:\\temp\\_backgroundBufferP.dds");
 			}
 
 			context->ResolveSubresource(resources->_transpBufferAsInput1, 0, resources->_transpBuffer1, 0, BACKBUFFER_FORMAT);
@@ -10046,6 +10061,15 @@ HRESULT PrimarySurface::Flip(
 					EffectsRenderer* renderer = (EffectsRenderer*)g_current_renderer;
 					renderer->RenderVRDots();
 				}
+
+				// Render the skybox after the deferred pass. This helps debug the skybox, for instance,
+				// by highlighting areas designated as "Up" or "Forward" that are visible at all times.
+				/*
+				if (g_bUseSteamVR && g_bUseTextureCube && !g_bMapMode)
+				{
+					RenderSkyBox(true);
+				}
+				*/
 
 				if (g_bDumpSSAOBuffers) {
 					//DirectX::SaveWICTextureToFile(context, resources->_offscreenBuffer, GUID_ContainerFormatJpeg, L"C:\\Temp\\_offscreenBuffer.jpg");
@@ -12361,6 +12385,101 @@ void PrimarySurface::CacheBracketsVR()
 	// This method should only be called in VR mode:
 	EffectsRenderer* renderer = (EffectsRenderer*)g_current_renderer;
 	renderer->RenderVRBrackets();
+}
+
+void PrimarySurface::RenderSkyBox(bool debug)
+{
+	if (!g_bUseSteamVR) return;
+
+	const bool bExternalCamera = g_iPresentCounter > PLAYERDATATABLE_MIN_SAFE_FRAME &&
+		PlayerDataTable[*g_playerIndex].Camera.ExternalCamera;
+
+	auto& resources = _deviceResources;
+	auto& context = resources->_d3dDeviceContext;
+
+	const float Zfar = *(float*)0x05B46B4;
+	// Save the current projection constants
+	float f0 = *(float*)0x08C1600;
+	float f1 = *(float*)0x0686ACC;
+	float f2 = *(float*)0x080ACF8;
+	float f3 = *(float*)0x07B33C0;
+	float f4 = *(float*)0x064D1AC;
+
+	if (bExternalCamera)
+	{
+		// These are the constants used when rendering the cockpit. The HUD is not at the center
+		// of the screen when using these:
+		*(float*)0x08C1600 = g_f0x08C1600;
+		*(float*)0x0686ACC = g_f0x0686ACC;
+		*(float*)0x080ACF8 = g_f0x080ACF8;
+		*(float*)0x07B33C0 = g_f0x07B33C0;
+		*(float*)0x064D1AC = g_f0x064D1AC;
+	}
+
+	//Matrix4 Heading;
+	//GetHyperspaceEffectMatrix(&Heading);
+	//GetCockpitViewMatrix(&Heading);
+	Vector4 Rs, Us, Fs;
+	Matrix4 Heading = GetCurrentHeadingMatrix(Rs, Us, Fs, false);
+	Matrix4 ViewMatrix = g_VSMatrixCB.fullViewMat; // See RenderSpeedEffect() for details
+	ViewMatrix.invert();
+	Matrix4 S = Matrix4().scale(-1, -1, 1);
+	ViewMatrix = S * ViewMatrix * S * Heading;
+
+	// DEBUG:
+	Vector4 U = ViewMatrix * Vector4(0, 0, 1, 0);
+	Vector4 F = ViewMatrix * Vector4(0, -1, 0, 0);
+	g_VRGeometryCBuffer.U = float4(U.x, U.y, U.z, 0);
+	g_VRGeometryCBuffer.F = float4(F.x, F.y, F.z, 0);
+	//log_debug_vr("Up: %0.3f, %0.3f, %0.3f", U.x, U.y, U.z);
+	//log_debug_vr("Fd: %0.3f, %0.3f, %0.3f", F.x, F.y, F.z);
+
+	// ViewMatrix maps OPT-World coords to "Normal Mapping"/DX11 Viewspace coords:
+	// X+ (Rt, OPT) maps to X+
+	// Z+ (Up, OPT) maps to Y+
+	// Y- (Fd, OPT) maps to Z+
+	// In order to map from DX11 Viewspace coords to DX11 World coords, we need
+	// to invert ViewMatrix and then rename Z+ --> Y+ and Z+ --> Y-
+	Matrix4 swapScale({ 1,0,0,0,  0,0,1,0,  0,-1,0,0,  0,0,0,1 });
+	ViewMatrix.invert();
+	g_VRGeometryCBuffer.viewMat = swapScale * ViewMatrix;
+
+	// Add a single bracket covering the whole screen
+	g_bracketsVR.clear();
+	float W = g_fCurInGameWidth;
+	float H = g_fCurInGameHeight;
+	float desiredZ = 65536.0f;
+	float X = W / 2.0f, Y = H / 2.0f;
+	float Z = Zfar / (desiredZ * METERS_TO_OPT);
+	float3 P = InverseTransformProjectionScreen({ X, Y, Z, Z });
+	P.y = -P.y;
+	P.z = -P.z;
+
+	float3 Q = InverseTransformProjectionScreen({ W, H, Z, Z });
+	Q.y = -Q.y;
+	Q.z = -Q.z;
+
+	BracketVR bracketVR;
+	bracketVR.posOPT.x = P.x;
+	bracketVR.posOPT.y = P.z;
+	bracketVR.posOPT.z = P.y;
+	bracketVR.halfWidthOPT = fabs(Q.x - P.x);
+	bracketVR.color = Vector3(1, 1, 1);
+	g_bracketsVR.push_back(bracketVR);
+
+	// Restore the original projection deltas
+	if (bExternalCamera)
+	{
+		*(float*)0x08C1600 = f0;
+		*(float*)0x0686ACC = f1;
+		*(float*)0x080ACF8 = f2;
+		*(float*)0x07B33C0 = f3;
+		*(float*)0x064D1AC = f4;
+	}
+
+	// This method should only be called in VR mode:
+	EffectsRenderer* renderer = (EffectsRenderer*)g_current_renderer;
+	renderer->RenderVRSkyBox(debug);
 }
 
 /*

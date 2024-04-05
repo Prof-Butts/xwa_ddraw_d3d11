@@ -8,6 +8,8 @@
 Texture2D texture0 : register(t0);
 SamplerState sampler0 : register(s0);
 
+TextureCube skybox : register(t21);
+
 // VRGeometryCBuffer
 cbuffer ConstantBuffer : register(b11)
 {
@@ -22,6 +24,12 @@ cbuffer ConstantBuffer : register(b11)
 	float  strokeWidth;
 	float3 bracketColor;
 	// 128 bytes
+	float4 U;
+	// 144 bytes
+	matrix viewMat;
+	// 208 bytes
+	float4 F;
+	// 224 bytes
 };
 
 // New PixelShaderInput needed for the D3DRendererHook
@@ -97,6 +105,41 @@ PixelShaderOutput RenderBracket(PixelShaderInput input)
 	return output;
 }
 
+PixelShaderOutput RenderSkyBox(PixelShaderInput input)
+{
+	PixelShaderOutput output;
+
+	output.color    = 0;
+	output.bloom    = 0;
+	output.ssaoMask = 0;
+	output.ssMask   = 0;
+	output.pos3D    = 0;
+	output.normal   = 0;
+
+	const float3 P = input.pos3D.xyz;
+	const float4 V = mul(viewMat, float4(normalize(P), 0));
+
+	/*
+	float4 V = float4(normalize(P), 0);
+	const float Vdist = max(0, dot(V.xyz, U.xyz));
+	const float Fdist = max(0, dot(V.xyz, F.xyz));
+	V.yz = V.zy;
+	V = -V;
+	V = mul(viewMat, V);
+	V = -V;
+	V.yz = V.zy;
+
+	output.color.b += 0.5 * Vdist;
+	output.color.a += pow(Vdist, 4.0);
+
+	output.color.g += 0.5 * Fdist;
+	output.color.a += pow(Fdist, 4.0);
+	*/
+
+	output.color = float4(skybox.Sample(sampler0, V.xyz).rgb, 1);
+	return output;
+}
+
 PixelShaderOutput main(PixelShaderInput input)
 {
 	if (bRenderBracket)
@@ -106,6 +149,11 @@ PixelShaderOutput main(PixelShaderInput input)
 	const float4 texelColor = texture0.Sample(sampler0, input.tex);
 	const float  alpha      = texelColor.w;
 	const float2 uv         = input.tex;
+
+	if (bIsShadeless == 2)
+	{
+		return RenderSkyBox(input);
+	}
 
 	if (alpha < 0.75)
 		discard;

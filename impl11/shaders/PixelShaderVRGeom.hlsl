@@ -117,9 +117,10 @@ PixelShaderOutput RenderSkyBox(PixelShaderInput input)
 	output.normal   = 0;
 
 	const float3 P = input.pos3D.xyz;
+#ifdef DISABLED
 	const float4 V = mul(viewMat, float4(normalize(P), 0));
-
-	/*
+	output.color = float4(skybox.Sample(sampler0, V.xyz).rgb, 1);
+#else
 	float4 V = float4(normalize(P), 0);
 	const float Vdist = max(0, dot(V.xyz, U.xyz));
 	const float Fdist = max(0, dot(V.xyz, F.xyz));
@@ -134,9 +135,8 @@ PixelShaderOutput RenderSkyBox(PixelShaderInput input)
 
 	output.color.g += 0.5 * Fdist;
 	output.color.a += pow(Fdist, 4.0);
-	*/
+#endif
 
-	output.color = float4(skybox.Sample(sampler0, V.xyz).rgb, 1);
 	return output;
 }
 
@@ -220,8 +220,7 @@ PixelShaderOutput main(PixelShaderInput input)
 	output.pos3D = float4(P, 1);
 
 	float3 N = normalize(input.normal.xyz);
-	N.y = -N.y; // Invert the Y axis, originally Y+ is down
-	N.z = -N.z;
+	N.yz = -N.yz; // Invert the Y axis, originally Y+ is down
 	// The hook_normals hook sets alpha to 0.5, so we must follow suit here.
 	// If I set the alpha to 1, I'll get a white halo around the VR gloves!
 	output.normal = float4(N, 0.5);

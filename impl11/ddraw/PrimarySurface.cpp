@@ -9916,6 +9916,7 @@ HRESULT PrimarySurface::Flip(
 			}
 
 			// Overwrite the backdrop with a texture cube:
+			/*
 			if (g_bUseSteamVR && g_bUseTextureCube && !g_bMapMode)
 			{
 				RenderSkyBox(false);
@@ -9923,6 +9924,7 @@ HRESULT PrimarySurface::Flip(
 				if (g_bDumpSSAOBuffers)
 					DirectX::SaveDDSTextureToFile(context, resources->_backgroundBuffer, L"c:\\temp\\_backgroundBufferAfterSkybox.dds");
 			}
+			*/
 
 			if (!g_bBackgroundCaptured)
 			{
@@ -10064,12 +10066,10 @@ HRESULT PrimarySurface::Flip(
 
 				// Render the skybox after the deferred pass. This helps debug the skybox, for instance,
 				// by highlighting areas designated as "Up" or "Forward" that are visible at all times.
-				/*
 				if (g_bUseSteamVR && g_bUseTextureCube && !g_bMapMode)
 				{
 					RenderSkyBox(true);
 				}
-				*/
 
 				if (g_bDumpSSAOBuffers) {
 					//DirectX::SaveWICTextureToFile(context, resources->_offscreenBuffer, GUID_ContainerFormatJpeg, L"C:\\Temp\\_offscreenBuffer.jpg");
@@ -12407,6 +12407,7 @@ void PrimarySurface::RenderSkyBox(bool debug)
 
 	if (bExternalCamera)
 	{
+		log_debug_vr("External Cam. Using Cockpit projection constants");
 		// These are the constants used when rendering the cockpit. The HUD is not at the center
 		// of the screen when using these:
 		*(float*)0x08C1600 = g_f0x08C1600;
@@ -12431,8 +12432,8 @@ void PrimarySurface::RenderSkyBox(bool debug)
 	Vector4 F = ViewMatrix * Vector4(0, -1, 0, 0);
 	g_VRGeometryCBuffer.U = float4(U.x, U.y, U.z, 0);
 	g_VRGeometryCBuffer.F = float4(F.x, F.y, F.z, 0);
-	//log_debug_vr("Up: %0.3f, %0.3f, %0.3f", U.x, U.y, U.z);
-	//log_debug_vr("Fd: %0.3f, %0.3f, %0.3f", F.x, F.y, F.z);
+	log_debug_vr("Up: %0.3f, %0.3f, %0.3f", U.x, U.y, U.z);
+	log_debug_vr("Fd: %0.3f, %0.3f, %0.3f", F.x, F.y, F.z);
 
 	// ViewMatrix maps OPT-World coords to "Normal Mapping"/DX11 Viewspace coords:
 	// X+ (Rt, OPT) maps to X+
@@ -12458,6 +12459,10 @@ void PrimarySurface::RenderSkyBox(bool debug)
 	float3 Q = InverseTransformProjectionScreen({ W, H, Z, Z });
 	Q.y = -Q.y;
 	Q.z = -Q.z;
+
+	log_debug_vr("Bracket, P:[%0.3f, %0.3f, %0.3f], Q:[%0.3f, %0.3f, %0.3f]",
+		P.x, P.y, P.z,
+		Q.x, Q.y, Q.z);
 
 	BracketVR bracketVR;
 	bracketVR.posOPT.x = P.x;

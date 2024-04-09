@@ -6763,12 +6763,17 @@ void EffectsRenderer::RenderVRHUD()
 
 void EffectsRenderer::RenderVRSkyBox(bool debug)
 {
-	if (!g_bUseSteamVR || !g_bRendering3D /* || _bExteriorConstantsCaptured || _bCockpitConstantsCaptured */)
+	if (!g_bUseSteamVR || !g_bRendering3D)
+		return;
+
+	if (!_bExteriorConstantsCaptured && !_bCockpitConstantsCaptured)
 		return;
 
 	_deviceResources->BeginAnnotatedEvent(L"RenderVRSkyBox");
 
-	log_debug_vr("Render Skybox Test");
+	log_debug_vr("Render Skybox Test, Cockpit: %d, Ext: %d",
+		_bCockpitConstantsCaptured, _bExteriorConstantsCaptured);
+
 	auto& resources = _deviceResources;
 	auto& context = resources->_d3dDeviceContext;
 	const bool bGunnerTurret = (g_iPresentCounter > PLAYERDATATABLE_MIN_SAFE_FRAME) ?
@@ -6806,10 +6811,6 @@ void EffectsRenderer::RenderVRSkyBox(bool debug)
 	_bIsGunner = bGunnerTurret;
 	_bIsBlastMark = false;
 
-	// Set the textures
-	//_deviceResources->InitPSShaderResourceView(_vrGreenCirclesSRV.Get(), nullptr);
-	//_deviceResources->InitPSShaderResourceView(resources->_BracketsSRV.Get(), nullptr);
-
 	// Set the mesh buffers
 	ID3D11ShaderResourceView* vsSSRV[4] = { _vrDotMeshVerticesSRV.Get(), nullptr, _vrDotMeshTexCoordsSRV.Get(), nullptr };
 	context->VSSetShaderResources(0, 4, vsSSRV);
@@ -6825,16 +6826,19 @@ void EffectsRenderer::RenderVRSkyBox(bool debug)
 	resources->InitVRGeometryCBuffer(resources->_VRGeometryCBuffer.GetAddressOf(), &g_VRGeometryCBuffer);
 	_deviceResources->InitPixelShader(resources->_pixelShaderVRGeom);
 
-	// Set the constants buffer
-	//Matrix4 Vinv = g_VSMatrixCB.fullViewMat;
-	//Vinv.invert();
-
 	// Let's replace transformWorldView with the identity matrix:
 	Matrix4 Id;
 	const float* m = Id.get();
-	for (int i = 0; i < 16; i++) _CockpitConstants.transformWorldView[i] = m[i];
-
-	context->UpdateSubresource(_constantBuffer, 0, nullptr, &_CockpitConstants, 0, 0);
+	if (_bExteriorConstantsCaptured)
+	{
+		for (int i = 0; i < 16; i++) _ExteriorConstants.transformWorldView[i] = m[i];
+		context->UpdateSubresource(_constantBuffer, 0, nullptr, &_ExteriorConstants, 0, 0);
+	}
+	else
+	{
+		for (int i = 0; i < 16; i++) _CockpitConstants.transformWorldView[i] = m[i];
+		context->UpdateSubresource(_constantBuffer, 0, nullptr, &_CockpitConstants, 0, 0);
+	}
 	_trianglesCount = g_vrDotNumTriangles;
 
 	Matrix4 V, swap({ 1,0,0,0,  0,0,1,0,  0,1,0,0,  0,0,0,1 });

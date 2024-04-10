@@ -97,8 +97,28 @@ PixelShaderOutput RenderBracket(PixelShaderInput input)
 	return output;
 }
 
+PixelShaderOutput RenderSkyBox(PixelShaderInput input)
+{
+	PixelShaderOutput output;
+	output.color = 0;
+	output.bloom = 0;
+	output.normal = 0;
+	output.pos3D = 0;
+	output.ssaoMask = 0;
+	output.ssMask = 0;
+
+	output.color = float4(0.2, 0.2, 0.3, 0.3);
+
+	return output;
+}
+
 PixelShaderOutput main(PixelShaderInput input)
 {
+	if (bIsShadeless == 2)
+	{
+		return RenderSkyBox(input);
+	}
+
 	if (bRenderBracket)
 		return RenderBracket(input);
 

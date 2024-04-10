@@ -9960,6 +9960,11 @@ HRESULT PrimarySurface::Flip(
 					renderer->RenderVRDots();
 				}
 
+				if (g_bUseSteamVR)
+				{
+					RenderSkyBox();
+				}
+
 				if (g_bDumpSSAOBuffers) {
 					//DirectX::SaveWICTextureToFile(context, resources->_offscreenBuffer, GUID_ContainerFormatJpeg, L"C:\\Temp\\_offscreenBuffer.jpg");
 					DirectX::SaveDDSTextureToFile(context, resources->_offscreenBufferAsInputBloomMask, L"C:\\Temp\\_bloomMask2.dds");
@@ -12273,7 +12278,99 @@ void PrimarySurface::CacheBracketsVR()
 
 	// This method should only be called in VR mode:
 	EffectsRenderer* renderer = (EffectsRenderer*)g_current_renderer;
-	renderer->RenderVRBrackets();
+	renderer->RenderVRBrackets(0);
+}
+
+void PrimarySurface::RenderSkyBox()
+{
+	const bool bExternalCamera = g_iPresentCounter > PLAYERDATATABLE_MIN_SAFE_FRAME &&
+		PlayerDataTable[*g_playerIndex].Camera.ExternalCamera;
+
+	// Save the current projection constants
+	float f0 = *(float*)0x08C1600;
+	float f1 = *(float*)0x0686ACC;
+	float f2 = *(float*)0x080ACF8;
+	float f3 = *(float*)0x07B33C0;
+	float f4 = *(float*)0x064D1AC;
+
+	if (bExternalCamera)
+	{
+		// These are the constants used when rendering the cockpit. The HUD is not at the center
+		// of the screen when using these:
+		*(float*)0x08C1600 = g_f0x08C1600;
+		*(float*)0x0686ACC = g_f0x0686ACC;
+		*(float*)0x080ACF8 = g_f0x080ACF8;
+		*(float*)0x07B33C0 = g_f0x07B33C0;
+		*(float*)0x064D1AC = g_f0x064D1AC;
+	}
+
+	const float Zfar = *(float*)0x05B46B4;
+	unsigned int brushColor = 0;
+	const Vector4 screenCenter = Vector4(g_fCurInGameWidth / 2.0f, g_fCurInGameHeight / 2.0f, 0, 1);
+	// Back-project the center of the screen:
+	float X, Y, desiredZ = 65536.0f;
+	// The following division is correct. Znear is actually greater than Zfar because the
+	// depth is inverted (0 is far, 1 is close). It's also normalized.
+	float Z = Zfar / (desiredZ * METERS_TO_OPT + Zfar);
+	float3 C = InverseTransformProjectionScreen({ screenCenter.x, screenCenter.y, Z, Z }); // CacheBracketsVR
+	C.y = -C.y;
+	C.z = -C.z;
+
+	// Let's measure the width of the stroke now:
+	constexpr float STROKE_WIDTH_PX = 1.0f;
+	X = screenCenter.x + STROKE_WIDTH_PX;
+	Y = screenCenter.y;
+	float3 U = InverseTransformProjectionScreen({ X, Y, Z, Z }); // CacheBracketsVR
+	// This is the width of the stroke in OPT coordinates at the given depth
+	const float strokeWidthOPT = fabs(C.x - U.x);
+
+	{
+		// xwaBracket is in in-game coords.
+		// xwaBracket.positionX/Y is the top-left corner, so adding halfWidth/Height gives us
+		// the center of the bracket:
+		//X = (float)(xwaBracket.positionX + xwaBracket.width / 2.0f);
+		//Y = (float)(xwaBracket.positionY + xwaBracket.height / 2.0f);
+		X = screenCenter.x;
+		Y = screenCenter.y;
+		float3 V = InverseTransformProjectionScreen({ X, Y, Z, Z }); // CacheBracketsVR
+		V.y = -V.y;
+		V.z = -V.z;
+
+		// This would be the lower-right corner of the bracket. Measuring it from the center
+		// of the screen also works.
+		X = screenCenter.x + (g_fCurInGameWidth / 2.0f);
+		Y = screenCenter.y + (g_fCurInGameHeight / 2.0f);
+		float3 W = InverseTransformProjectionScreen({ X, Y, Z, Z }); // CacheBracketsVR
+		W.y = -W.y;
+		W.z = -W.z;
+
+		BracketVR bracketVR;
+		bracketVR.posOPT.x = V.x;
+		bracketVR.posOPT.y = V.z;
+		bracketVR.posOPT.z = V.y;
+		bracketVR.halfWidthOPT = fabs(W.x - C.x);
+		bracketVR.strokeWidth = strokeWidthOPT / (2.0f * bracketVR.halfWidthOPT);
+		bracketVR.color.x = (float)((brushColor >> 16) & 0xFF) / 255.0f;
+		bracketVR.color.y = (float)((brushColor >> 8) & 0xFF) / 255.0f;
+		bracketVR.color.z = (float)((brushColor >> 0) & 0xFF) / 255.0f;
+		g_bracketsVR.push_back(bracketVR);
+	}
+
+	// Restore the original projection deltas
+	if (bExternalCamera)
+	{
+		*(float*)0x08C1600 = f0;
+		*(float*)0x0686ACC = f1;
+		*(float*)0x080ACF8 = f2;
+		*(float*)0x07B33C0 = f3;
+		*(float*)0x064D1AC = f4;
+	}
+
+	log_debug_vr("RenderSkyBox");
+
+	// This method should only be called in VR mode:
+	EffectsRenderer* renderer = (EffectsRenderer*)g_current_renderer;
+	renderer->RenderVRBrackets(1);
 }
 
 /*

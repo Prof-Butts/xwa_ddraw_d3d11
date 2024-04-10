@@ -215,7 +215,7 @@ public:
 	void RenderLasers();
 	void RenderTransparency();
 	void RenderVRDots();
-	void RenderVRBrackets();
+	void RenderVRBrackets(int mode);
 	void RenderVRHUD();
 	void RenderVRKeyboard();
 	void RenderVRGloves();

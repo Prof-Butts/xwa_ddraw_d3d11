@@ -6392,7 +6392,7 @@ void EffectsRenderer::RenderVRDots()
 	_deviceResources->EndAnnotatedEvent();
 }
 
-void EffectsRenderer::RenderVRBrackets()
+void EffectsRenderer::RenderVRBrackets(int mode)
 {
 	if (!g_bUseSteamVR || !g_bRendering3D || _bBracketsRendered)
 		return;
@@ -6424,11 +6424,11 @@ void EffectsRenderer::RenderVRBrackets()
 	UINT vertexBufferOffset = 0;
 
 	ZeroMemory(&g_PSCBuffer, sizeof(g_PSCBuffer));
-	g_PSCBuffer.bIsShadeless = 1;
+	g_PSCBuffer.bIsShadeless = (mode == 0) ? 1 : 2;
 	g_PSCBuffer.fPosNormalAlpha = 0.0f;
 
 	g_VRGeometryCBuffer.numStickyRegions = 0;
-	g_VRGeometryCBuffer.bRenderBracket = 1;
+	g_VRGeometryCBuffer.bRenderBracket = (mode == 0) ? 1 : 0;
 	// Disable region highlighting
 	g_VRGeometryCBuffer.clicked[0] = false;
 	g_VRGeometryCBuffer.clicked[1] = false;
@@ -6555,7 +6555,10 @@ void EffectsRenderer::RenderVRBrackets()
 						   dotPosSteamVR.y * METERS_TO_OPT };
 		Matrix4 T = Matrix4().translate(posOPT);
 		// Use this to render individual brackets and apply billboard correction:
-		DotTransform = swapScale * T * Matrix4().scale(meshScale) * V;
+		if (mode == 0)
+			DotTransform = swapScale * T * Matrix4().scale(meshScale) * V;
+		else
+			DotTransform = swapScale * T * Matrix4().scale(meshScale);
 
 		// The Vertex Shader does post-multiplication, so we need to transpose the matrix:
 		DotTransform.transpose();
@@ -6572,10 +6575,13 @@ void EffectsRenderer::RenderVRBrackets()
 	RestoreContext();
 	g_bracketsVR.clear();
 
-	context->ResolveSubresource(resources->_offscreenBufferAsInputBloomMask, 0,
-		resources->_offscreenBufferBloomMask, 0, BLOOM_BUFFER_FORMAT);
-	context->ResolveSubresource(resources->_offscreenBufferAsInputBloomMask, D3D11CalcSubresource(0, 1, 1),
-		resources->_offscreenBufferBloomMask, D3D11CalcSubresource(0, 1, 1), BLOOM_BUFFER_FORMAT);
+	if (mode == 0)
+	{
+		context->ResolveSubresource(resources->_offscreenBufferAsInputBloomMask, 0,
+			resources->_offscreenBufferBloomMask, 0, BLOOM_BUFFER_FORMAT);
+		context->ResolveSubresource(resources->_offscreenBufferAsInputBloomMask, D3D11CalcSubresource(0, 1, 1),
+			resources->_offscreenBufferBloomMask, D3D11CalcSubresource(0, 1, 1), BLOOM_BUFFER_FORMAT);
+	}
 
 	_deviceResources->EndAnnotatedEvent();
 }

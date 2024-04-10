@@ -117,20 +117,24 @@ PixelShaderOutput RenderSkyBox(PixelShaderInput input)
 	output.normal   = 0;
 
 	const float3 P = input.pos3D.xyz;
-#ifdef DISABLED
+#ifndef DISABLED
 	const float4 V = mul(viewMat, float4(normalize(P), 0));
 	output.color = float4(skybox.Sample(sampler0, V.xyz).rgb, 1);
 #else
 	float4 V = float4(normalize(P), 0);
 	const float Vdist = max(0, dot(V.xyz, U.xyz));
 	const float Fdist = max(0, dot(V.xyz, F.xyz));
+	/*
 	V.yz = V.zy;
 	V = -V;
 	V = mul(viewMat, V);
 	V = -V;
 	V.yz = V.zy;
+	*/
 
-	output.color.b += 0.5 * Vdist;
+	output.color = float4(0.2, 0.2, 0.4, 0.3);
+
+	output.color.r += 0.5 * Vdist;
 	output.color.a += pow(Vdist, 4.0);
 
 	output.color.g += 0.5 * Fdist;
@@ -142,6 +146,9 @@ PixelShaderOutput RenderSkyBox(PixelShaderInput input)
 
 PixelShaderOutput main(PixelShaderInput input)
 {
+	if (bIsShadeless == 2)
+		return RenderSkyBox(input);
+
 	if (bRenderBracket)
 		return RenderBracket(input);
 
@@ -149,11 +156,6 @@ PixelShaderOutput main(PixelShaderInput input)
 	const float4 texelColor = texture0.Sample(sampler0, input.tex);
 	const float  alpha      = texelColor.w;
 	const float2 uv         = input.tex;
-
-	if (bIsShadeless == 2)
-	{
-		return RenderSkyBox(input);
-	}
 
 	if (alpha < 0.75)
 		discard;

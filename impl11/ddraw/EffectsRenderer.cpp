@@ -5114,7 +5114,10 @@ void EffectsRenderer::MainSceneHook(const SceneCompData* scene)
 	ComPtr<ID3D11Buffer> oldPSConstantBuffer;
 	ComPtr<ID3D11ShaderResourceView> oldVSSRV[3];
 
-	if (s_captureProjectionDeltas)
+	const bool bExternalCamera = g_iPresentCounter > PLAYERDATATABLE_MIN_SAFE_FRAME &&
+		PlayerDataTable[*g_playerIndex].Camera.ExternalCamera;
+
+	if (s_captureProjectionDeltas && !bExternalCamera)
 	{
 		g_f0x08C1600 = *(float*)0x08C1600;
 		g_f0x0686ACC = *(float*)0x0686ACC;
@@ -6800,6 +6803,7 @@ void EffectsRenderer::RenderVRSkyBox(bool debug)
 
 	ZeroMemory(&g_PSCBuffer, sizeof(g_PSCBuffer));
 	g_PSCBuffer.bIsShadeless = 2;
+	g_PSCBuffer.fPosNormalAlpha = 0.0f;
 
 	g_VRGeometryCBuffer.numStickyRegions = 0;
 	// Disable region highlighting
@@ -6826,10 +6830,11 @@ void EffectsRenderer::RenderVRSkyBox(bool debug)
 	resources->InitVRGeometryCBuffer(resources->_VRGeometryCBuffer.GetAddressOf(), &g_VRGeometryCBuffer);
 	_deviceResources->InitPixelShader(resources->_pixelShaderVRGeom);
 
+	const bool bExternalCamera = PlayerDataTable[*g_playerIndex].Camera.ExternalCamera;
 	// Let's replace transformWorldView with the identity matrix:
 	Matrix4 Id;
 	const float* m = Id.get();
-	if (_bExteriorConstantsCaptured)
+	if (bExternalCamera)
 	{
 		for (int i = 0; i < 16; i++) _ExteriorConstants.transformWorldView[i] = m[i];
 		context->UpdateSubresource(_constantBuffer, 0, nullptr, &_ExteriorConstants, 0, 0);
@@ -6840,8 +6845,6 @@ void EffectsRenderer::RenderVRSkyBox(bool debug)
 		context->UpdateSubresource(_constantBuffer, 0, nullptr, &_CockpitConstants, 0, 0);
 	}
 	_trianglesCount = g_vrDotNumTriangles;
-
-	Matrix4 V, swap({ 1,0,0,0,  0,0,1,0,  0,1,0,0,  0,0,0,1 });
 
 	// Get the width in OPT-scale of the mesh that will be rendered:
 	// 0 -> 1

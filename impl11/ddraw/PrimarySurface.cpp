@@ -9916,7 +9916,6 @@ HRESULT PrimarySurface::Flip(
 			}
 
 			// Overwrite the backdrop with a texture cube:
-			/*
 			if (g_bUseSteamVR && g_bUseTextureCube && !g_bMapMode)
 			{
 				RenderSkyBox(false);
@@ -9924,7 +9923,6 @@ HRESULT PrimarySurface::Flip(
 				if (g_bDumpSSAOBuffers)
 					DirectX::SaveDDSTextureToFile(context, resources->_backgroundBuffer, L"c:\\temp\\_backgroundBufferAfterSkybox.dds");
 			}
-			*/
 
 			if (!g_bBackgroundCaptured)
 			{
@@ -10066,10 +10064,12 @@ HRESULT PrimarySurface::Flip(
 
 				// Render the skybox after the deferred pass. This helps debug the skybox, for instance,
 				// by highlighting areas designated as "Up" or "Forward" that are visible at all times.
+				/*
 				if (g_bUseSteamVR && g_bUseTextureCube && !g_bMapMode)
 				{
 					RenderSkyBox(true);
 				}
+				*/
 
 				if (g_bDumpSSAOBuffers) {
 					//DirectX::SaveWICTextureToFile(context, resources->_offscreenBuffer, GUID_ContainerFormatJpeg, L"C:\\Temp\\_offscreenBuffer.jpg");
@@ -12265,7 +12265,6 @@ void PrimarySurface::RenderBracket()
 	g_xwa_bracket.clear();
 
 	this->_deviceResources->EndAnnotatedEvent();
-
 }
 
 void PrimarySurface::CacheBracketsVR()
@@ -12389,7 +12388,7 @@ void PrimarySurface::CacheBracketsVR()
 
 void PrimarySurface::RenderSkyBox(bool debug)
 {
-	if (!g_bUseSteamVR) return;
+	if (!g_bUseSteamVR || !g_bRendering3D) return;
 
 	const bool bExternalCamera = g_iPresentCounter > PLAYERDATATABLE_MIN_SAFE_FRAME &&
 		PlayerDataTable[*g_playerIndex].Camera.ExternalCamera;
@@ -12421,6 +12420,7 @@ void PrimarySurface::RenderSkyBox(bool debug)
 	//GetHyperspaceEffectMatrix(&Heading);
 	//GetCockpitViewMatrix(&Heading);
 	Vector4 Rs, Us, Fs;
+	// Maybe try using GetCurrentHeadingViewMatrix() instead?
 	Matrix4 Heading = GetCurrentHeadingMatrix(Rs, Us, Fs, false);
 	Matrix4 ViewMatrix = g_VSMatrixCB.fullViewMat; // See RenderSpeedEffect() for details
 	ViewMatrix.invert();
@@ -12445,32 +12445,37 @@ void PrimarySurface::RenderSkyBox(bool debug)
 	ViewMatrix.invert();
 	g_VRGeometryCBuffer.viewMat = swapScale * ViewMatrix;
 
+	static bool bBracketIsCached = false;
+	static BracketVR screenBracket = {};
+
 	// Add a single bracket covering the whole screen
 	g_bracketsVR.clear();
-	float W = g_fCurInGameWidth;
-	float H = g_fCurInGameHeight;
-	float desiredZ = 65536.0f;
-	float X = W / 2.0f, Y = H / 2.0f;
-	float Z = Zfar / (desiredZ * METERS_TO_OPT);
-	float3 P = InverseTransformProjectionScreen({ X, Y, Z, Z });
-	P.y = -P.y;
-	P.z = -P.z;
+	if (!bBracketIsCached)
+	{
+		float W = g_fCurInGameWidth;
+		float H = g_fCurInGameHeight;
+		float desiredZ = 65536.0f;
+		float X = W / 2.0f, Y = H / 2.0f;
+		float Z = Zfar / (desiredZ * METERS_TO_OPT);
+		float3 P = InverseTransformProjectionScreen({ X, Y, Z, Z });
+		P.y = -P.y;
+		P.z = -P.z;
 
-	float3 Q = InverseTransformProjectionScreen({ W, H, Z, Z });
-	Q.y = -Q.y;
-	Q.z = -Q.z;
+		float3 Q = InverseTransformProjectionScreen({ X + W, Y + H, Z, Z });
+		Q.y = -Q.y;
+		Q.z = -Q.z;
 
-	log_debug_vr("Bracket, P:[%0.3f, %0.3f, %0.3f], Q:[%0.3f, %0.3f, %0.3f]",
-		P.x, P.y, P.z,
-		Q.x, Q.y, Q.z);
-
-	BracketVR bracketVR;
-	bracketVR.posOPT.x = P.x;
-	bracketVR.posOPT.y = P.z;
-	bracketVR.posOPT.z = P.y;
-	bracketVR.halfWidthOPT = fabs(Q.x - P.x);
-	bracketVR.color = Vector3(1, 1, 1);
-	g_bracketsVR.push_back(bracketVR);
+		screenBracket.posOPT.x = P.x;
+		screenBracket.posOPT.y = P.z;
+		screenBracket.posOPT.z = P.y;
+		screenBracket.halfWidthOPT = fabs(Q.x - P.x);
+		screenBracket.color = Vector3(1, 1, 1);
+		//if (g_iPresentCounter > PLAYERDATATABLE_MIN_SAFE_FRAME) bBracketIsCached = true;
+	}
+	g_bracketsVR.push_back(screenBracket);
+	log_debug_vr("Bracket, P:[%0.3f, %0.3f, %0.3f], %0.3f",
+		screenBracket.posOPT.x, screenBracket.posOPT.y, screenBracket.posOPT.z,
+		screenBracket.halfWidthOPT);
 
 	// Restore the original projection deltas
 	if (bExternalCamera)

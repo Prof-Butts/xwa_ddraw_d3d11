@@ -223,7 +223,7 @@ public:
 
 	void CacheBracketsVR();
 
-	void RenderSkyBox(bool debug);
+	void RenderSkyBoxVR(bool debug);
 
 	void RenderSynthDCElems();
 

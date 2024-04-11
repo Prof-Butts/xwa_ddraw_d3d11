@@ -124,14 +124,6 @@ PixelShaderOutput RenderSkyBox(PixelShaderInput input)
 	float4 V = float4(normalize(P), 0);
 	const float Vdist = max(0, dot(V.xyz, U.xyz));
 	const float Fdist = max(0, dot(V.xyz, F.xyz));
-	/*
-	V.yz = V.zy;
-	V = -V;
-	V = mul(viewMat, V);
-	V = -V;
-	V.yz = V.zy;
-	*/
-
 	output.color = float4(0.2, 0.2, 0.4, 0.3);
 
 	output.color.r += 0.5 * Vdist;

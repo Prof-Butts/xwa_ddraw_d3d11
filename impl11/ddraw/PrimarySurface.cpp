@@ -9918,7 +9918,7 @@ HRESULT PrimarySurface::Flip(
 			// Overwrite the backdrop with a texture cube:
 			if (g_bUseSteamVR && g_bUseTextureCube && !g_bMapMode)
 			{
-				RenderSkyBox(false);
+				RenderSkyBoxVR(false);
 				g_bBackgroundCaptured = true;
 				if (g_bDumpSSAOBuffers)
 					DirectX::SaveDDSTextureToFile(context, resources->_backgroundBuffer, L"c:\\temp\\_backgroundBufferAfterSkybox.dds");
@@ -12386,7 +12386,7 @@ void PrimarySurface::CacheBracketsVR()
 	renderer->RenderVRBrackets();
 }
 
-void PrimarySurface::RenderSkyBox(bool debug)
+void PrimarySurface::RenderSkyBoxVR(bool debug)
 {
 	if (!g_bUseSteamVR || !g_bRendering3D) return;
 
@@ -12406,7 +12406,6 @@ void PrimarySurface::RenderSkyBox(bool debug)
 
 	if (bExternalCamera)
 	{
-		log_debug_vr("External Cam. Using Cockpit projection constants");
 		// These are the constants used when rendering the cockpit. The HUD is not at the center
 		// of the screen when using these:
 		*(float*)0x08C1600 = g_f0x08C1600;
@@ -12432,8 +12431,8 @@ void PrimarySurface::RenderSkyBox(bool debug)
 	Vector4 F = ViewMatrix * Vector4(0, -1, 0, 0);
 	g_VRGeometryCBuffer.U = float4(U.x, U.y, U.z, 0);
 	g_VRGeometryCBuffer.F = float4(F.x, F.y, F.z, 0);
-	log_debug_vr("Up: %0.3f, %0.3f, %0.3f", U.x, U.y, U.z);
-	log_debug_vr("Fd: %0.3f, %0.3f, %0.3f", F.x, F.y, F.z);
+	//log_debug_vr("Up: %0.3f, %0.3f, %0.3f", U.x, U.y, U.z);
+	//log_debug_vr("Fd: %0.3f, %0.3f, %0.3f", F.x, F.y, F.z);
 
 	// ViewMatrix maps OPT-World coords to "Normal Mapping"/DX11 Viewspace coords:
 	// X+ (Rt, OPT) maps to X+
@@ -12473,9 +12472,6 @@ void PrimarySurface::RenderSkyBox(bool debug)
 		//if (g_iPresentCounter > PLAYERDATATABLE_MIN_SAFE_FRAME) bBracketIsCached = true;
 	}
 	g_bracketsVR.push_back(screenBracket);
-	log_debug_vr("Bracket, P:[%0.3f, %0.3f, %0.3f], %0.3f",
-		screenBracket.posOPT.x, screenBracket.posOPT.y, screenBracket.posOPT.z,
-		screenBracket.halfWidthOPT);
 
 	// Restore the original projection deltas
 	if (bExternalCamera)

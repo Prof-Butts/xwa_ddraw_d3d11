@@ -5117,7 +5117,7 @@ void EffectsRenderer::MainSceneHook(const SceneCompData* scene)
 	const bool bExternalCamera = g_iPresentCounter > PLAYERDATATABLE_MIN_SAFE_FRAME &&
 		PlayerDataTable[*g_playerIndex].Camera.ExternalCamera;
 
-	if (s_captureProjectionDeltas && !bExternalCamera)
+	if (s_captureProjectionDeltas)
 	{
 		g_f0x08C1600 = *(float*)0x08C1600;
 		g_f0x0686ACC = *(float*)0x0686ACC;
@@ -6770,12 +6770,12 @@ void EffectsRenderer::RenderVRSkyBox(bool debug)
 		return;
 
 	if (!_bExteriorConstantsCaptured && !_bCockpitConstantsCaptured)
+	{
+		log_debug("[DBG] NO Cockpit nor Exterior constants captured!");
 		return;
+	}
 
 	_deviceResources->BeginAnnotatedEvent(L"RenderVRSkyBox");
-
-	log_debug_vr("Render Skybox Test, Cockpit: %d, Ext: %d",
-		_bCockpitConstantsCaptured, _bExteriorConstantsCaptured);
 
 	auto& resources = _deviceResources;
 	auto& context = resources->_d3dDeviceContext;

@@ -6809,8 +6809,8 @@ void PrimarySurface::TagXWALights()
 	constexpr int CraftId_183_9001_1100_ResData_Backdrop = 183;
 	const XwaMission* mission = *(XwaMission**)0x09EB8E0;
 
-	log_debug("[DBG] ------------------------------");
-	log_debug("[DBG] Tagging Lights");
+	log_debug("[DBG] [FG] ------------------------------");
+	log_debug("[DBG] [FG] Tagging Lights");
 
 	// Clear all previous tags so that we can start from scratch.
 	for (int i = 0; i < numLights; i++)
@@ -6818,6 +6818,17 @@ void PrimarySurface::TagXWALights()
 		g_XWALightInfo[i].bIsSun = false;
 		g_XWALightInfo[i].bTagged = false;
 	}
+
+	// From:
+	// https://github.com/JeremyAnsel/xwa_hooks/blob/master/xwa_hook_backdrops/hook_backdrops/backdrops.cpp
+	// Starfield Zenith (Up) is Z+ (StarPoints[0].Z = 1)
+	// PlanetId == 55 (0x37)
+	// GlobalCargoIndex (shadow) == 5
+	// Cargo = "0.0" (string)
+	// SpecialCargo = "0.94" (string)
+
+	// Nadir is Z-, all other fields are equal to the Zenith
+	// North (Fwd) is Y-, SpecialCargo is "1.053"
 
 	for (int FGIdx = 0; FGIdx < MAX_FLIGHT_GROUPS; FGIdx++)
 	{
@@ -6829,12 +6840,29 @@ void PrimarySurface::TagXWALights()
 
 		if (CraftId == CraftId_183_9001_1100_ResData_Backdrop && PlanetId < MAX_PLANET_IDS)
 		{
-			const short SX   = mission->FlightGroups[FGIdx].StartPoints->X;
-			const short SY   = mission->FlightGroups[FGIdx].StartPoints->Y;
-			const short SZ   = mission->FlightGroups[FGIdx].StartPoints->Z;
-			const int region = mission->FlightGroups[FGIdx].StartPointRegions[0];
+			const short SX     = mission->FlightGroups[FGIdx].StartPoints->X;
+			const short SY     = mission->FlightGroups[FGIdx].StartPoints->Y;
+			const short SZ     = mission->FlightGroups[FGIdx].StartPoints->Z;
+			const int   region = mission->FlightGroups[FGIdx].StartPointRegions[0];
+			// By looking here:
+			// https://github.com/MikeG621/Platform/blob/master/Xwa/FlightGroup.cs
+			// and Yogeme, it turns out that GlobalCargo is mapped to the "shadow" field
+			// when this is a backdrop -- and sometimes this field can be negative, hence
+			// the use of max(0, X) below:
+			int shadow = (int)mission->FlightGroups[FGIdx].GlobalCargoIndex;
+			const char* spCargo = mission->FlightGroups[FGIdx].SpecialCargo;
+			if (shadow == 255) shadow = 0;
+
+			// The scale of the backdrops is pre-determined. The first two backdrops are
+			// scale = 0.895 (and it appears that "shadow" is always 5 in this case).
+			// The rest of the backdrops are scale 1.055 and "shadow" can be any number
+			// See Yogeme, XwaForm.cs, search for "0.895"
 
 			const int ModelIndex = g_XwaPlanets[PlanetId].ModelIndex;
+			const uint8_t BackdropFlags = g_XwaPlanets[PlanetId].BackdropFlags;
+
+			/*log_debug("[DBG] [FG] FGIdx: %d, PlanetId: %d-%d, region: %d, ModelIndex: %d",
+				FGIdx, PlanetId, shadow, region, ModelIndex);*/
 			if (region == curRegion && ModelIndex < MAX_MODEL_IDX)
 			{
 				const int GroupId = g_ExeObjectsTable[ModelIndex].DataIndex1;
@@ -6846,9 +6874,9 @@ void PrimarySurface::TagXWALights()
 				// We only care about the GroupIds that correspond to suns.
 				if (9001 <= GroupId && GroupId <= 9010)
 				{
-					log_debug("[DBG] [%s], CraftId: %d, PlanetId: %d, S:[%0.3f, %0.3f, %0.3f]",
+					log_debug("[DBG] [FG] [%s], CraftId: %d, PlanetId: %d, S:[%0.3f, %0.3f, %0.3f]",
 						mission->FlightGroups[FGIdx].Name, CraftId, PlanetId, S.x, S.y, S.z);
-					log_debug("[DBG]     region: %d, curRegion: %d, Group-Id: %d-%d",
+					log_debug("[DBG] [FG]     region: %d, curRegion: %d, Group-Id: %d-%d",
 						region, curRegion, GroupId, ImageId);
 
 					// Now check the lights in this region to find a match
@@ -6863,7 +6891,7 @@ void PrimarySurface::TagXWALights()
 							L = L.normalize();
 							float dot = L.dot(S);
 
-							log_debug("[DBG] light: %d: [%0.3f, %0.3f, %0.3f], dot: %0.3f, %s",
+							log_debug("[DBG] [FG] light: %d: [%0.3f, %0.3f, %0.3f], dot: %0.3f, %s",
 								LightIdx, L.x, L.y, L.z, dot, (dot > 0.975f) ? "SUN" : "");
 							if (dot > 0.975f)
 							{
@@ -6875,7 +6903,12 @@ void PrimarySurface::TagXWALights()
 							}
 						}
 					}
-
+				}
+				// Starfields tend to have ModelIndex == 0
+				else if (ModelIndex == 0 && GroupId < 0)
+				{
+					log_debug("[DBG] [FG] Starfield. PlanetId: %d-%d, S:[%0.3f, %0.3f, %0.3f], scale: %s",
+						PlanetId, shadow, S.x, S.y, S.z, spCargo);
 				}
 			}
 		}
@@ -6909,17 +6942,17 @@ void PrimarySurface::TagXWALights()
 	{
 		if (g_XWALightInfo[i].bIsSun)
 		{
-			log_debug("[DBG] Light: %d is a SUN", i);
+			log_debug("[DBG] [FG] Light: %d is a SUN", i);
 			numSuns++;
 		}
 	}
 
 	if (numSuns == 0)
 	{
-		log_debug("[DBG] WARNING: No suns after tagging! Enabling first light");
+		log_debug("[DBG] [FG] WARNING: No suns after tagging! Enabling first light");
 		g_XWALightInfo[0].bIsSun = true;
 	}
-	log_debug("[DBG] ------------------------------");
+	log_debug("[DBG] [FG] ------------------------------");
 }
 
 /*
@@ -12441,8 +12474,11 @@ void PrimarySurface::RenderSkyBoxVR(bool debug)
 	// In order to map from DX11 Viewspace coords to DX11 World coords, we need
 	// to invert ViewMatrix and then rename Z+ --> Y+ and Z+ --> Y-
 	Matrix4 swapScale({ 1,0,0,0,  0,0,1,0,  0,-1,0,0,  0,0,0,1 });
+	// Finally, the skymap appears to be upside down, so let's rotate it around the
+	// Z axis to recover the normal orientation:
+	Matrix4 SkyMapRotation = Matrix4().rotateZ(180.0f);
 	ViewMatrix.invert();
-	g_VRGeometryCBuffer.viewMat = swapScale * ViewMatrix;
+	g_VRGeometryCBuffer.viewMat = SkyMapRotation * swapScale * ViewMatrix;
 
 	static bool bBracketIsCached = false;
 	static BracketVR screenBracket = {};

@@ -235,7 +235,9 @@ public:
 	ComPtr<ID3D11Texture2D> _transpBufferAsInput1;    // Non-MSAA, associated with an SRV
 	ComPtr<ID3D11Texture2D> _transpBuffer2;           // MSAA, keeps the second transparency layer
 	ComPtr<ID3D11Texture2D> _transpBufferAsInput2;    // Non-MSAA, associated with an SRV
-	ComPtr<ID3D11Texture2D> _textureCube;             // Non-MSAA
+	//ComPtr<ID3D11Texture2D> _textureCube;             // Non-MSAA
+	ID3D11Texture2D* _textureCube;
+
 	// Dynamic Cockpit
 	ComPtr<ID3D11Texture2D> _offscreenBufferDynCockpit;    // Used to render the targeting computer dynamically <-- Need to re-check this claim
 	ComPtr<ID3D11Texture2D> _offscreenBufferDynCockpitBG;  // Used to render the targeting computer dynamically <-- Need to re-check this claim

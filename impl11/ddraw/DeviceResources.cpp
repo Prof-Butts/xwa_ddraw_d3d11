@@ -2593,7 +2593,8 @@ HRESULT DeviceResources::OnSizeChanged(HWND hWnd, DWORD dwWidth, DWORD dwHeight)
 					goto out;
 				*/
 
-				HRESULT res = DirectX::CreateDDSTextureFromFile(this->_d3dDevice, L"C:\\temp\\skymap.dds", NULL, &_textureCubeSRV);
+				HRESULT res = DirectX::CreateDDSTextureFromFile(this->_d3dDevice, L"C:\\temp\\skymap.dds",
+					(ID3D11Resource **)&_textureCube, &_textureCubeSRV);
 				//HRESULT res = DirectX::CreateDDSTextureFromFile(this->_d3dDevice, L".\\Effects\\blue_nebula.dds", NULL, &_textureCubeSRV);
 				log_debug("[DBG] [CUBE] Loaded DDS for texture cube. res = 0x%x", res);
 

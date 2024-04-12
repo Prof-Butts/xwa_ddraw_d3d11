@@ -12429,6 +12429,40 @@ void PrimarySurface::RenderSkyBoxVR(bool debug)
 	auto& resources = _deviceResources;
 	auto& context = resources->_d3dDeviceContext;
 
+	// DEBUG: Replace the sides of the texture map with custom data. In this case, the sides
+	// will be painted different colors.
+#ifdef DISABLED
+	bool bFirstTime = true;
+	if (bFirstTime)
+	{
+		D3D11_BOX box;
+		box.left = 0;
+		box.top = 0;
+		box.front = 0;
+		box.right = 1024;
+		box.bottom = 1024;
+		box.back = 1;
+		float colors[6][4] = {
+			{ 1.0f, 0.0f, 0.0f, 1.0f },
+			{ 0.0f, 1.0f, 0.0f, 1.0f },
+			{ 0.0f, 0.0f, 1.0f, 1.0f },
+
+			{ 0.0f, 1.0f, 1.0f, 1.0f },
+			{ 1.0f, 0.0f, 1.0f, 1.0f },
+			{ 1.0f, 1.0f, 0.0f, 1.0f }
+		};
+
+		for (int i = 0; i < 6; i++)
+		{
+			context->ClearRenderTargetView(resources->_shadertoyRTV, colors[i]);
+			context->ResolveSubresource(resources->_shadertoyBuf, 0, resources->_shadertoyBufMSAA, 0, BACKBUFFER_FORMAT);
+			context->CopySubresourceRegion(resources->_textureCube, i, 0, 0, 0,
+				resources->_shadertoyBuf, 0, &box);
+		}
+		bFirstTime = true;
+	}
+#endif
+
 	const float Zfar = *(float*)0x05B46B4;
 	// Save the current projection constants
 	float f0 = *(float*)0x08C1600;

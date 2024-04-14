@@ -1688,6 +1688,11 @@ int EffectsRenderer::LoadOBJ(int gloveIdx, Matrix4 R, char* sFileName, int profi
 	return triangles.size();
 }
 
+/// <summary>
+/// Creates a rectangle in OPT coords on the X-Z plane (Y = 0, meaning
+/// that the rectangle is at a fixed depth and facing the camera).
+/// An optional displacement vector can be specified to translate the mesh.
+/// </summary>
 void EffectsRenderer::CreateRectangleMesh(
 	float widthMeters,
 	float heightMeters,
@@ -1741,6 +1746,79 @@ void EffectsRenderer::CreateRectangleMesh(
 	meshVertices[1] = {  halfW + disp.x, disp.y,  halfH + disp.z }; // Up-Right
 	meshVertices[2] = {  halfW + disp.x, disp.y, -halfH + disp.z }; // Dn-Right
 	meshVertices[3] = { -halfW + disp.x, disp.y, -halfH + disp.z }; // Dn-Left
+
+	initialData.pSysMem = meshVertices;
+	device->CreateBuffer(&CD3D11_BUFFER_DESC(numVertices * sizeof(XwaVector3),
+		D3D11_BIND_SHADER_RESOURCE, D3D11_USAGE_IMMUTABLE), &initialData, &meshVerticesBuffer);
+	device->CreateShaderResourceView(meshVerticesBuffer,
+		&CD3D11_SHADER_RESOURCE_VIEW_DESC(meshVerticesBuffer, DXGI_FORMAT_R32G32B32_FLOAT, 0, numVertices), &meshVerticesSRV);
+
+	// Create the UVs
+	constexpr int texCoordsCount = 4;
+	texCoords[0] = { 0, 0 };
+	texCoords[1] = { 1, 0 };
+	texCoords[2] = { 1, 1 };
+	texCoords[3] = { 0, 1 };
+
+	initialData.pSysMem = texCoords;
+	device->CreateBuffer(&CD3D11_BUFFER_DESC(texCoordsCount * sizeof(XwaTextureVertex),
+		D3D11_BIND_SHADER_RESOURCE, D3D11_USAGE_IMMUTABLE), &initialData, &texCoordsBuffer);
+	device->CreateShaderResourceView(texCoordsBuffer,
+		&CD3D11_SHADER_RESOURCE_VIEW_DESC(texCoordsBuffer, DXGI_FORMAT_R32G32_FLOAT, 0, texCoordsCount), &texCoordsSRV);
+}
+
+/// <summary>
+/// Creates a "flat" rectangle (i.e. lying on the X-Y plane in OPT coords with Z = 0,
+/// meaning that it's aligned with the global starfield horizon).
+/// An optional displacement vector can be specified to translate the mesh.
+/// </summary>
+void EffectsRenderer::CreateFlatRectangleMesh(
+	float widthMeters,
+	float depthMeters,
+	XwaVector3 dispMeters,
+	/* out */ D3dTriangle* tris,
+	/* out */ XwaVector3* meshVertices,
+	/* out */ XwaTextureVertex* texCoords,
+	/* out */ ComPtr<ID3D11Buffer>& vertexBuffer,
+	/* out */ ComPtr<ID3D11Buffer>& indexBuffer,
+	/* out */ ComPtr<ID3D11Buffer>& meshVerticesBuffer,
+	/* out */ ComPtr<ID3D11ShaderResourceView>& meshVerticesSRV,
+	/* out */ ComPtr<ID3D11Buffer>& texCoordsBuffer,
+	/* out */ ComPtr<ID3D11ShaderResourceView>& texCoordsSRV)
+{
+	ID3D11Device* device = _deviceResources->_d3dDevice;
+
+	constexpr int numVertices = 4;
+	D3dVertex _vertices[numVertices];
+
+	// The OPT/D3dHook system uses an indexing scheme, but I don't need it here,
+	// so let's just use an "identity function":
+	_vertices[0] = { 0, 0, 0, 0 };
+	_vertices[1] = { 1, 0, 1, 0 };
+	_vertices[2] = { 2, 0, 2, 0 };
+	_vertices[3] = { 3, 0, 3, 0 };
+
+	tris[0] = { 0, 1, 2 };
+	tris[1] = { 0, 2, 3 };
+
+	D3D11_SUBRESOURCE_DATA initialData;
+	initialData.SysMemPitch = 0;
+	initialData.SysMemSlicePitch = 0;
+
+	initialData.pSysMem = _vertices;
+	device->CreateBuffer(&CD3D11_BUFFER_DESC(numVertices * sizeof(D3dVertex), D3D11_BIND_VERTEX_BUFFER, D3D11_USAGE_IMMUTABLE), &initialData, &vertexBuffer);
+
+	initialData.pSysMem = tris;
+	device->CreateBuffer(&CD3D11_BUFFER_DESC(g_vrKeybNumTriangles * sizeof(D3dTriangle), D3D11_BIND_INDEX_BUFFER, D3D11_USAGE_IMMUTABLE), &initialData, &indexBuffer);
+
+	// Create the mesh
+	const float halfW = widthMeters / 2.0f * METERS_TO_OPT;
+	const float halfD = depthMeters / 2.0f * METERS_TO_OPT;
+	XwaVector3  disp  = dispMeters * METERS_TO_OPT;
+	meshVertices[0] = { -halfW + disp.x,  halfD + disp.y, disp.z }; // Left-Back
+	meshVertices[1] = {  halfW + disp.x,  halfD + disp.y, disp.z }; // Right-Back
+	meshVertices[2] = {  halfW + disp.x, -halfD + disp.y, disp.z }; // Right-Front
+	meshVertices[3] = { -halfW + disp.x, -halfD + disp.y, disp.z }; // Left-Front
 
 	initialData.pSysMem = meshVertices;
 	device->CreateBuffer(&CD3D11_BUFFER_DESC(numVertices * sizeof(XwaVector3),
@@ -1861,6 +1939,20 @@ void EffectsRenderer::CreateVRMeshes()
 	//_vrKeybMeshTextureCoordsView->AddRef();
 
 	// TODO: Check for memory leaks. Should I Release() these resources?
+}
+
+void EffectsRenderer::CreateBackgroundMeshes()
+{
+	D3dTriangle bgCapTris[2];
+	XwaVector3 bgCapMeshVertices[4];
+	XwaTextureVertex bgCapTexCoords[4];
+
+	constexpr float BACKGROUND_CUBE_SIZE_METERS = 1000.0f;
+	CreateFlatRectangleMesh(BACKGROUND_CUBE_SIZE_METERS, BACKGROUND_CUBE_SIZE_METERS,
+		{ 0, 0, 0 }, bgCapTris, bgCapMeshVertices, bgCapTexCoords,
+		_bgCapVertexBuffer, _bgCapIndexBuffer,
+		_bgCapMeshVerticesBuffer, _bgCapMeshVerticesSRV,
+		_bgCapTexCoordsBuffer, _bgCapTexCoordsSRV);
 }
 
 void EffectsRenderer::CreateShaders() {

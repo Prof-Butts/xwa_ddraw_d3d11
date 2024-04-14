@@ -110,6 +110,15 @@ protected:
 	ComPtr<ID3D11ShaderResourceView> _vrDotMeshVerticesSRV;
 	ComPtr<ID3D11ShaderResourceView> _vrDotMeshTexCoordsSRV;
 	ComPtr<ID3D11ShaderResourceView> _vrGreenCirclesSRV;
+
+	// Background meshes
+	ComPtr<ID3D11Buffer> _bgCapVertexBuffer;
+	ComPtr<ID3D11Buffer> _bgCapIndexBuffer;
+	ComPtr<ID3D11Buffer> _bgCapMeshVerticesBuffer;
+	ComPtr<ID3D11ShaderResourceView> _bgCapMeshVerticesSRV;
+	ComPtr<ID3D11Buffer> _bgCapTexCoordsBuffer;
+	ComPtr<ID3D11ShaderResourceView> _bgCapTexCoordsSRV;
+
 	bool _bDotsbRendered;
 	bool _bHUDRendered;
 	bool _bBracketsRendered;
@@ -209,7 +218,24 @@ public:
 		/* out */ ComPtr<ID3D11ShaderResourceView>& meshVerticesSRV,
 		/* out */ ComPtr<ID3D11Buffer>& texCoordsBuffer,
 		/* out */ ComPtr<ID3D11ShaderResourceView>& texCoordsSRV);
+
+	void CreateFlatRectangleMesh(
+		float widthMeters,
+		float depthMeters,
+		XwaVector3 dispMeters,
+		/* out */ D3dTriangle* tris,
+		/* out */ XwaVector3* meshVertices,
+		/* out */ XwaTextureVertex* texCoords,
+		/* out */ ComPtr<ID3D11Buffer>& vertexBuffer,
+		/* out */ ComPtr<ID3D11Buffer>& indexBuffer,
+		/* out */ ComPtr<ID3D11Buffer>& meshVerticesBuffer,
+		/* out */ ComPtr<ID3D11ShaderResourceView>& meshVerticesSRV,
+		/* out */ ComPtr<ID3D11Buffer>& texCoordsBuffer,
+		/* out */ ComPtr<ID3D11ShaderResourceView>& texCoordsSRV);
+
 	void CreateVRMeshes();
+
+	void CreateBackgroundMeshes();
 
 	// Deferred rendering
 	void RenderLasers();

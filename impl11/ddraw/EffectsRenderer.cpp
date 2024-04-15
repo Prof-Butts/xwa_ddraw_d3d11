@@ -24,8 +24,8 @@ extern LONG g_directBuilderNextInnerNode;
 bool g_bUseCentroids = true;
 
 static bool s_captureProjectionDeltas = true;
-float g_f0x08C1600, g_f0x0686ACC;
-float g_f0x080ACF8, g_f0x07B33C0, g_f0x064D1AC;
+float g_f0x08C1600 = NAN, g_f0x0686ACC = NAN;
+float g_f0x080ACF8 = NAN, g_f0x07B33C0 = NAN, g_f0x064D1AC = NAN;
 
 RTCDevice g_rtcDevice = nullptr;
 RTCScene g_rtcScene = nullptr;
@@ -5211,11 +5211,37 @@ void EffectsRenderer::MainSceneHook(const SceneCompData* scene)
 
 	if (s_captureProjectionDeltas)
 	{
+		// DEBUG: Display changes in projection constants.
+		// There's two sets of constants: cockpit camera and external camera. The change is small, though.
+#ifdef DISABLED
+		if (g_f0x08C1600 != *(float*)0x08C1600 ||
+			g_f0x0686ACC != *(float*)0x0686ACC ||
+			g_f0x080ACF8 != *(float*)0x080ACF8 ||
+			g_f0x07B33C0 != *(float*)0x07B33C0 ||
+			g_f0x064D1AC != *(float*)0x064D1AC)
+		{
+			log_debug("[DBG] [PRJ] Projection constants change detected.");
+			log_debug("[DBG] [PRJ] Prev: %0.3f, %0.3f :: %0.3f, %0.3f, %0.3f",
+				g_f0x08C1600,
+				g_f0x0686ACC,
+				g_f0x080ACF8,
+				g_f0x07B33C0,
+				g_f0x064D1AC);
+			log_debug("[DBG] [PRJ] New: %0.3f, %0.3f :: %0.3f, %0.3f, %0.3f",
+				*(float*)0x08C1600,
+				*(float*)0x0686ACC,
+				*(float*)0x080ACF8,
+				*(float*)0x07B33C0,
+				*(float*)0x064D1AC);
+		}
+#endif
 		g_f0x08C1600 = *(float*)0x08C1600;
 		g_f0x0686ACC = *(float*)0x0686ACC;
 		g_f0x080ACF8 = *(float*)0x080ACF8;
 		g_f0x07B33C0 = *(float*)0x07B33C0;
 		g_f0x064D1AC = *(float*)0x064D1AC;
+
+		_frameConstants = _constants;
 		s_captureProjectionDeltas = false;
 	}
 
@@ -6861,12 +6887,6 @@ void EffectsRenderer::RenderVRSkyBox(bool debug)
 	if (!g_bUseSteamVR || !g_bRendering3D)
 		return;
 
-	if (!_bExteriorConstantsCaptured && !_bCockpitConstantsCaptured)
-	{
-		log_debug("[DBG] NO Cockpit nor Exterior constants captured!");
-		return;
-	}
-
 	_deviceResources->BeginAnnotatedEvent(L"RenderVRSkyBox");
 
 	auto& resources = _deviceResources;
@@ -6926,16 +6946,8 @@ void EffectsRenderer::RenderVRSkyBox(bool debug)
 	// Let's replace transformWorldView with the identity matrix:
 	Matrix4 Id;
 	const float* m = Id.get();
-	if (bExternalCamera)
-	{
-		for (int i = 0; i < 16; i++) _ExteriorConstants.transformWorldView[i] = m[i];
-		context->UpdateSubresource(_constantBuffer, 0, nullptr, &_ExteriorConstants, 0, 0);
-	}
-	else
-	{
-		for (int i = 0; i < 16; i++) _CockpitConstants.transformWorldView[i] = m[i];
-		context->UpdateSubresource(_constantBuffer, 0, nullptr, &_CockpitConstants, 0, 0);
-	}
+	for (int i = 0; i < 16; i++) _frameConstants.transformWorldView[i] = m[i];
+	context->UpdateSubresource(_constantBuffer, 0, nullptr, &_frameConstants, 0, 0);
 	_trianglesCount = g_vrDotNumTriangles;
 
 	// Get the width in OPT-scale of the mesh that will be rendered:

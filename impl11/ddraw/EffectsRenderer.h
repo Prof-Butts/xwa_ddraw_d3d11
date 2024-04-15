@@ -158,6 +158,7 @@ public:
 	bool _bExteriorConstantsCaptured;
 	D3dConstants _CockpitConstants;
 	D3dConstants _ExteriorConstants;
+	D3dConstants _frameConstants; // Captured at the beginning of every frame
 	XwaTransform _CockpitWorldView;
 
 	EffectsRenderer();

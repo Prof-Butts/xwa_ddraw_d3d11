@@ -118,6 +118,12 @@ public:
 	bool is_DS2_Reactor_Explosion;
 	// True if this is a map icon
 	bool is_MapIcon;
+	// True if this texture is a cap (north or south pole) in a starfield backdrop
+	bool is_StarfieldCap;
+	// True if this texture is a horizon starfield backdrop
+	bool is_Starfield;
+	// True for generic backdrops like planets, nebulae and suns.
+	bool is_Backdrop;
 	// The following encodes whether this is a warning light or not (and which type)
 	WarningLightEnum WarningLightType;
 	// True if this is an Active Cockpit texture for VR

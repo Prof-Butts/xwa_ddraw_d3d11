@@ -266,6 +266,9 @@ Direct3DTexture::Direct3DTexture(DeviceResources* deviceResources, TextureSurfac
 	this->is_BlastMark = false;
 	this->is_DS2_Reactor_Explosion = false;
 	this->is_MapIcon = false;
+	this->is_StarfieldCap = false;
+	this->is_Starfield = false;
+	this->is_Backdrop = false;
 	this->WarningLightType = NONE_WLIGHT;
 	this->ActiveCockpitIdx = -1;
 	this->AuxVectorIndex = -1;
@@ -969,6 +972,75 @@ void Direct3DTexture::TagTexture() {
 					//	log_debug("[DBG] [RET] %s will not be tagged anymore", surface->_name);
 				}
 			}
+
+			// Backdrops: planets, nebulae, etc.
+			if ((GroupId >= 6010 && GroupId <= 6014) ||
+			    (GroupId >= 6020 && GroupId <= 6034) ||
+			    (GroupId >= 6040 && GroupId <= 6043) ||
+			    (GroupId >= 6060 && GroupId <= 6064) ||
+			    (GroupId >= 6070 && GroupId <= 6084) ||
+			    (GroupId >= 6090 && GroupId <= 6094) ||
+			    (GroupId >= 6100 && GroupId <= 6104) ||
+			    (GroupId >= 6110 && GroupId <= 6114))
+			{
+				this->is_Backdrop = true;
+				log_debug("[DBG] [CUBE] Backdrop: %s", surface->_cname);
+			}
+
+			// Starfields
+			if ((GroupId == 6104 && ImageId == 0) ||
+
+				(GroupId == 6079 && ImageId == 2) ||
+				(GroupId == 6079 && ImageId == 3) ||
+				(GroupId == 6079 && ImageId == 4) ||
+				(GroupId == 6079 && ImageId == 5) ||
+				(GroupId == 6079 && ImageId == 6) ||
+
+				(GroupId == 6034 && ImageId == 3) ||
+				(GroupId == 6034 && ImageId == 4) ||
+				(GroupId == 6034 && ImageId == 5) ||
+				(GroupId == 6034 && ImageId == 6) ||
+
+				(GroupId == 6042 && ImageId == 1) ||
+				(GroupId == 6042 && ImageId == 2) ||
+				(GroupId == 6042 && ImageId == 3) ||
+				(GroupId == 6042 && ImageId == 4) ||
+				(GroupId == 6042 && ImageId == 5) ||
+				(GroupId == 6042 && ImageId == 6) ||
+
+				(GroupId == 6094 && ImageId == 1) ||
+				(GroupId == 6094 && ImageId == 3) ||
+				(GroupId == 6094 && ImageId == 5) ||
+
+				(GroupId == 6083 && ImageId == 2) ||
+				(GroupId == 6083 && ImageId == 5) ||
+
+				(GroupId == 6084 && ImageId == 1) ||
+				(GroupId == 6084 && ImageId == 4))
+			{
+				this->is_Backdrop = false;
+				this->is_StarfieldCap = false;
+				this->is_Starfield = true;
+				log_debug("[DBG] [CUBE] Starfield: %s", surface->_cname);
+			}
+
+			// Starfield Caps
+			if ((GroupId == 6083 && ImageId == 3) ||
+
+				(GroupId == 6084 && ImageId == 2) ||
+				(GroupId == 6084 && ImageId == 6) ||
+
+				(GroupId == 6094 && ImageId == 2) ||
+				(GroupId == 6094 && ImageId == 4) ||
+				(GroupId == 6094 && ImageId == 6) ||
+
+				(GroupId == 6104 && ImageId == 5))
+			{
+				this->is_Backdrop = false;
+				this->is_Starfield = false;
+				this->is_StarfieldCap = true;
+				log_debug("[DBG] [CUBE] Starfield cap: %s", surface->_cname);
+			}
 		}
 		// Catch blast marks
 		if (strstr(surface->_cname, "dat,3050,") != NULL)
@@ -999,7 +1071,7 @@ void Direct3DTexture::TagTexture() {
 		{
 			this->is_MapIcon = true;
 		}
-		
+
 		/* Special handling for Dynamic Cockpit source HUD textures */
 		if (g_bDynCockpitEnabled || g_bReshadeEnabled) {
 			if (stristr(surface->_cname, DC_TARGET_COMP_SRC_RESNAME) != NULL) {
@@ -1600,6 +1672,9 @@ HRESULT Direct3DTexture::Load(
 	this->is_BlastMark = d3dTexture->is_BlastMark;
 	this->is_DS2_Reactor_Explosion = d3dTexture->is_DS2_Reactor_Explosion;
 	this->is_MapIcon = d3dTexture->is_MapIcon;
+	this->is_StarfieldCap = d3dTexture->is_StarfieldCap;
+	this->is_Starfield = d3dTexture->is_Starfield;
+	this->is_Backdrop = d3dTexture->is_Backdrop;
 	this->WarningLightType = d3dTexture->WarningLightType;
 	this->ActiveCockpitIdx = d3dTexture->ActiveCockpitIdx;
 	this->AuxVectorIndex = d3dTexture->AuxVectorIndex;

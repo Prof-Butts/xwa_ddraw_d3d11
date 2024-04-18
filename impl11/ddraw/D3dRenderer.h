@@ -186,4 +186,25 @@ extern bool g_isInRenderHyperspaceLines;
 extern std::map<int, int> g_MeshTagMap;
 extern std::map<int, int> g_FGToLODMap;
 
+enum class BackdropType
+{
+	UNASSIGNED,
+	TOP,
+	BOTTOM,
+	BOTH_CAPS,
+	FRONT,
+	BACK,
+	RIGHT,
+	LEFT,
+};
+
+struct BackdropData
+{
+	BackdropType type;
+	int GroupId, ImageId;
+};
+
+extern std::map<int, int> g_BackdropIdToGroupId;
+extern std::map<int, BackdropData> g_BackdropIdToBackdropMap;
+
 void ClearCachedSRVs();

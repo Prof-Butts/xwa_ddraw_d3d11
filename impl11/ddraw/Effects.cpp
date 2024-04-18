@@ -223,7 +223,8 @@ ReadFlippedDATImageDataFun ReadFlippedDATImageData = nullptr;
 SetDATVerbosityFun         SetDATVerbosity         = nullptr;
 GetDATGroupImageCountFun   GetDATGroupImageCount   = nullptr;
 GetDATGroupImageListFun    GetDATGroupImageList    = nullptr;
-// bool g_bEnableDATReader; // TODO
+GetDATGroupCountFun        GetDATGroupCount        = nullptr;
+GetDATGroupListFun         GetDATGroupList         = nullptr;
 // **************************
 
 // **************************
@@ -465,8 +466,11 @@ bool InitDATReader() {
 	SetDATVerbosity         = (SetDATVerbosityFun)GetProcAddress(g_hDATReader, "SetDATVerbosity");
 	GetDATGroupImageCount   = (GetDATGroupImageCountFun)GetProcAddress(g_hDATReader, "GetDATGroupImageCount");
 	GetDATGroupImageList    = (GetDATGroupImageListFun)GetProcAddress(g_hDATReader, "GetDATGroupImageList");
+	GetDATGroupCount        = (GetDATGroupCountFun)GetProcAddress(g_hDATReader, "GetDATGroupCount");
+	GetDATGroupList         = (GetDATGroupListFun)GetProcAddress(g_hDATReader, "GetDATGroupList");
 	if (LoadDATFile == nullptr || GetDATImageMetadata == nullptr || ReadDATImageData == nullptr ||
-		SetDATVerbosity == nullptr || GetDATGroupImageCount == nullptr || GetDATGroupImageList == nullptr)
+		SetDATVerbosity == nullptr || GetDATGroupImageCount == nullptr || GetDATGroupImageList == nullptr ||
+		GetDATGroupCount == nullptr || GetDATGroupList == nullptr)
 	{
 		log_debug("[DBG] Error in InitDATReader: Some functions could not be loaded from DATReader.dll");
 		FreeLibrary(g_hDATReader);

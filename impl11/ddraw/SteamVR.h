@@ -23,6 +23,7 @@ extern bool g_bSteamVREnabled; // The user sets this flag to true to request sup
 extern bool g_bSteamVRInitialized; // The system will set this flag after SteamVR has been initialized
 extern bool g_bUseSteamVR; // The system will set this flag if the user requested SteamVR and SteamVR was initialized properly
 extern bool g_bUseTextureCube;
+extern bool g_bReplaceBackdrops;
 extern bool g_bSteamVRMirrorWindowLeftEye;
 extern const bool DEFAULT_INTERLEAVED_REPROJECTION;
 extern const bool DEFAULT_STEAMVR_POS_FROM_FREEPIE;

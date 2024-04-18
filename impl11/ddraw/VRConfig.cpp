@@ -2986,6 +2986,11 @@ bool LoadSSAOParams() {
 				g_bUseTextureCube = (bool)fValue;
 				if (g_bUseTextureCube) log_debug("[DBG] [CUBE] Using Texture Cubes");
 			}
+			if (_stricmp(param, "replace_backdrops") == 0)
+			{
+				g_bReplaceBackdrops = (bool)fValue;
+				if (g_bReplaceBackdrops) log_debug("[DBG] [CUBE] Replacing Backdrops");
+			}
 		}
 	}
 	fclose(file);

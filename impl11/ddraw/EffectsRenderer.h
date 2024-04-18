@@ -235,8 +235,8 @@ public:
 		/* out */ ComPtr<ID3D11ShaderResourceView>& texCoordsSRV);
 
 	void CreateVRMeshes();
-
 	void CreateBackgroundMeshes();
+	void CreateBackdropIdMapping();
 
 	// Deferred rendering
 	void RenderLasers();

@@ -216,6 +216,8 @@ typedef bool(_cdecl * ReadDATImageDataFun)(uint8_t *RawData_out, int RawData_siz
 typedef bool(_cdecl* ReadFlippedDATImageDataFun)(uint8_t* RawData_out, int RawData_size);
 typedef int(_cdecl * GetDATGroupImageCountFun)(int GroupId);
 typedef bool(_cdecl * GetDATGroupImageListFun)(int GroupId, short *ImageIds_out, int ImageIds_size);
+typedef int(_cdecl* GetDATGroupCountFun)();
+typedef bool(_cdecl* GetDATGroupListFun)(short* GroupIds_out);
 
 extern LoadDATFileFun LoadDATFile;
 extern GetDATImageMetadataFun GetDATImageMetadata;
@@ -224,6 +226,8 @@ extern ReadDATImageDataFun ReadDATImageData;
 extern SetDATVerbosityFun SetDATVerbosity;
 extern GetDATGroupImageCountFun GetDATGroupImageCount;
 extern GetDATGroupImageListFun GetDATGroupImageList;
+extern GetDATGroupCountFun GetDATGroupCount;
+extern GetDATGroupListFun GetDATGroupList;
 
 bool InitDATReader();
 void CloseDATReader();

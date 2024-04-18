@@ -201,6 +201,9 @@ std::map<int, int> g_FGToLODMap;
 // This map is used to compute the tangents for normal mapping.
 std::map<int, std::vector<FGData>> g_meshToFGMap;
 
+std::map<int, int> g_BackdropIdToGroupId;
+std::map<int, BackdropData> g_MissionToBackdropMap;
+
 int DumpTriangle(const std::string& name, FILE* file, int OBJindex, const XwaVector3& v0, const XwaVector3& v1, const XwaVector3& v2);
 int32_t MakeMeshKey(const SceneCompData* scene);
 void RTResetBlasIDs();

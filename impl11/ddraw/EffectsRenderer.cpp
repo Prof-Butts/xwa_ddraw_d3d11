@@ -1941,11 +1941,22 @@ void EffectsRenderer::CreateVRMeshes()
 	// TODO: Check for memory leaks. Should I Release() these resources?
 }
 
+// TODO: This may not be necessary after all...
+int MakeKeyFromBackdropShadow(int backDrop, int shadow)
+{
+	return (backDrop << 16) | (shadow);
+}
+
 void EffectsRenderer::CreateBackgroundMeshes()
 {
+	if (!g_bReplaceBackdrops)
+		return;
+
 	D3dTriangle bgCapTris[2];
 	XwaVector3 bgCapMeshVertices[4];
 	XwaTextureVertex bgCapTexCoords[4];
+
+	log_debug("[DBG] [CUBE] Creating Background Meshes");
 
 	constexpr float BACKGROUND_CUBE_SIZE_METERS = 1000.0f;
 	CreateFlatRectangleMesh(BACKGROUND_CUBE_SIZE_METERS, BACKGROUND_CUBE_SIZE_METERS,
@@ -1953,6 +1964,42 @@ void EffectsRenderer::CreateBackgroundMeshes()
 		_bgCapVertexBuffer, _bgCapIndexBuffer,
 		_bgCapMeshVerticesBuffer, _bgCapMeshVerticesSRV,
 		_bgCapTexCoordsBuffer, _bgCapTexCoordsSRV);
+}
+
+void EffectsRenderer::CreateBackdropIdMapping()
+{
+	if (!g_bReplaceBackdrops)
+		return;
+
+	log_debug("[DBG] [CUBE] Creating mission -> backdrop mapping");
+	if (!InitDATReader()) // This call is idempotent and does nothing when DATReader is already loaded
+		log_debug("[DBG] [CUBE] Could not load DATReader!");
+
+	g_BackdropIdToGroupId.clear();
+	LoadDATFile(".\\ResData\\Planet2.dat");
+	int numGroups = GetDATGroupCount();
+	log_debug("[DBG] [CUBE] numGroups: %d", numGroups);
+	short* groups = new short[numGroups];
+	GetDATGroupList(groups);
+	g_BackdropIdToGroupId[1] = 6010;
+	for (int i = 0; i < numGroups; i++)
+	{
+		int backdropId = i + 1;
+		// Backdrop #25 does not exist:
+		if (backdropId >= 25) backdropId++;
+		//log_debug("[DBG] [CUBE]   backdropId[%d] = %d", backdropId, groups[i]);
+		g_BackdropIdToGroupId[backdropId] = groups[i];
+	}
+	delete[] groups;
+
+	// Starfields:
+	/*g_BackdropIdToGroupId[20] = 6034;
+	g_BackdropIdToGroupId[23] = 6042;
+	g_BackdropIdToGroupId[40] = 6079;
+	g_BackdropIdToGroupId[44] = 6083;
+	g_BackdropIdToGroupId[45] = 6084;
+	g_BackdropIdToGroupId[50] = 6094;
+	g_BackdropIdToGroupId[55] = 6104;*/
 }
 
 void EffectsRenderer::CreateShaders() {
@@ -1963,6 +2010,9 @@ void EffectsRenderer::CreateShaders() {
 	//StartCascadedShadowMap();
 
 	CreateVRMeshes();
+
+	CreateBackgroundMeshes();
+	CreateBackdropIdMapping();
 }
 
 void ResetGimbalLockFix()

@@ -71,6 +71,8 @@ float4 TransformProjection(float3 input);
 float4 TransformProjectionScreen(float3 input);
 void EmulMouseWithVRControllers();
 
+int MakeKeyFromGroupIdImageId(int groupId, int imageId);
+
 void SetPresentCounter(int val, int bResetReticle) {
 	g_iPresentCounter = val;
 	if (g_pSharedDataCockpitLook != nullptr && g_SharedMemCockpitLook.IsDataReady() && bResetReticle) {
@@ -6801,7 +6803,7 @@ void PrimarySurface::TagXWALights()
 {
 	int numSuns = 0;
 	const int numLights = *s_XwaGlobalLightsCount;
-	const int curRegion = PlayerDataTable[*g_playerIndex].currentRegion;
+	const int curRegion = *g_playerInHangar ? 0 : PlayerDataTable[*g_playerIndex].currentRegion;
 
 	constexpr int MAX_FLIGHT_GROUPS = 192;
 	constexpr int MAX_PLANET_IDS    = 104;
@@ -6810,7 +6812,7 @@ void PrimarySurface::TagXWALights()
 	const XwaMission* mission = *(XwaMission**)0x09EB8E0;
 
 	log_debug("[DBG] [FG] ------------------------------");
-	log_debug("[DBG] [FG] Tagging Lights");
+	log_debug("[DBG] [FG] Tagging Lights. curRegion: %d", curRegion);
 
 	// Clear all previous tags so that we can start from scratch.
 	for (int i = 0; i < numLights; i++)
@@ -6822,14 +6824,14 @@ void PrimarySurface::TagXWALights()
 	// From:
 	// https://github.com/JeremyAnsel/xwa_hooks/blob/master/xwa_hook_backdrops/hook_backdrops/backdrops.cpp
 	// Starfield Zenith (Up) is Z+ (StarPoints[0].Z = 1)
-	// PlanetId == 55 (0x37)
-	// GlobalCargoIndex (shadow) == 5
+	// GlobalCargoIndex is the same as shadow (for instance 5)
 	// Cargo = "0.0" (string)
-	// SpecialCargo = "0.94" (string)
+	// SpecialCargo = "0.94" (string). This is the scale.
 
 	// Nadir is Z-, all other fields are equal to the Zenith
 	// North (Fwd) is Y-, SpecialCargo is "1.053"
 
+	int maxRegion = 0;
 	for (int FGIdx = 0; FGIdx < MAX_FLIGHT_GROUPS; FGIdx++)
 	{
 		if (g_ShadowMapping.bAllLightsTagged)
@@ -6844,6 +6846,8 @@ void PrimarySurface::TagXWALights()
 			const short SY     = mission->FlightGroups[FGIdx].StartPoints->Y;
 			const short SZ     = mission->FlightGroups[FGIdx].StartPoints->Z;
 			const int   region = mission->FlightGroups[FGIdx].StartPointRegions[0];
+
+			maxRegion = max(maxRegion, region);
 			// By looking here:
 			// https://github.com/MikeG621/Platform/blob/master/Xwa/FlightGroup.cs
 			// and Yogeme, it turns out that GlobalCargo is mapped to the "shadow" field
@@ -6871,7 +6875,7 @@ void PrimarySurface::TagXWALights()
 				Vector3 S = Vector3((float)SX, (float)-SY, (float)SZ);
 				S = S.normalize();
 
-				// We only care about the GroupIds that correspond to suns.
+				// These are the GroupIds that correspond to suns:
 				if (9001 <= GroupId && GroupId <= 9010)
 				{
 					log_debug("[DBG] [FG] [%s], CraftId: %d, PlanetId: %d, S:[%0.3f, %0.3f, %0.3f]",
@@ -6907,12 +6911,28 @@ void PrimarySurface::TagXWALights()
 				// Starfields tend to have ModelIndex == 0
 				else if (ModelIndex == 0 && GroupId < 0)
 				{
-					log_debug("[DBG] [FG] Starfield. PlanetId: %d-%d, S:[%0.3f, %0.3f, %0.3f], scale: %s",
-						PlanetId, shadow, S.x, S.y, S.z, spCargo);
+					Vector3 S = Vector3((float)SX, (float)SY, (float)SZ);
+					S.normalize();
+					log_debug("[DBG] [FG] Backdrop. region: %d, PlanetId: %d-%d, S:[%0.3f, %0.3f, %0.3f], scale: %s",
+						region, PlanetId, shadow, S.x, S.y, S.z, spCargo);
+
+					const auto& it = g_BackdropIdToGroupId.find(PlanetId);
+					if (it != g_BackdropIdToGroupId.end())
+					{
+						int groupId = it->second;
+						int key = MakeKeyFromGroupIdImageId(groupId, shadow);
+						if (g_BackdropGroupIdImageIdMap.find(key) != g_BackdropGroupIdImageIdMap.end())
+						{
+							log_debug("[DBG] [FG]    STARFIELD --> GroupId-ImageId: %d-%d", groupId, shadow);
+						}
+					}
 				}
 			}
 		}
 	}
+	// The hangar appears to be maxRegion + 1, which means there's never an entry
+	// for it in the FGs.
+	log_debug("[DBG] [FG] maxRegion: %d", maxRegion);
 
 	// Finish tagging all the other lights
 	for (int i = 0; i < numLights; i++)

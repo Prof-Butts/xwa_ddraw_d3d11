@@ -186,25 +186,14 @@ extern bool g_isInRenderHyperspaceLines;
 extern std::map<int, int> g_MeshTagMap;
 extern std::map<int, int> g_FGToLODMap;
 
-enum class BackdropType
-{
-	UNASSIGNED,
-	TOP,
-	BOTTOM,
-	BOTH_CAPS,
-	FRONT,
-	BACK,
-	RIGHT,
-	LEFT,
-};
-
-struct BackdropData
-{
-	BackdropType type;
-	int GroupId, ImageId;
-};
-
+/// <summary>
+/// Used to map Backdrop Id's as used in Yogeme to Group Id's as used in Planet.dat
+/// </summary>
 extern std::map<int, int> g_BackdropIdToGroupId;
-extern std::map<int, BackdropData> g_BackdropIdToBackdropMap;
+/// <summary>
+/// If a GroupId-ImageId is in this map, then it's a backdrop. That includes suns, planets,
+/// nebulae and starfields.
+/// </summary>
+extern std::map<int, bool> g_BackdropGroupIdImageIdMap;
 
 void ClearCachedSRVs();

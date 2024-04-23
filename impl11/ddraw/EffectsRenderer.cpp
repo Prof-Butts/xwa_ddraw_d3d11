@@ -150,6 +150,11 @@ Intersection ClosestHit(BVHNode* g_BVH, float3 origin, int Offset, float3& P_out
 Vector4 SteamVRToOPTCoords(Vector4 P);
 void SetLights(DeviceResources* resources, float fSSDOEnabled);
 
+inline int MakeKeyFromGroupIdImageId(int groupId, int imageId)
+{
+	return (groupId << 16) | (imageId);
+}
+
 //#define DUMP_TLAS 1
 #undef DUMP_TLAS
 #ifdef DUMP_TLAS
@@ -1941,12 +1946,6 @@ void EffectsRenderer::CreateVRMeshes()
 	// TODO: Check for memory leaks. Should I Release() these resources?
 }
 
-// TODO: This may not be necessary after all...
-int MakeKeyFromBackdropShadow(int backDrop, int shadow)
-{
-	return (backDrop << 16) | (shadow);
-}
-
 void EffectsRenderer::CreateBackgroundMeshes()
 {
 	if (!g_bReplaceBackdrops)
@@ -1981,7 +1980,6 @@ void EffectsRenderer::CreateBackdropIdMapping()
 	log_debug("[DBG] [CUBE] numGroups: %d", numGroups);
 	short* groups = new short[numGroups];
 	GetDATGroupList(groups);
-	g_BackdropIdToGroupId[1] = 6010;
 	for (int i = 0; i < numGroups; i++)
 	{
 		int backdropId = i + 1;
@@ -1992,14 +1990,47 @@ void EffectsRenderer::CreateBackdropIdMapping()
 	}
 	delete[] groups;
 
-	// Starfields:
-	/*g_BackdropIdToGroupId[20] = 6034;
-	g_BackdropIdToGroupId[23] = 6042;
-	g_BackdropIdToGroupId[40] = 6079;
-	g_BackdropIdToGroupId[44] = 6083;
-	g_BackdropIdToGroupId[45] = 6084;
-	g_BackdropIdToGroupId[50] = 6094;
-	g_BackdropIdToGroupId[55] = 6104;*/
+	// Populate the starfield map
+	g_BackdropGroupIdImageIdMap.clear();
+	g_BackdropGroupIdImageIdMap[MakeKeyFromGroupIdImageId(6104, 0)] = true;
+
+	g_BackdropGroupIdImageIdMap[MakeKeyFromGroupIdImageId(6079, 2)] = true;
+	g_BackdropGroupIdImageIdMap[MakeKeyFromGroupIdImageId(6079, 3)] = true;
+	g_BackdropGroupIdImageIdMap[MakeKeyFromGroupIdImageId(6079, 4)] = true;
+	g_BackdropGroupIdImageIdMap[MakeKeyFromGroupIdImageId(6079, 5)] = true;
+	g_BackdropGroupIdImageIdMap[MakeKeyFromGroupIdImageId(6079, 6)] = true;
+
+	g_BackdropGroupIdImageIdMap[MakeKeyFromGroupIdImageId(6034, 3)] = true;
+	g_BackdropGroupIdImageIdMap[MakeKeyFromGroupIdImageId(6034, 4)] = true;
+	g_BackdropGroupIdImageIdMap[MakeKeyFromGroupIdImageId(6034, 5)] = true;
+	g_BackdropGroupIdImageIdMap[MakeKeyFromGroupIdImageId(6034, 6)] = true;
+
+	g_BackdropGroupIdImageIdMap[MakeKeyFromGroupIdImageId(6042, 1)] = true;
+	g_BackdropGroupIdImageIdMap[MakeKeyFromGroupIdImageId(6042, 2)] = true;
+	g_BackdropGroupIdImageIdMap[MakeKeyFromGroupIdImageId(6042, 3)] = true;
+	g_BackdropGroupIdImageIdMap[MakeKeyFromGroupIdImageId(6042, 4)] = true;
+	g_BackdropGroupIdImageIdMap[MakeKeyFromGroupIdImageId(6042, 5)] = true;
+	g_BackdropGroupIdImageIdMap[MakeKeyFromGroupIdImageId(6042, 6)] = true;
+
+	g_BackdropGroupIdImageIdMap[MakeKeyFromGroupIdImageId(6094, 1)] = true;
+	g_BackdropGroupIdImageIdMap[MakeKeyFromGroupIdImageId(6094, 2)] = true; // Cap
+	g_BackdropGroupIdImageIdMap[MakeKeyFromGroupIdImageId(6094, 3)] = true;
+	g_BackdropGroupIdImageIdMap[MakeKeyFromGroupIdImageId(6094, 4)] = true; // Cap
+	g_BackdropGroupIdImageIdMap[MakeKeyFromGroupIdImageId(6094, 5)] = true;
+	g_BackdropGroupIdImageIdMap[MakeKeyFromGroupIdImageId(6094, 6)] = true; // Cap
+
+	g_BackdropGroupIdImageIdMap[MakeKeyFromGroupIdImageId(6083, 2)] = true;
+	g_BackdropGroupIdImageIdMap[MakeKeyFromGroupIdImageId(6083, 3)] = true; // Cap
+	g_BackdropGroupIdImageIdMap[MakeKeyFromGroupIdImageId(6083, 5)] = true;
+
+	g_BackdropGroupIdImageIdMap[MakeKeyFromGroupIdImageId(6084, 1)] = true;
+	g_BackdropGroupIdImageIdMap[MakeKeyFromGroupIdImageId(6084, 2)] = true; // Cap
+	g_BackdropGroupIdImageIdMap[MakeKeyFromGroupIdImageId(6084, 4)] = true;
+	g_BackdropGroupIdImageIdMap[MakeKeyFromGroupIdImageId(6084, 6)] = true; // Cap
+
+	g_BackdropGroupIdImageIdMap[MakeKeyFromGroupIdImageId(6094, 2)] = true; // Cap
+
+	g_BackdropGroupIdImageIdMap[MakeKeyFromGroupIdImageId(6104, 5)] = true; // Cap
 }
 
 void EffectsRenderer::CreateShaders() {

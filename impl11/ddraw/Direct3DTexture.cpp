@@ -33,6 +33,8 @@ std::map<std::string, int> DATImageMap;
 // that kind of caused memory leaks.
 std::map<std::string, int> g_TextureMap;
 
+int MakeKeyFromGroupIdImageId(int groupId, int imageId);
+
 void ClearGlobalTextureMap()
 {
 	g_TextureMap.clear();
@@ -985,6 +987,7 @@ void Direct3DTexture::TagTexture() {
 			{
 				this->is_Backdrop = true;
 				log_debug("[DBG] [CUBE] Backdrop: %s", surface->_cname);
+				g_GroupIdImageIdToTextureMap[MakeKeyFromGroupIdImageId(GroupId, ImageId)] = this;
 			}
 
 			// Starfields
@@ -1022,6 +1025,7 @@ void Direct3DTexture::TagTexture() {
 				this->is_StarfieldCap = false;
 				this->is_Starfield = true;
 				log_debug("[DBG] [CUBE] Starfield: %s", surface->_cname);
+				g_GroupIdImageIdToTextureMap[MakeKeyFromGroupIdImageId(GroupId, ImageId)] = this;
 			}
 
 			// Starfield Caps
@@ -1040,6 +1044,7 @@ void Direct3DTexture::TagTexture() {
 				this->is_Starfield = false;
 				this->is_StarfieldCap = true;
 				log_debug("[DBG] [CUBE] Starfield cap: %s", surface->_cname);
+				g_GroupIdImageIdToTextureMap[MakeKeyFromGroupIdImageId(GroupId, ImageId)] = this;
 			}
 		}
 		// Catch blast marks

@@ -204,6 +204,11 @@ extern std::vector<Matrix4> g_TLASMatrices;
 extern std::map<int32_t, std::tuple<std::string, int, int>> g_DebugMeshToNameMap;
 #endif
 
+/// <summary>
+/// Maps GroupId-ImageId keys to Direct3DTexture pointers.
+/// </summary>
+extern std::map<int, void*> g_GroupIdImageIdToTextureMap;
+
 // ********************************
 // DATReader function pointers
 constexpr uint32_t DAT_READER_VERSION_101 = 65537; // 1.0.1 -- default version

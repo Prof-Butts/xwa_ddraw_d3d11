@@ -211,6 +211,7 @@ void SetPresentCounter(int val, int b_resetReticle);
 void ReloadInterdictionMap();
 void ClearGlobalTextureMap();
 void ClearCachedSRVs();
+void ClearGroupIdImageIdToTextureMap();
 
 bool g_bWndProcReplaced = false;
 bool ReplaceWindowProc(HWND ThisWindow);
@@ -1719,6 +1720,7 @@ HRESULT DeviceResources::OnSizeChanged(HWND hWnd, DWORD dwWidth, DWORD dwHeight)
 	g_AuxTextureVector.clear();
 	ClearGlobalTextureMap();
 	ClearCachedSRVs();
+	ClearGroupIdImageIdToTextureMap();
 	DeleteRandomVectorTexture();
 	ResetXWALightInfo();
 	g_HiResTimer.ResetGlobalTime();

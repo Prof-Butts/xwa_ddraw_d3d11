@@ -6930,6 +6930,15 @@ void PrimarySurface::TagXWALights()
 						if (g_StarfieldGroupIdImageIdMap.find(key) != g_StarfieldGroupIdImageIdMap.end())
 						{
 							log_debug("[DBG] [FG]    STARFIELD --> GroupId-ImageId: %d-%d", groupId, shadow);
+							const auto& it = g_GroupIdImageIdToTextureMap.find(key);
+							if (it != g_GroupIdImageIdToTextureMap.end())
+							{
+								Direct3DTexture* tex = (Direct3DTexture*)it->second;
+								log_debug("[DBG] [FG]        Corresponding Texture Found: 0x%x, 0x%x",
+									tex, tex->_textureView.Get());
+							}
+							else
+								log_debug("[DBG] [FG]        NO Corresponding Texture Found!!!");
 						}
 						else
 						{

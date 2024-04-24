@@ -205,6 +205,11 @@ Matrix4 GetBLASMatrix(TLASLeafItem& tlasLeaf, int *matrixSlot)
 	return g_TLASMatrices[*matrixSlot];
 }
 
+void ClearGroupIdImageIdToTextureMap()
+{
+	g_GroupIdImageIdToTextureMap.clear();
+}
+
 float4 TransformProjection(float3 input)
 {
 	float vpScaleX = g_VSCBuffer.viewportScale[0];

@@ -6803,6 +6803,9 @@ void PrimarySurface::TagXWALights()
 {
 	int numSuns = 0;
 	const int numLights = *s_XwaGlobalLightsCount;
+	// When the player is in the hangar, the current region is maxRegion + 1 (apparently).
+	// So, in that case, we're defaulting to the first region instead. I'm not sure that this
+	// is correct.
 	const int curRegion = *g_playerInHangar ? 0 : PlayerDataTable[*g_playerIndex].currentRegion;
 
 	constexpr int MAX_FLIGHT_GROUPS = 192;
@@ -6880,7 +6883,7 @@ void PrimarySurface::TagXWALights()
 				{
 					log_debug("[DBG] [FG] [%s], CraftId: %d, PlanetId: %d, S:[%0.3f, %0.3f, %0.3f]",
 						mission->FlightGroups[FGIdx].Name, CraftId, PlanetId, S.x, S.y, S.z);
-					log_debug("[DBG] [FG]     region: %d, curRegion: %d, Group-Id: %d-%d",
+					log_debug("[DBG] [FG]    region: %d, curRegion: %d, Group-Id: %d-%d",
 						region, curRegion, GroupId, ImageId);
 
 					// Now check the lights in this region to find a match
@@ -6916,16 +6919,45 @@ void PrimarySurface::TagXWALights()
 					log_debug("[DBG] [FG] Backdrop. region: %d, PlanetId: %d-%d, S:[%0.3f, %0.3f, %0.3f], scale: %s",
 						region, PlanetId, shadow, S.x, S.y, S.z, spCargo);
 
+					// Let's see if this backdrop is contained in Planet2.dat:
 					const auto& it = g_BackdropIdToGroupId.find(PlanetId);
 					if (it != g_BackdropIdToGroupId.end())
 					{
+						// This backdrop can be a planet, nebula or starfield
 						int groupId = it->second;
 						int key = MakeKeyFromGroupIdImageId(groupId, shadow);
-						if (g_BackdropGroupIdImageIdMap.find(key) != g_BackdropGroupIdImageIdMap.end())
+						// Check if this backdrop is a starfield
+						if (g_StarfieldGroupIdImageIdMap.find(key) != g_StarfieldGroupIdImageIdMap.end())
 						{
 							log_debug("[DBG] [FG]    STARFIELD --> GroupId-ImageId: %d-%d", groupId, shadow);
 						}
+						else
+						{
+							// This backdrop is a planet
+							log_debug("[DBG] [FG]    PLANET/NEBULA --> GroupId-ImageId: %d-%d", groupId, shadow);
+						}
 					}
+					else
+					{
+						log_debug("[DBG] [FG]    UNCLASSIFIED");
+					}
+				}
+				else
+				{
+					// NEBULA.DAT
+					// 7001-100  --> 64-0
+					// 7002-200  --> 65-0
+					// ...
+					// 7011-1100 --> 73-0
+
+					// GALAXY.DAT
+					// 8001-100  --> 74-0
+					// ...
+					// 8007-700  --> 80-0
+					// ...
+					// 8010-1000 --> 83-0
+					log_debug("[DBG] [FG] UNK: GroupId-ImageId: %d-%d, PlanetId: %d",
+						GroupId, ImageId, PlanetId);
 				}
 			}
 		}

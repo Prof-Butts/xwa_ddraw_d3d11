@@ -1991,46 +1991,46 @@ void EffectsRenderer::CreateBackdropIdMapping()
 	delete[] groups;
 
 	// Populate the starfield map
-	g_BackdropGroupIdImageIdMap.clear();
-	g_BackdropGroupIdImageIdMap[MakeKeyFromGroupIdImageId(6104, 0)] = true;
+	g_StarfieldGroupIdImageIdMap.clear();
+	g_StarfieldGroupIdImageIdMap[MakeKeyFromGroupIdImageId(6104, 0)] = true;
 
-	g_BackdropGroupIdImageIdMap[MakeKeyFromGroupIdImageId(6079, 2)] = true;
-	g_BackdropGroupIdImageIdMap[MakeKeyFromGroupIdImageId(6079, 3)] = true;
-	g_BackdropGroupIdImageIdMap[MakeKeyFromGroupIdImageId(6079, 4)] = true;
-	g_BackdropGroupIdImageIdMap[MakeKeyFromGroupIdImageId(6079, 5)] = true;
-	g_BackdropGroupIdImageIdMap[MakeKeyFromGroupIdImageId(6079, 6)] = true;
+	g_StarfieldGroupIdImageIdMap[MakeKeyFromGroupIdImageId(6079, 2)] = true;
+	g_StarfieldGroupIdImageIdMap[MakeKeyFromGroupIdImageId(6079, 3)] = true;
+	g_StarfieldGroupIdImageIdMap[MakeKeyFromGroupIdImageId(6079, 4)] = true;
+	g_StarfieldGroupIdImageIdMap[MakeKeyFromGroupIdImageId(6079, 5)] = true;
+	g_StarfieldGroupIdImageIdMap[MakeKeyFromGroupIdImageId(6079, 6)] = true;
 
-	g_BackdropGroupIdImageIdMap[MakeKeyFromGroupIdImageId(6034, 3)] = true;
-	g_BackdropGroupIdImageIdMap[MakeKeyFromGroupIdImageId(6034, 4)] = true;
-	g_BackdropGroupIdImageIdMap[MakeKeyFromGroupIdImageId(6034, 5)] = true;
-	g_BackdropGroupIdImageIdMap[MakeKeyFromGroupIdImageId(6034, 6)] = true;
+	g_StarfieldGroupIdImageIdMap[MakeKeyFromGroupIdImageId(6034, 3)] = true;
+	g_StarfieldGroupIdImageIdMap[MakeKeyFromGroupIdImageId(6034, 4)] = true;
+	g_StarfieldGroupIdImageIdMap[MakeKeyFromGroupIdImageId(6034, 5)] = true;
+	g_StarfieldGroupIdImageIdMap[MakeKeyFromGroupIdImageId(6034, 6)] = true;
 
-	g_BackdropGroupIdImageIdMap[MakeKeyFromGroupIdImageId(6042, 1)] = true;
-	g_BackdropGroupIdImageIdMap[MakeKeyFromGroupIdImageId(6042, 2)] = true;
-	g_BackdropGroupIdImageIdMap[MakeKeyFromGroupIdImageId(6042, 3)] = true;
-	g_BackdropGroupIdImageIdMap[MakeKeyFromGroupIdImageId(6042, 4)] = true;
-	g_BackdropGroupIdImageIdMap[MakeKeyFromGroupIdImageId(6042, 5)] = true;
-	g_BackdropGroupIdImageIdMap[MakeKeyFromGroupIdImageId(6042, 6)] = true;
+	g_StarfieldGroupIdImageIdMap[MakeKeyFromGroupIdImageId(6042, 1)] = true;
+	g_StarfieldGroupIdImageIdMap[MakeKeyFromGroupIdImageId(6042, 2)] = true;
+	g_StarfieldGroupIdImageIdMap[MakeKeyFromGroupIdImageId(6042, 3)] = true;
+	g_StarfieldGroupIdImageIdMap[MakeKeyFromGroupIdImageId(6042, 4)] = true;
+	g_StarfieldGroupIdImageIdMap[MakeKeyFromGroupIdImageId(6042, 5)] = true;
+	g_StarfieldGroupIdImageIdMap[MakeKeyFromGroupIdImageId(6042, 6)] = true;
 
-	g_BackdropGroupIdImageIdMap[MakeKeyFromGroupIdImageId(6094, 1)] = true;
-	g_BackdropGroupIdImageIdMap[MakeKeyFromGroupIdImageId(6094, 2)] = true; // Cap
-	g_BackdropGroupIdImageIdMap[MakeKeyFromGroupIdImageId(6094, 3)] = true;
-	g_BackdropGroupIdImageIdMap[MakeKeyFromGroupIdImageId(6094, 4)] = true; // Cap
-	g_BackdropGroupIdImageIdMap[MakeKeyFromGroupIdImageId(6094, 5)] = true;
-	g_BackdropGroupIdImageIdMap[MakeKeyFromGroupIdImageId(6094, 6)] = true; // Cap
+	g_StarfieldGroupIdImageIdMap[MakeKeyFromGroupIdImageId(6094, 1)] = true;
+	g_StarfieldGroupIdImageIdMap[MakeKeyFromGroupIdImageId(6094, 2)] = true; // Cap
+	g_StarfieldGroupIdImageIdMap[MakeKeyFromGroupIdImageId(6094, 3)] = true;
+	g_StarfieldGroupIdImageIdMap[MakeKeyFromGroupIdImageId(6094, 4)] = true; // Cap
+	g_StarfieldGroupIdImageIdMap[MakeKeyFromGroupIdImageId(6094, 5)] = true;
+	g_StarfieldGroupIdImageIdMap[MakeKeyFromGroupIdImageId(6094, 6)] = true; // Cap
 
-	g_BackdropGroupIdImageIdMap[MakeKeyFromGroupIdImageId(6083, 2)] = true;
-	g_BackdropGroupIdImageIdMap[MakeKeyFromGroupIdImageId(6083, 3)] = true; // Cap
-	g_BackdropGroupIdImageIdMap[MakeKeyFromGroupIdImageId(6083, 5)] = true;
+	g_StarfieldGroupIdImageIdMap[MakeKeyFromGroupIdImageId(6083, 2)] = true;
+	g_StarfieldGroupIdImageIdMap[MakeKeyFromGroupIdImageId(6083, 3)] = true; // Cap
+	g_StarfieldGroupIdImageIdMap[MakeKeyFromGroupIdImageId(6083, 5)] = true;
 
-	g_BackdropGroupIdImageIdMap[MakeKeyFromGroupIdImageId(6084, 1)] = true;
-	g_BackdropGroupIdImageIdMap[MakeKeyFromGroupIdImageId(6084, 2)] = true; // Cap
-	g_BackdropGroupIdImageIdMap[MakeKeyFromGroupIdImageId(6084, 4)] = true;
-	g_BackdropGroupIdImageIdMap[MakeKeyFromGroupIdImageId(6084, 6)] = true; // Cap
+	g_StarfieldGroupIdImageIdMap[MakeKeyFromGroupIdImageId(6084, 1)] = true;
+	g_StarfieldGroupIdImageIdMap[MakeKeyFromGroupIdImageId(6084, 2)] = true; // Cap
+	g_StarfieldGroupIdImageIdMap[MakeKeyFromGroupIdImageId(6084, 4)] = true;
+	g_StarfieldGroupIdImageIdMap[MakeKeyFromGroupIdImageId(6084, 6)] = true; // Cap
 
-	g_BackdropGroupIdImageIdMap[MakeKeyFromGroupIdImageId(6094, 2)] = true; // Cap
+	g_StarfieldGroupIdImageIdMap[MakeKeyFromGroupIdImageId(6094, 2)] = true; // Cap
 
-	g_BackdropGroupIdImageIdMap[MakeKeyFromGroupIdImageId(6104, 5)] = true; // Cap
+	g_StarfieldGroupIdImageIdMap[MakeKeyFromGroupIdImageId(6104, 5)] = true; // Cap
 }
 
 void EffectsRenderer::CreateShaders() {

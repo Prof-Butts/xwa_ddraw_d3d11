@@ -187,13 +187,13 @@ extern std::map<int, int> g_MeshTagMap;
 extern std::map<int, int> g_FGToLODMap;
 
 /// <summary>
-/// Used to map Backdrop Id's as used in Yogeme to Group Id's as used in Planet.dat
+/// Used to map Backdrop Id's as used in Yogeme to Group Id's as used in Planet.dat. We can
+/// have planets, nebulae or starfields here.
 /// </summary>
 extern std::map<int, int> g_BackdropIdToGroupId;
 /// <summary>
-/// If a GroupId-ImageId is in this map, then it's a backdrop. That includes suns, planets,
-/// nebulae and starfields.
+/// If a GroupId-ImageId is in this map, then it's a starfield.
 /// </summary>
-extern std::map<int, bool> g_BackdropGroupIdImageIdMap;
+extern std::map<int, bool> g_StarfieldGroupIdImageIdMap;
 
 void ClearCachedSRVs();

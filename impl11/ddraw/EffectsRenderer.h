@@ -112,12 +112,21 @@ protected:
 	ComPtr<ID3D11ShaderResourceView> _vrGreenCirclesSRV;
 
 	// Background meshes
+	// Caps
 	ComPtr<ID3D11Buffer> _bgCapVertexBuffer;
 	ComPtr<ID3D11Buffer> _bgCapIndexBuffer;
 	ComPtr<ID3D11Buffer> _bgCapMeshVerticesBuffer;
-	ComPtr<ID3D11ShaderResourceView> _bgCapMeshVerticesSRV;
 	ComPtr<ID3D11Buffer> _bgCapTexCoordsBuffer;
+	ComPtr<ID3D11ShaderResourceView> _bgCapMeshVerticesSRV;
 	ComPtr<ID3D11ShaderResourceView> _bgCapMeshTexCoordsSRV;
+
+	// Sides (planets, etc)
+	ComPtr<ID3D11Buffer> _bgSideVertexBuffer;
+	ComPtr<ID3D11Buffer> _bgSideIndexBuffer;
+	ComPtr<ID3D11Buffer> _bgSideMeshVerticesBuffer;
+	ComPtr<ID3D11Buffer> _bgSideTexCoordsBuffer;
+	ComPtr<ID3D11ShaderResourceView> _bgSideMeshVerticesSRV;
+	ComPtr<ID3D11ShaderResourceView> _bgSideMeshTexCoordsSRV;
 
 	bool _bDotsbRendered;
 	bool _bHUDRendered;

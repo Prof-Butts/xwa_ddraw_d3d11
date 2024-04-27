@@ -1956,17 +1956,26 @@ void EffectsRenderer::CreateBackgroundMeshes()
 	if (!g_bReplaceBackdrops)
 		return;
 
-	D3dTriangle bgCapTris[2];
-	XwaVector3 bgCapMeshVertices[4];
-	XwaTextureVertex bgCapTexCoords[4];
-
 	log_debug("[DBG] [CUBE] Creating Background Meshes");
+
+	D3dTriangle tris[2];
+	XwaVector3 meshVertices[4];
+	XwaTextureVertex texCoords[4];
+
 	// CreateFlatRectangleMesh() scales the dimensions by METERS_TO_OPT, so we can just specify meters:
+	// Create the caps of the sky cylinder:
 	CreateFlatRectangleMesh(BACKGROUND_CUBE_SIZE_METERS, BACKGROUND_CUBE_SIZE_METERS,
-		{ 0, 0, 0 }, bgCapTris, bgCapMeshVertices, bgCapTexCoords,
+		{ 0, 0, 0 }, tris, meshVertices, texCoords,
 		_bgCapVertexBuffer, _bgCapIndexBuffer,
 		_bgCapMeshVerticesBuffer, _bgCapMeshVerticesSRV,
 		_bgCapTexCoordsBuffer, _bgCapMeshTexCoordsSRV);
+
+	// Create the sides of the cube (we're going to use this for planets and other flat background surfaces.
+	CreateRectangleMesh(BACKGROUND_CUBE_SIZE_METERS, BACKGROUND_CUBE_SIZE_METERS,
+		{ 0, 0, 0 }, tris, meshVertices, texCoords,
+		_bgSideVertexBuffer, _bgSideIndexBuffer,
+		_bgSideMeshVerticesBuffer, _bgSideMeshVerticesSRV,
+		_bgSideTexCoordsBuffer, _bgSideMeshTexCoordsSRV);
 }
 
 void EffectsRenderer::CreateBackdropIdMapping()
@@ -7135,20 +7144,16 @@ void EffectsRenderer::RenderSkyCylinder()
 	_bIsGunner = bGunnerTurret;
 	_bIsBlastMark = false;
 
-	// Set the mesh buffers
-	ID3D11ShaderResourceView* vsSSRV[4] = { _bgCapMeshVerticesSRV.Get(), nullptr, _bgCapMeshTexCoordsSRV.Get(), nullptr };
-	context->VSSetShaderResources(0, 4, vsSSRV);
-
-	// Set the index and vertex buffers
-	_deviceResources->InitVertexBuffer(nullptr, nullptr, nullptr);
-	_deviceResources->InitVertexBuffer(_bgCapVertexBuffer.GetAddressOf(), &vertexBufferStride, &vertexBufferOffset);
-	_deviceResources->InitIndexBuffer(nullptr, true);
-	_deviceResources->InitIndexBuffer(_bgCapIndexBuffer.Get(), true);
-
 	// Apply the VS and PS constants
 	resources->InitPSConstantBuffer3D(resources->_PSConstantBuffer.GetAddressOf(), &g_PSCBuffer);
 	resources->InitVRGeometryCBuffer(resources->_VRGeometryCBuffer.GetAddressOf(), &g_VRGeometryCBuffer);
 	_deviceResources->InitPixelShader(resources->_pixelShaderVRGeom);
+
+	_overrideRTV = BACKGROUND_LYR;
+	//float black[4] = { 0.05f, 0.05f, 0.2f, 1.0f };
+	float black[4] = { 0, 0, 0, 1 };
+	context->ClearRenderTargetView(resources->_backgroundRTV, black);
+	Matrix4 swapScale({ 1,0,0,0,  0,0,-1,0,  0,-1,0,0,  0,0,0,1 });
 
 	const bool bExternalCamera = PlayerDataTable[*g_playerIndex].Camera.ExternalCamera;
 	// Let's replace transformWorldView with the identity matrix:
@@ -7165,13 +7170,20 @@ void EffectsRenderer::RenderSkyCylinder()
 	context->PSSetShaderResources(21, 1, srvs);
 #endif
 
-	_overrideRTV = BACKGROUND_LYR;
-	//float black[4] = { 0.05f, 0.05f, 0.2f, 1.0f };
-	float black[4] = { 0, 0, 0, 1 };
-	context->ClearRenderTargetView(resources->_backgroundRTV, black);
-	Matrix4 swapScale({ 1,0,0,0,  0,0,-1,0,  0,-1,0,0,  0,0,0,1 });
+	ID3D11ShaderResourceView* vsSSRV[4] = { nullptr, nullptr, nullptr, nullptr };
 
-	// Top cap:
+	// ***************************************************
+	// Caps
+	// ***************************************************
+	// Set the mesh buffers
+	vsSSRV[0] = _bgCapMeshVerticesSRV.Get();
+	vsSSRV[2] = _bgCapMeshTexCoordsSRV.Get();
+	context->VSSetShaderResources(0, 4, vsSSRV);
+	// Set the index and vertex buffers
+	_deviceResources->InitVertexBuffer(_bgCapVertexBuffer.GetAddressOf(), &vertexBufferStride, &vertexBufferOffset);
+	_deviceResources->InitIndexBuffer(_bgCapIndexBuffer.Get(), true);
+
+	// Top cap (Z+):
 	{
 		// The caps are created at the origin, so we need to translate them to the poles:
 		Matrix4 T = Matrix4().translate(0, 0, BACKGROUND_CUBE_HALFSIZE_METERS * METERS_TO_OPT);
@@ -7187,10 +7199,36 @@ void EffectsRenderer::RenderSkyCylinder()
 		RenderScene(false);
 	}
 
-	// Bottom cap:
+	// Bottom cap (Z-):
 	{
 		// The caps are created at the origin, so we need to translate them to the poles:
 		Matrix4 T = Matrix4().translate(0, 0, -BACKGROUND_CUBE_HALFSIZE_METERS * METERS_TO_OPT);
+		Matrix4 DotTransform = swapScale * g_VRGeometryCBuffer.viewMat * T;
+
+		// The Vertex Shader does post-multiplication, so we need to transpose the matrix:
+		DotTransform.transpose();
+		g_OPTMeshTransformCB.MeshTransform = DotTransform;
+
+		// Apply the VS and PS constants
+		resources->InitVSConstantOPTMeshTransform(resources->_OPTMeshTransformCB.GetAddressOf(), &g_OPTMeshTransformCB);
+
+		RenderScene(false);
+	}
+
+	// ***************************************************
+	// Sides
+	// ***************************************************
+	// Set the mesh buffers
+	vsSSRV[0] = _bgSideMeshVerticesSRV.Get();
+	vsSSRV[2] = _bgSideMeshTexCoordsSRV.Get();
+	context->VSSetShaderResources(0, 4, vsSSRV);
+	// Set the index and vertex buffers
+	_deviceResources->InitVertexBuffer(_bgSideVertexBuffer.GetAddressOf(), &vertexBufferStride, &vertexBufferOffset);
+	_deviceResources->InitIndexBuffer(_bgSideIndexBuffer.Get(), true);
+
+	// Front (Y-):
+	{
+		Matrix4 T = Matrix4().translate(0, -BACKGROUND_CUBE_HALFSIZE_METERS * METERS_TO_OPT, 0);
 		Matrix4 DotTransform = swapScale * g_VRGeometryCBuffer.viewMat * T;
 
 		// The Vertex Shader does post-multiplication, so we need to transpose the matrix:

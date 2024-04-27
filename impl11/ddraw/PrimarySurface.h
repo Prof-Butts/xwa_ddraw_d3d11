@@ -225,6 +225,8 @@ public:
 
 	void RenderSkyBoxVR(bool debug);
 
+	void RenderSkyCylinder();
+
 	void RenderSynthDCElems();
 
 	ULONG _refCount;

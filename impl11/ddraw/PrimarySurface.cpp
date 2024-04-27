@@ -2018,9 +2018,10 @@ out:
 /// World OPT coords in this case look like this:
 /// X+ --> Right
 /// Y+ --> Up
-/// Z+ --> Foward <-- OPT coords normally have Z- mapped to forwards, but here we are...
+/// Z+ --> Foward <-- OPT coords normally have Z- mapped to forwards. Set scaleFs to -1
+/// to invert Fs
 /// </summary>
-Matrix4 GetPlayerCraftMatrix(Vector4& Rs, Vector4& Us, Vector4& Fs, bool invert=false, bool debug=false)
+Matrix4 GetPlayerCraftMatrix(Vector4& Rs, Vector4& Us, Vector4& Fs, float scaleFs, bool invert=false, bool debug=false)
 {
 	ObjectEntry* object = NULL;
 	MobileObjectEntry* mobileObject = NULL;
@@ -2036,9 +2037,9 @@ Matrix4 GetPlayerCraftMatrix(Vector4& Rs, Vector4& Us, Vector4& Fs, bool invert=
 		Us.y = mobileObject->transformMatrix.Up_Y / 32768.0f;
 		Us.z = mobileObject->transformMatrix.Up_Z / 32768.0f;
 
-		Fs.x = mobileObject->transformMatrix.Front_X / 32768.0f;
-		Fs.y = mobileObject->transformMatrix.Front_Y / 32768.0f;
-		Fs.z = mobileObject->transformMatrix.Front_Z / 32768.0f;
+		Fs.x = scaleFs * mobileObject->transformMatrix.Front_X / 32768.0f;
+		Fs.y = scaleFs * mobileObject->transformMatrix.Front_Y / 32768.0f;
+		Fs.z = scaleFs * mobileObject->transformMatrix.Front_Z / 32768.0f;
 
 		if (!invert)
 		{
@@ -2083,7 +2084,7 @@ void SetLights(DeviceResources *resources, float fSSDOEnabled) {
 	// Y+: Forwards
 	// Z+: Up
 	Vector4 Rs, Us, Fs;
-	Matrix4 H = GetPlayerCraftMatrix(Rs, Us, Fs, false, false);
+	Matrix4 H = GetPlayerCraftMatrix(Rs, Us, Fs, 1.0f, false, false); // SetLights()
 	// I tried reading the 3x3 matrix from CockpitLook before the roll inertia was applied and putting
 	// that in SharedMem in order to fix "dancing RT shadows". Didn't work. Still, this code might be
 	// useful later.
@@ -4057,6 +4058,45 @@ void GetCockpitViewMatrixSpeedEffect(Matrix4 *result, bool invert=true) {
 		Matrix4 rotMatrixYaw, rotMatrixPitch, rotMatrixRoll;
 		rotMatrixFull.identity();
 		rotMatrixYaw.identity();   rotMatrixYaw.rotateY(yaw);
+		rotMatrixPitch.identity(); rotMatrixPitch.rotateX(pitch);
+		rotMatrixFull = rotMatrixPitch * rotMatrixYaw;
+	}
+
+	if (invert)
+		*result = rotMatrixFull.invert();
+	else
+		*result = rotMatrixFull;
+}
+
+/// <summary>
+/// Same as GetCockpitViewMatrixSpeedEffect(), but yaw is applied around the Z axis because
+/// in OPT coords, that's the vertical axis. Used to rotate objects in global OPT coords.
+/// </summary>
+void GetCockpitViewMatrixSpeedEffectOPTSys(Matrix4 *result, bool invert=true) {
+
+	Matrix4 rotMatrixFull;
+
+	if (PlayerDataTable[*g_playerIndex].gunnerTurretActive)
+	{
+		// TODO:
+		GetGunnerTurretViewMatrixSpeedEffect(&rotMatrixFull);
+	}
+	else
+	{
+		float yaw, pitch;
+
+		if (PlayerDataTable[*g_playerIndex].Camera.ExternalCamera) {
+			yaw = -(float)PlayerDataTable[*g_playerIndex].Camera.Yaw / 65536.0f * 360.0f;
+			pitch = (float)PlayerDataTable[*g_playerIndex].Camera.Pitch / 65536.0f * 360.0f;
+		}
+		else {
+			yaw = -(float)PlayerDataTable[*g_playerIndex].MousePositionX / 65536.0f * 360.0f;
+			pitch = (float)PlayerDataTable[*g_playerIndex].MousePositionY / 65536.0f * 360.0f;
+		}
+
+		Matrix4 rotMatrixYaw, rotMatrixPitch, rotMatrixRoll;
+		rotMatrixFull.identity();
+		rotMatrixYaw.identity();   rotMatrixYaw.rotateZ(yaw);
 		rotMatrixPitch.identity(); rotMatrixPitch.rotateX(pitch);
 		rotMatrixFull = rotMatrixPitch * rotMatrixYaw;
 	}
@@ -10018,6 +10058,14 @@ HRESULT PrimarySurface::Flip(
 					DirectX::SaveDDSTextureToFile(context, resources->_backgroundBuffer, L"c:\\temp\\_backgroundBufferAfterSkybox.dds");
 			}
 
+			if (g_bReplaceBackdrops && !g_bMapMode)
+			{
+				RenderSkyCylinder();
+				g_bBackgroundCaptured = true;
+				if (g_bDumpSSAOBuffers)
+					DirectX::SaveDDSTextureToFile(context, resources->_backgroundBuffer, L"c:\\temp\\_backgroundBufferAfterSkyCylinder.dds");
+			}
+
 			if (!g_bBackgroundCaptured)
 			{
 				g_bBackgroundCaptured = true;
@@ -12617,6 +12665,111 @@ void PrimarySurface::RenderSkyBoxVR(bool debug)
 	// This method should only be called in VR mode:
 	EffectsRenderer* renderer = (EffectsRenderer*)g_current_renderer;
 	renderer->RenderVRSkyBox(debug);
+}
+
+void PrimarySurface::RenderSkyCylinder()
+{
+	if (!g_bRendering3D) return;
+
+	const bool bExternalCamera = g_iPresentCounter > PLAYERDATATABLE_MIN_SAFE_FRAME &&
+		PlayerDataTable[*g_playerIndex].Camera.ExternalCamera;
+
+	auto& resources = _deviceResources;
+	auto& context = resources->_d3dDeviceContext;
+
+	const float Zfar = *(float*)0x05B46B4;
+	// Save the current projection constants
+	float f0 = *(float*)0x08C1600;
+	float f1 = *(float*)0x0686ACC;
+	float f2 = *(float*)0x080ACF8;
+	float f3 = *(float*)0x07B33C0;
+	float f4 = *(float*)0x064D1AC;
+
+	if (bExternalCamera)
+	{
+		// These are the constants used when rendering the cockpit. The HUD is not at the center
+		// of the screen when using these:
+		*(float*)0x08C1600 = g_f0x08C1600;
+		*(float*)0x0686ACC = g_f0x0686ACC;
+		*(float*)0x080ACF8 = g_f0x080ACF8;
+		*(float*)0x07B33C0 = g_f0x07B33C0;
+		*(float*)0x064D1AC = g_f0x064D1AC;
+	}
+
+	//Matrix4 Heading;
+	//GetHyperspaceEffectMatrix(&Heading);
+	//GetCockpitViewMatrix(&Heading);
+	Vector4 Rs, Us, Fs;
+	// Maybe try using GetCurrentHeadingViewMatrix() instead?
+	Matrix4 Heading = GetCurrentHeadingMatrix(Rs, Us, Fs, false);
+	//Matrix4 ViewMatrix = g_VSMatrixCB.fullViewMat; // See RenderSpeedEffect() for details
+	//ViewMatrix.invert();
+	//Matrix4 S = Matrix4().scale(-1, -1, 1);
+	//ViewMatrix = S * ViewMatrix * S * Heading;
+
+	// Non-VR path:
+	Matrix4 ViewMatrix;
+	GetCockpitViewMatrixSpeedEffectOPTSys(&ViewMatrix, false);
+	ViewMatrix = ViewMatrix * GetPlayerCraftMatrix(Rs, Us, Fs, -1.0f, false, false);
+
+	// DEBUG:
+	Vector4 U = ViewMatrix * Vector4(0, 0, 1, 0);
+	Vector4 F = ViewMatrix * Vector4(0, -1, 0, 0);
+	g_VRGeometryCBuffer.U = float4(U.x, U.y, U.z, 0);
+	g_VRGeometryCBuffer.F = float4(F.x, F.y, F.z, 0);
+	//log_debug_vr("Up: %0.3f, %0.3f, %0.3f", U.x, U.y, U.z);
+	//log_debug_vr("Fd: %0.3f, %0.3f, %0.3f", F.x, F.y, F.z);
+
+	// ViewMatrix maps OPT-World coords to "Normal Mapping"/DX11 Viewspace coords:
+	// X+ (Rt, OPT) maps to X+
+	// Z+ (Up, OPT) maps to Y+
+	// Y- (Fd, OPT) maps to Z+
+	// In order to map from DX11 Viewspace coords to DX11 World coords, we need
+	// to invert ViewMatrix and then rename Z+ --> Y+ and Z+ --> Y-
+	//Matrix4 swapScale({ 1,0,0,0,  0,0,1,0,  0,-1,0,0,  0,0,0,1 });
+	//ViewMatrix.invert();
+	//g_VRGeometryCBuffer.viewMat = swapScale * ViewMatrix;
+	g_VRGeometryCBuffer.viewMat = ViewMatrix;
+
+	static BracketVR screenBracket = {};
+	// Add a single bracket covering the whole screen
+	g_bracketsVR.clear();
+	{
+		float W = g_fCurInGameWidth;
+		float H = g_fCurInGameHeight;
+		float desiredZ = 65536.0f;
+		float X = W / 2.0f, Y = H / 2.0f;
+		float Z = Zfar / (desiredZ * METERS_TO_OPT);
+		float3 P = InverseTransformProjectionScreen({ X, Y, Z, Z });
+		P.y = -P.y;
+		P.z = -P.z;
+
+		//float3 Q = InverseTransformProjectionScreen({ X + W, Y + H, Z, Z });
+		float3 Q = InverseTransformProjectionScreen({ X + W / 2.0f, Y + H / 2.0f, Z, Z });
+		Q.y = -Q.y;
+		Q.z = -Q.z;
+
+		screenBracket.posOPT.x = P.x;
+		screenBracket.posOPT.y = P.z;
+		screenBracket.posOPT.z = P.y;
+		screenBracket.halfWidthOPT = fabs(Q.x - P.x);
+		screenBracket.color = Vector3(1, 1, 1);
+	}
+	g_bracketsVR.push_back(screenBracket);
+
+	// Restore the original projection deltas
+	if (bExternalCamera)
+	{
+		*(float*)0x08C1600 = f0;
+		*(float*)0x0686ACC = f1;
+		*(float*)0x080ACF8 = f2;
+		*(float*)0x07B33C0 = f3;
+		*(float*)0x064D1AC = f4;
+	}
+
+	// This method should only be called in VR mode:
+	EffectsRenderer* renderer = (EffectsRenderer*)g_current_renderer;
+	renderer->RenderSkyCylinder();
 }
 
 /*

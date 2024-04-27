@@ -247,6 +247,7 @@ public:
 	void RenderVRSkyBox(bool debug);
 	void RenderVRKeyboard();
 	void RenderVRGloves();
+	void RenderSkyCylinder();
 	void RenderCockpitShadowMap();
 	void RenderHangarShadowMap();
 	void StartCascadedShadowMap();

@@ -1854,12 +1854,8 @@ void EffectsRenderer::CreateVRMeshes()
 {
 	int res;
 
-	// The VR keyboard/gloves only make sense when VR is on
-	if (!g_bUseSteamVR)
-		return;
-
 	// *************************************************
-	// Gloves
+	// Rects used to display VR dots and other things
 	// *************************************************
 	log_debug("[DBG] [AC] Creating VR Dot buffers");
 	CreateRectangleMesh(0.017f, 0.017f, { 0, 0, 0 },
@@ -6428,7 +6424,7 @@ void EffectsRenderer::RenderVRDots()
 
 	context->VSSetConstantBuffers(0, 1, _constantBuffer.GetAddressOf());
 	context->PSSetConstantBuffers(0, 1, _constantBuffer.GetAddressOf());
-	// Set the proper rastersizer and depth stencil states for transparency
+	// Set the proper rasterizer and depth stencil states for transparency
 	_deviceResources->InitBlendState(_transparentBlendState, nullptr);
 	// _mainDepthState is D3D11_COMPARISON_ALWAYS, so the VR dots are always displayed
 	_deviceResources->InitDepthStencilState(_deviceResources->_mainDepthState, nullptr);
@@ -6618,7 +6614,7 @@ void EffectsRenderer::RenderVRBrackets()
 
 	context->VSSetConstantBuffers(0, 1, _constantBuffer.GetAddressOf());
 	context->PSSetConstantBuffers(0, 1, _constantBuffer.GetAddressOf());
-	// Set the proper rastersizer and depth stencil states for transparency
+	// Set the proper rasterizer and depth stencil states for transparency
 	_deviceResources->InitBlendState(_transparentBlendState, nullptr);
 	//_deviceResources->InitDepthStencilState(_transparentDepthState, nullptr);
 	// _mainDepthState is D3D11_COMPARISON_ALWAYS, so the VR dots are always displayed
@@ -6807,7 +6803,7 @@ void EffectsRenderer::RenderVRHUD()
 
 	context->VSSetConstantBuffers(0, 1, _constantBuffer.GetAddressOf());
 	context->PSSetConstantBuffers(0, 1, _constantBuffer.GetAddressOf());
-	// Set the proper rastersizer and depth stencil states for transparency
+	// Set the proper rasterizer and depth stencil states for transparency
 	_deviceResources->InitBlendState(_transparentBlendState, nullptr);
 	//_deviceResources->InitDepthStencilState(_transparentDepthState, nullptr);
 	// _mainDepthState is D3D11_COMPARISON_ALWAYS, so the VR dots are always displayed
@@ -6984,7 +6980,7 @@ void EffectsRenderer::RenderVRSkyBox(bool debug)
 
 	context->VSSetConstantBuffers(0, 1, _constantBuffer.GetAddressOf());
 	context->PSSetConstantBuffers(0, 1, _constantBuffer.GetAddressOf());
-	// Set the proper rastersizer and depth stencil states for transparency
+	// Set the proper rasterizer and depth stencil states for transparency
 	_deviceResources->InitBlendState(_transparentBlendState, nullptr);
 	//_deviceResources->InitDepthStencilState(_transparentDepthState, nullptr);
 	// _mainDepthState is COMPARE_ALWAYS, so the VR dots are always displayed
@@ -7075,6 +7071,115 @@ void EffectsRenderer::RenderVRSkyBox(bool debug)
 			Matrix4 T = Matrix4().translate(posOPT);
 			DotTransform = swapScale * T * Matrix4().scale(meshScale);
 		}
+		// The Vertex Shader does post-multiplication, so we need to transpose the matrix:
+		DotTransform.transpose();
+		g_OPTMeshTransformCB.MeshTransform = DotTransform;
+
+		// Apply the VS and PS constants
+		resources->InitVSConstantOPTMeshTransform(resources->_OPTMeshTransformCB.GetAddressOf(), &g_OPTMeshTransformCB);
+
+		RenderScene(false);
+	}
+
+	RestoreContext();
+	_overrideRTV = TRANSP_LYR_NONE;
+	g_bracketsVR.clear();
+	_deviceResources->EndAnnotatedEvent();
+}
+
+void EffectsRenderer::RenderSkyCylinder()
+{
+	if (!g_bRendering3D)
+		return;
+
+	_deviceResources->BeginAnnotatedEvent(L"RenderSkyCylinder");
+
+	auto& resources = _deviceResources;
+	auto& context = resources->_d3dDeviceContext;
+	const bool bGunnerTurret = (g_iPresentCounter > PLAYERDATATABLE_MIN_SAFE_FRAME) ?
+		PlayerDataTable[*g_playerIndex].gunnerTurretActive : false;
+
+	SaveContext();
+
+	context->VSSetConstantBuffers(0, 1, _constantBuffer.GetAddressOf());
+	context->PSSetConstantBuffers(0, 1, _constantBuffer.GetAddressOf());
+	// Set the proper rasterizer and depth stencil states for transparency
+	_deviceResources->InitBlendState(_transparentBlendState, nullptr);
+	//_deviceResources->InitDepthStencilState(_transparentDepthState, nullptr);
+	// _mainDepthState is COMPARE_ALWAYS, so the VR dots are always displayed
+	_deviceResources->InitDepthStencilState(_deviceResources->_mainDepthState, nullptr);
+
+	_deviceResources->InitViewport(&_viewport);
+	_deviceResources->InitTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+	_deviceResources->InitInputLayout(_inputLayout);
+	_deviceResources->InitVertexShader(_vertexShader);
+
+	// Other stuff that is common in the loop below
+	UINT vertexBufferStride = sizeof(D3dVertex);
+	UINT vertexBufferOffset = 0;
+
+	ZeroMemory(&g_PSCBuffer, sizeof(g_PSCBuffer));
+	g_PSCBuffer.bIsShadeless = 2;
+	g_PSCBuffer.fPosNormalAlpha = 0.0f;
+
+	g_VRGeometryCBuffer.numStickyRegions = 0;
+	// Disable region highlighting
+	g_VRGeometryCBuffer.clicked[0] = false;
+	g_VRGeometryCBuffer.clicked[1] = false;
+
+	// Flags used in RenderScene():
+	_bIsCockpit = !bGunnerTurret;
+	_bIsGunner = bGunnerTurret;
+	_bIsBlastMark = false;
+
+	// Set the mesh buffers
+	ID3D11ShaderResourceView* vsSSRV[4] = { _vrDotMeshVerticesSRV.Get(), nullptr, _vrDotMeshTexCoordsSRV.Get(), nullptr };
+	context->VSSetShaderResources(0, 4, vsSSRV);
+
+	// Set the index and vertex buffers
+	_deviceResources->InitVertexBuffer(nullptr, nullptr, nullptr);
+	_deviceResources->InitVertexBuffer(_vrDotVertexBuffer.GetAddressOf(), &vertexBufferStride, &vertexBufferOffset);
+	_deviceResources->InitIndexBuffer(nullptr, true);
+	_deviceResources->InitIndexBuffer(_vrDotIndexBuffer.Get(), true);
+
+	// Apply the VS and PS constants
+	resources->InitPSConstantBuffer3D(resources->_PSConstantBuffer.GetAddressOf(), &g_PSCBuffer);
+	resources->InitVRGeometryCBuffer(resources->_VRGeometryCBuffer.GetAddressOf(), &g_VRGeometryCBuffer);
+	_deviceResources->InitPixelShader(resources->_pixelShaderVRGeom);
+
+	const bool bExternalCamera = PlayerDataTable[*g_playerIndex].Camera.ExternalCamera;
+	// Let's replace transformWorldView with the identity matrix:
+	Matrix4 Id;
+	const float* m = Id.get();
+	for (int i = 0; i < 16; i++) _frameConstants.transformWorldView[i] = m[i];
+	context->UpdateSubresource(_constantBuffer, 0, nullptr, &_frameConstants, 0, 0);
+	_trianglesCount = g_vrDotNumTriangles;
+
+	// Get the width in OPT-scale of the mesh that will be rendered:
+	// 0 -> 1
+	// |
+	// 3
+	const float meshWidth = g_vrDotMeshVertices[1].x - g_vrDotMeshVertices[0].x;
+	//log_debug_vr("meshWidth: %0.3f", meshWidth);
+
+#ifdef DISABLED
+	ID3D11ShaderResourceView* srvs[] = {
+		resources->_textureCubeSRV /* .Get() */, // 21
+	};
+	context->PSSetShaderResources(21, 1, srvs);
+#endif
+
+	_overrideRTV = BACKGROUND_LYR;
+	float black[4] = { 0, 0, 0, 1 };
+	context->ClearRenderTargetView(resources->_backgroundRTV, black);
+
+	Matrix4 swapScale({ 1,0,0,0,  0,0,-1,0,  0,-1,0,0,  0,0,0,1 });
+	for (const auto& bracketVR : g_bracketsVR)
+	{
+		const float meshScale = (bracketVR.halfWidthOPT * 2.0f) / meshWidth;
+
+		Matrix4 T = Matrix4().translate(bracketVR.posOPT);
+		Matrix4 DotTransform = swapScale * g_VRGeometryCBuffer.viewMat * T * Matrix4().scale(meshScale);
 		// The Vertex Shader does post-multiplication, so we need to transpose the matrix:
 		DotTransform.transpose();
 		g_OPTMeshTransformCB.MeshTransform = DotTransform;
@@ -7224,7 +7329,7 @@ void EffectsRenderer::RenderVRKeyboard()
 
 	context->VSSetConstantBuffers(0, 1, _constantBuffer.GetAddressOf());
 	context->PSSetConstantBuffers(0, 1, _constantBuffer.GetAddressOf());
-	// Set the proper rastersizer and depth stencil states for transparency
+	// Set the proper rasterizer and depth stencil states for transparency
 	_deviceResources->InitBlendState(_transparentBlendState, nullptr);
 	//_deviceResources->InitDepthStencilState(_transparentDepthState, nullptr);
 	//_deviceResources->InitBlendState(_solidBlendState, nullptr);
@@ -7329,7 +7434,7 @@ void EffectsRenderer::RenderVRGloves()
 
 	context->VSSetConstantBuffers(0, 1, _constantBuffer.GetAddressOf());
 	context->PSSetConstantBuffers(0, 1, _constantBuffer.GetAddressOf());
-	// Set the proper rastersizer and depth stencil states for transparency
+	// Set the proper rasterizer and depth stencil states for transparency
 	_deviceResources->InitBlendState(_solidBlendState, nullptr);
 	_deviceResources->InitDepthStencilState(_solidDepthState, nullptr);
 

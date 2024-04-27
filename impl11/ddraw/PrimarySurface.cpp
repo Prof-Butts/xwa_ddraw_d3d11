@@ -12674,28 +12674,6 @@ void PrimarySurface::RenderSkyCylinder()
 	const bool bExternalCamera = g_iPresentCounter > PLAYERDATATABLE_MIN_SAFE_FRAME &&
 		PlayerDataTable[*g_playerIndex].Camera.ExternalCamera;
 
-	auto& resources = _deviceResources;
-	auto& context = resources->_d3dDeviceContext;
-
-	const float Zfar = *(float*)0x05B46B4;
-	// Save the current projection constants
-	float f0 = *(float*)0x08C1600;
-	float f1 = *(float*)0x0686ACC;
-	float f2 = *(float*)0x080ACF8;
-	float f3 = *(float*)0x07B33C0;
-	float f4 = *(float*)0x064D1AC;
-
-	if (bExternalCamera)
-	{
-		// These are the constants used when rendering the cockpit. The HUD is not at the center
-		// of the screen when using these:
-		*(float*)0x08C1600 = g_f0x08C1600;
-		*(float*)0x0686ACC = g_f0x0686ACC;
-		*(float*)0x080ACF8 = g_f0x080ACF8;
-		*(float*)0x07B33C0 = g_f0x07B33C0;
-		*(float*)0x064D1AC = g_f0x064D1AC;
-	}
-
 	//Matrix4 Heading;
 	//GetHyperspaceEffectMatrix(&Heading);
 	//GetCockpitViewMatrix(&Heading);
@@ -12730,42 +12708,6 @@ void PrimarySurface::RenderSkyCylinder()
 	//ViewMatrix.invert();
 	//g_VRGeometryCBuffer.viewMat = swapScale * ViewMatrix;
 	g_VRGeometryCBuffer.viewMat = ViewMatrix;
-
-	static BracketVR screenBracket = {};
-	// Add a single bracket covering the whole screen
-	g_bracketsVR.clear();
-	{
-		float W = g_fCurInGameWidth;
-		float H = g_fCurInGameHeight;
-		float desiredZ = 65536.0f;
-		float X = W / 2.0f, Y = H / 2.0f;
-		float Z = Zfar / (desiredZ * METERS_TO_OPT);
-		float3 P = InverseTransformProjectionScreen({ X, Y, Z, Z });
-		P.y = -P.y;
-		P.z = -P.z;
-
-		//float3 Q = InverseTransformProjectionScreen({ X + W, Y + H, Z, Z });
-		float3 Q = InverseTransformProjectionScreen({ X + W / 2.0f, Y + H / 2.0f, Z, Z });
-		Q.y = -Q.y;
-		Q.z = -Q.z;
-
-		screenBracket.posOPT.x = P.x;
-		screenBracket.posOPT.y = P.z;
-		screenBracket.posOPT.z = P.y;
-		screenBracket.halfWidthOPT = fabs(Q.x - P.x);
-		screenBracket.color = Vector3(1, 1, 1);
-	}
-	g_bracketsVR.push_back(screenBracket);
-
-	// Restore the original projection deltas
-	if (bExternalCamera)
-	{
-		*(float*)0x08C1600 = f0;
-		*(float*)0x0686ACC = f1;
-		*(float*)0x080ACF8 = f2;
-		*(float*)0x07B33C0 = f3;
-		*(float*)0x064D1AC = f4;
-	}
 
 	// This method should only be called in VR mode:
 	EffectsRenderer* renderer = (EffectsRenderer*)g_current_renderer;

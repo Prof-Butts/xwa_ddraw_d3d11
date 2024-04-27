@@ -10,6 +10,10 @@ bool g_bEnableAnimations = true;
 extern bool g_bKeepMouseInsideWindow;
 extern char g_curOPTLoaded[MAX_OPT_NAME];
 
+// SkyCylinder:
+constexpr float BACKGROUND_CUBE_SIZE_METERS = 1000.0f;
+constexpr float BACKGROUND_CUBE_HALFSIZE_METERS = BACKGROUND_CUBE_SIZE_METERS / 2.0f;
+
 // Raytracing
 extern bool g_bEnableQBVHwSAH;
 //BVHBuilderType g_BVHBuilderType = BVHBuilderType_BVH2;
@@ -1957,13 +1961,12 @@ void EffectsRenderer::CreateBackgroundMeshes()
 	XwaTextureVertex bgCapTexCoords[4];
 
 	log_debug("[DBG] [CUBE] Creating Background Meshes");
-
-	constexpr float BACKGROUND_CUBE_SIZE_METERS = 1000.0f;
+	// CreateFlatRectangleMesh() scales the dimensions by METERS_TO_OPT, so we can just specify meters:
 	CreateFlatRectangleMesh(BACKGROUND_CUBE_SIZE_METERS, BACKGROUND_CUBE_SIZE_METERS,
 		{ 0, 0, 0 }, bgCapTris, bgCapMeshVertices, bgCapTexCoords,
 		_bgCapVertexBuffer, _bgCapIndexBuffer,
 		_bgCapMeshVerticesBuffer, _bgCapMeshVerticesSRV,
-		_bgCapTexCoordsBuffer, _bgCapTexCoordsSRV);
+		_bgCapTexCoordsBuffer, _bgCapMeshTexCoordsSRV);
 }
 
 void EffectsRenderer::CreateBackdropIdMapping()
@@ -7104,10 +7107,10 @@ void EffectsRenderer::RenderSkyCylinder()
 	context->VSSetConstantBuffers(0, 1, _constantBuffer.GetAddressOf());
 	context->PSSetConstantBuffers(0, 1, _constantBuffer.GetAddressOf());
 	// Set the proper rasterizer and depth stencil states for transparency
+	//_deviceResources->InitBlendState(_solidBlendState, nullptr);
 	_deviceResources->InitBlendState(_transparentBlendState, nullptr);
 	//_deviceResources->InitDepthStencilState(_transparentDepthState, nullptr);
-	// _mainDepthState is COMPARE_ALWAYS, so the VR dots are always displayed
-	_deviceResources->InitDepthStencilState(_deviceResources->_mainDepthState, nullptr);
+	_deviceResources->InitDepthStencilState(_solidDepthState, nullptr);
 
 	_deviceResources->InitViewport(&_viewport);
 	_deviceResources->InitTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
@@ -7133,14 +7136,14 @@ void EffectsRenderer::RenderSkyCylinder()
 	_bIsBlastMark = false;
 
 	// Set the mesh buffers
-	ID3D11ShaderResourceView* vsSSRV[4] = { _vrDotMeshVerticesSRV.Get(), nullptr, _vrDotMeshTexCoordsSRV.Get(), nullptr };
+	ID3D11ShaderResourceView* vsSSRV[4] = { _bgCapMeshVerticesSRV.Get(), nullptr, _bgCapMeshTexCoordsSRV.Get(), nullptr };
 	context->VSSetShaderResources(0, 4, vsSSRV);
 
 	// Set the index and vertex buffers
 	_deviceResources->InitVertexBuffer(nullptr, nullptr, nullptr);
-	_deviceResources->InitVertexBuffer(_vrDotVertexBuffer.GetAddressOf(), &vertexBufferStride, &vertexBufferOffset);
+	_deviceResources->InitVertexBuffer(_bgCapVertexBuffer.GetAddressOf(), &vertexBufferStride, &vertexBufferOffset);
 	_deviceResources->InitIndexBuffer(nullptr, true);
-	_deviceResources->InitIndexBuffer(_vrDotIndexBuffer.Get(), true);
+	_deviceResources->InitIndexBuffer(_bgCapIndexBuffer.Get(), true);
 
 	// Apply the VS and PS constants
 	resources->InitPSConstantBuffer3D(resources->_PSConstantBuffer.GetAddressOf(), &g_PSCBuffer);
@@ -7153,14 +7156,7 @@ void EffectsRenderer::RenderSkyCylinder()
 	const float* m = Id.get();
 	for (int i = 0; i < 16; i++) _frameConstants.transformWorldView[i] = m[i];
 	context->UpdateSubresource(_constantBuffer, 0, nullptr, &_frameConstants, 0, 0);
-	_trianglesCount = g_vrDotNumTriangles;
-
-	// Get the width in OPT-scale of the mesh that will be rendered:
-	// 0 -> 1
-	// |
-	// 3
-	const float meshWidth = g_vrDotMeshVertices[1].x - g_vrDotMeshVertices[0].x;
-	//log_debug_vr("meshWidth: %0.3f", meshWidth);
+	_trianglesCount = 2;
 
 #ifdef DISABLED
 	ID3D11ShaderResourceView* srvs[] = {
@@ -7170,16 +7166,33 @@ void EffectsRenderer::RenderSkyCylinder()
 #endif
 
 	_overrideRTV = BACKGROUND_LYR;
+	//float black[4] = { 0.05f, 0.05f, 0.2f, 1.0f };
 	float black[4] = { 0, 0, 0, 1 };
 	context->ClearRenderTargetView(resources->_backgroundRTV, black);
-
 	Matrix4 swapScale({ 1,0,0,0,  0,0,-1,0,  0,-1,0,0,  0,0,0,1 });
-	for (const auto& bracketVR : g_bracketsVR)
-	{
-		const float meshScale = (bracketVR.halfWidthOPT * 2.0f) / meshWidth;
 
-		Matrix4 T = Matrix4().translate(bracketVR.posOPT);
-		Matrix4 DotTransform = swapScale * g_VRGeometryCBuffer.viewMat * T * Matrix4().scale(meshScale);
+	// Top cap:
+	{
+		// The caps are created at the origin, so we need to translate them to the poles:
+		Matrix4 T = Matrix4().translate(0, 0, BACKGROUND_CUBE_HALFSIZE_METERS * METERS_TO_OPT);
+		Matrix4 DotTransform = swapScale * g_VRGeometryCBuffer.viewMat * T;
+
+		// The Vertex Shader does post-multiplication, so we need to transpose the matrix:
+		DotTransform.transpose();
+		g_OPTMeshTransformCB.MeshTransform = DotTransform;
+
+		// Apply the VS and PS constants
+		resources->InitVSConstantOPTMeshTransform(resources->_OPTMeshTransformCB.GetAddressOf(), &g_OPTMeshTransformCB);
+
+		RenderScene(false);
+	}
+
+	// Bottom cap:
+	{
+		// The caps are created at the origin, so we need to translate them to the poles:
+		Matrix4 T = Matrix4().translate(0, 0, -BACKGROUND_CUBE_HALFSIZE_METERS * METERS_TO_OPT);
+		Matrix4 DotTransform = swapScale * g_VRGeometryCBuffer.viewMat * T;
+
 		// The Vertex Shader does post-multiplication, so we need to transpose the matrix:
 		DotTransform.transpose();
 		g_OPTMeshTransformCB.MeshTransform = DotTransform;

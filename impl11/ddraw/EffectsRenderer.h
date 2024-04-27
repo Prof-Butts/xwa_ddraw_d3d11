@@ -117,7 +117,7 @@ protected:
 	ComPtr<ID3D11Buffer> _bgCapMeshVerticesBuffer;
 	ComPtr<ID3D11ShaderResourceView> _bgCapMeshVerticesSRV;
 	ComPtr<ID3D11Buffer> _bgCapTexCoordsBuffer;
-	ComPtr<ID3D11ShaderResourceView> _bgCapTexCoordsSRV;
+	ComPtr<ID3D11ShaderResourceView> _bgCapMeshTexCoordsSRV;
 
 	bool _bDotsbRendered;
 	bool _bHUDRendered;

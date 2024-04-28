@@ -128,6 +128,14 @@ protected:
 	ComPtr<ID3D11ShaderResourceView> _bgSideMeshVerticesSRV;
 	ComPtr<ID3D11ShaderResourceView> _bgSideMeshTexCoordsSRV;
 
+	// Cylinder Sides
+	ComPtr<ID3D11Buffer> _bgCylVertexBuffer;
+	ComPtr<ID3D11Buffer> _bgCylIndexBuffer;
+	ComPtr<ID3D11Buffer> _bgCylMeshVerticesBuffer;
+	ComPtr<ID3D11Buffer> _bgCylTexCoordsBuffer;
+	ComPtr<ID3D11ShaderResourceView> _bgCylMeshVerticesSRV;
+	ComPtr<ID3D11ShaderResourceView> _bgCylMeshTexCoordsSRV;
+
 	bool _bDotsbRendered;
 	bool _bHUDRendered;
 	bool _bBracketsRendered;
@@ -232,6 +240,20 @@ public:
 	void CreateFlatRectangleMesh(
 		float widthMeters,
 		float depthMeters,
+		XwaVector3 dispMeters,
+		/* out */ D3dTriangle* tris,
+		/* out */ XwaVector3* meshVertices,
+		/* out */ XwaTextureVertex* texCoords,
+		/* out */ ComPtr<ID3D11Buffer>& vertexBuffer,
+		/* out */ ComPtr<ID3D11Buffer>& indexBuffer,
+		/* out */ ComPtr<ID3D11Buffer>& meshVerticesBuffer,
+		/* out */ ComPtr<ID3D11ShaderResourceView>& meshVerticesSRV,
+		/* out */ ComPtr<ID3D11Buffer>& texCoordsBuffer,
+		/* out */ ComPtr<ID3D11ShaderResourceView>& texCoordsSRV);
+
+	void CreateCylinderSideMesh(
+		float widthMeters,
+		float heightMeters,
 		XwaVector3 dispMeters,
 		/* out */ D3dTriangle* tris,
 		/* out */ XwaVector3* meshVertices,

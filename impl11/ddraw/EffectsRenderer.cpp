@@ -13,6 +13,7 @@ extern char g_curOPTLoaded[MAX_OPT_NAME];
 // SkyCylinder:
 constexpr float BACKGROUND_CUBE_SIZE_METERS = 1000.0f;
 constexpr float BACKGROUND_CUBE_HALFSIZE_METERS = BACKGROUND_CUBE_SIZE_METERS / 2.0f;
+static constexpr int s_numCylTriangles = 12;
 
 // Raytracing
 extern bool g_bEnableQBVHwSAH;
@@ -1706,6 +1707,9 @@ int EffectsRenderer::LoadOBJ(int gloveIdx, Matrix4 R, char* sFileName, int profi
 /// Creates a rectangle in OPT coords on the X-Z plane (Y = 0, meaning
 /// that the rectangle is at a fixed depth and facing the camera).
 /// An optional displacement vector can be specified to translate the mesh.
+/// tris must have at least 2 elements.
+/// meshVertices must have at least 4 elements.
+/// texCoords must have at least 4 elements.
 /// </summary>
 void EffectsRenderer::CreateRectangleMesh(
 	float widthMeters,
@@ -1785,6 +1789,9 @@ void EffectsRenderer::CreateRectangleMesh(
 /// Creates a "flat" rectangle (i.e. lying on the X-Y plane in OPT coords with Z = 0,
 /// meaning that it's aligned with the global starfield horizon).
 /// An optional displacement vector can be specified to translate the mesh.
+/// tris must have at least 2 elements.
+/// meshVertices must have at least 4 elements.
+/// texCoords must have at least 4 elements.
 /// </summary>
 void EffectsRenderer::CreateFlatRectangleMesh(
 	float widthMeters,
@@ -1852,6 +1859,95 @@ void EffectsRenderer::CreateFlatRectangleMesh(
 		D3D11_BIND_SHADER_RESOURCE, D3D11_USAGE_IMMUTABLE), &initialData, &texCoordsBuffer);
 	device->CreateShaderResourceView(texCoordsBuffer,
 		&CD3D11_SHADER_RESOURCE_VIEW_DESC(texCoordsBuffer, DXGI_FORMAT_R32G32_FLOAT, 0, texCoordsCount), &texCoordsSRV);
+}
+
+/// <summary>
+/// Creates a quarter of a vertical cylinder (a "side") consisting of 6 segments.
+/// Each segment has constant depth (Y) and goes vertically along the X-Z plane
+/// measuring heightMeters. The radius of the cylinder is widthMeters / 2.
+/// An optional displacement vector can be specified to translate the mesh.
+/// tris must have at least 12 elements.
+/// meshVertices must have at least 14 elements.
+/// texCoords must have at least 14 elements.
+/// </summary>
+void EffectsRenderer::CreateCylinderSideMesh(
+	float widthMeters,
+	float heightMeters,
+	XwaVector3 dispMeters,
+	/* out */ D3dTriangle* tris,
+	/* out */ XwaVector3* meshVertices,
+	/* out */ XwaTextureVertex* texCoords,
+	/* out */ ComPtr<ID3D11Buffer>& vertexBuffer,
+	/* out */ ComPtr<ID3D11Buffer>& indexBuffer,
+	/* out */ ComPtr<ID3D11Buffer>& meshVerticesBuffer,
+	/* out */ ComPtr<ID3D11ShaderResourceView>& meshVerticesSRV,
+	/* out */ ComPtr<ID3D11Buffer>& texCoordsBuffer,
+	/* out */ ComPtr<ID3D11ShaderResourceView>& texCoordsSRV)
+{
+	ID3D11Device* device = _deviceResources->_d3dDevice;
+
+	constexpr int numVertices = 14;
+	D3dVertex _vertices[numVertices];
+
+	// The OPT/D3dHook system uses an indexing scheme, but I don't need it here,
+	// so let's just use an "identity function":
+	for (int i = 0; i < numVertices; i++)
+		_vertices[i] = { i, 0, i, 0 };
+
+	for (int i = 0, j = 0; i < s_numCylTriangles; i += 2, j += 2)
+	{
+		//int j = i * 4;
+		tris[i + 0] = { j + 0, j + 1, j + 2 };
+		tris[i + 1] = { j + 2, j + 1, j + 3 };
+		/*log_debug("[DBG] [CUBE] tri[%d] = {%d, %d, %d}",
+			i, tris[i].v1, tris[i].v2, tris[i].v3);
+		log_debug("[DBG] [CUBE] tri[%d] = {%d, %d, %d}",
+			i+1, tris[i+1].v1, tris[i+1].v2, tris[i+1].v3);*/
+	}
+
+	D3D11_SUBRESOURCE_DATA initialData;
+	initialData.SysMemPitch = 0;
+	initialData.SysMemSlicePitch = 0;
+
+	initialData.pSysMem = _vertices;
+	device->CreateBuffer(&CD3D11_BUFFER_DESC(numVertices * sizeof(D3dVertex),
+		D3D11_BIND_VERTEX_BUFFER, D3D11_USAGE_IMMUTABLE), &initialData, &vertexBuffer);
+
+	initialData.pSysMem = tris;
+	device->CreateBuffer(&CD3D11_BUFFER_DESC(s_numCylTriangles * sizeof(D3dTriangle),
+		D3D11_BIND_INDEX_BUFFER, D3D11_USAGE_IMMUTABLE), &initialData, &indexBuffer);
+
+	// Create the mesh
+	const float halfW = widthMeters  / 2.0f * METERS_TO_OPT;
+	const float halfH = heightMeters / 2.0f * METERS_TO_OPT;
+	XwaVector3  disp  = dispMeters * METERS_TO_OPT;
+	for (int n = 0, i = 0; n <= 6; n++, i += 2)
+	{
+		float ang = 135.0f - 15.0f * n;
+		float xn =  halfW * cos(ang * DEG_TO_RAD);
+		float yn = -halfW * sin(ang * DEG_TO_RAD);
+		meshVertices[i + 0] = { xn + disp.x, yn + disp.y,  halfH + disp.z };
+		meshVertices[i + 1] = { xn + disp.x, yn + disp.y, -halfH + disp.z };
+
+		// Create the UVs
+		float un = n / 6.0f;
+		texCoords[i + 0] = { un, 0 };
+		texCoords[i + 1] = { un, 1 };
+
+		//log_debug("[DBG] [CUBE] verts[%d, %d]: (%0.3f, %0.3f):%0.3f", i, i+1, xn, yn, un);
+	}
+
+	initialData.pSysMem = meshVertices;
+	device->CreateBuffer(&CD3D11_BUFFER_DESC(numVertices * sizeof(XwaVector3),
+		D3D11_BIND_SHADER_RESOURCE, D3D11_USAGE_IMMUTABLE), &initialData, &meshVerticesBuffer);
+	device->CreateShaderResourceView(meshVerticesBuffer,
+		&CD3D11_SHADER_RESOURCE_VIEW_DESC(meshVerticesBuffer, DXGI_FORMAT_R32G32B32_FLOAT, 0, numVertices), &meshVerticesSRV);
+
+	initialData.pSysMem = texCoords;
+	device->CreateBuffer(&CD3D11_BUFFER_DESC(numVertices * sizeof(XwaTextureVertex),
+		D3D11_BIND_SHADER_RESOURCE, D3D11_USAGE_IMMUTABLE), &initialData, &texCoordsBuffer);
+	device->CreateShaderResourceView(texCoordsBuffer,
+		&CD3D11_SHADER_RESOURCE_VIEW_DESC(texCoordsBuffer, DXGI_FORMAT_R32G32_FLOAT, 0, numVertices), &texCoordsSRV);
 }
 
 void EffectsRenderer::CreateVRMeshes()
@@ -1958,9 +2054,9 @@ void EffectsRenderer::CreateBackgroundMeshes()
 
 	log_debug("[DBG] [CUBE] Creating Background Meshes");
 
-	D3dTriangle tris[2];
-	XwaVector3 meshVertices[4];
-	XwaTextureVertex texCoords[4];
+	D3dTriangle tris[12];
+	XwaVector3 meshVertices[14];
+	XwaTextureVertex texCoords[14];
 
 	// CreateFlatRectangleMesh() scales the dimensions by METERS_TO_OPT, so we can just specify meters:
 	// Create the caps of the sky cylinder:
@@ -1976,6 +2072,13 @@ void EffectsRenderer::CreateBackgroundMeshes()
 		_bgSideVertexBuffer, _bgSideIndexBuffer,
 		_bgSideMeshVerticesBuffer, _bgSideMeshVerticesSRV,
 		_bgSideTexCoordsBuffer, _bgSideMeshTexCoordsSRV);
+
+	// Create the sides of the cylinder
+	CreateCylinderSideMesh(BACKGROUND_CUBE_SIZE_METERS, BACKGROUND_CUBE_SIZE_METERS,
+		{ 0, 0, 0 }, tris, meshVertices, texCoords,
+		_bgCylVertexBuffer, _bgCylIndexBuffer,
+		_bgCylMeshVerticesBuffer, _bgCylMeshVerticesSRV,
+		_bgCylTexCoordsBuffer, _bgCylMeshTexCoordsSRV);
 }
 
 void EffectsRenderer::CreateBackdropIdMapping()
@@ -7161,7 +7264,6 @@ void EffectsRenderer::RenderSkyCylinder()
 	const float* m = Id.get();
 	for (int i = 0; i < 16; i++) _frameConstants.transformWorldView[i] = m[i];
 	context->UpdateSubresource(_constantBuffer, 0, nullptr, &_frameConstants, 0, 0);
-	_trianglesCount = 2;
 
 #ifdef DISABLED
 	ID3D11ShaderResourceView* srvs[] = {
@@ -7182,6 +7284,7 @@ void EffectsRenderer::RenderSkyCylinder()
 	// Set the index and vertex buffers
 	_deviceResources->InitVertexBuffer(_bgCapVertexBuffer.GetAddressOf(), &vertexBufferStride, &vertexBufferOffset);
 	_deviceResources->InitIndexBuffer(_bgCapIndexBuffer.Get(), true);
+	_trianglesCount = 2;
 
 	// Top cap (Z+):
 	{
@@ -7218,6 +7321,8 @@ void EffectsRenderer::RenderSkyCylinder()
 	// ***************************************************
 	// Sides
 	// ***************************************************
+#ifdef DISABLED
+	_trianglesCount = 2;
 	// Set the mesh buffers
 	vsSSRV[0] = _bgSideMeshVerticesSRV.Get();
 	vsSSRV[2] = _bgSideMeshTexCoordsSRV.Get();
@@ -7230,6 +7335,73 @@ void EffectsRenderer::RenderSkyCylinder()
 	{
 		Matrix4 T = Matrix4().translate(0, -BACKGROUND_CUBE_HALFSIZE_METERS * METERS_TO_OPT, 0);
 		Matrix4 DotTransform = swapScale * g_VRGeometryCBuffer.viewMat * T;
+
+		// The Vertex Shader does post-multiplication, so we need to transpose the matrix:
+		DotTransform.transpose();
+		g_OPTMeshTransformCB.MeshTransform = DotTransform;
+
+		// Apply the VS and PS constants
+		resources->InitVSConstantOPTMeshTransform(resources->_OPTMeshTransformCB.GetAddressOf(), &g_OPTMeshTransformCB);
+
+		RenderScene(false);
+	}
+#endif
+
+	_trianglesCount = s_numCylTriangles;
+	// Set the mesh buffers
+	vsSSRV[0] = _bgCylMeshVerticesSRV.Get();
+	vsSSRV[2] = _bgCylMeshTexCoordsSRV.Get();
+	context->VSSetShaderResources(0, 4, vsSSRV);
+	// Set the index and vertex buffers
+	_deviceResources->InitVertexBuffer(_bgCylVertexBuffer.GetAddressOf(), &vertexBufferStride, &vertexBufferOffset);
+	_deviceResources->InitIndexBuffer(_bgCylIndexBuffer.Get(), true);
+	_trianglesCount = s_numCylTriangles;
+
+	// Front (Y-):
+	{
+		Matrix4 DotTransform = swapScale * g_VRGeometryCBuffer.viewMat;
+
+		// The Vertex Shader does post-multiplication, so we need to transpose the matrix:
+		DotTransform.transpose();
+		g_OPTMeshTransformCB.MeshTransform = DotTransform;
+
+		// Apply the VS and PS constants
+		resources->InitVSConstantOPTMeshTransform(resources->_OPTMeshTransformCB.GetAddressOf(), &g_OPTMeshTransformCB);
+
+		RenderScene(false);
+	}
+
+	// Left: (X-):
+	{
+		Matrix4 DotTransform = swapScale * g_VRGeometryCBuffer.viewMat * Matrix4().rotateZ(90.0f);
+
+		// The Vertex Shader does post-multiplication, so we need to transpose the matrix:
+		DotTransform.transpose();
+		g_OPTMeshTransformCB.MeshTransform = DotTransform;
+
+		// Apply the VS and PS constants
+		resources->InitVSConstantOPTMeshTransform(resources->_OPTMeshTransformCB.GetAddressOf(), &g_OPTMeshTransformCB);
+
+		RenderScene(false);
+	}
+
+	// Back: (Y+):
+	{
+		Matrix4 DotTransform = swapScale * g_VRGeometryCBuffer.viewMat * Matrix4().rotateZ(180.0f);
+
+		// The Vertex Shader does post-multiplication, so we need to transpose the matrix:
+		DotTransform.transpose();
+		g_OPTMeshTransformCB.MeshTransform = DotTransform;
+
+		// Apply the VS and PS constants
+		resources->InitVSConstantOPTMeshTransform(resources->_OPTMeshTransformCB.GetAddressOf(), &g_OPTMeshTransformCB);
+
+		RenderScene(false);
+	}
+
+	// Right: (X+):
+	{
+		Matrix4 DotTransform = swapScale * g_VRGeometryCBuffer.viewMat * Matrix4().rotateZ(270.0f);
 
 		// The Vertex Shader does post-multiplication, so we need to transpose the matrix:
 		DotTransform.transpose();

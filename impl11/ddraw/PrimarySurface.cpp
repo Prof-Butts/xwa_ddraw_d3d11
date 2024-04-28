@@ -6976,6 +6976,31 @@ void PrimarySurface::TagXWALights()
 								Direct3DTexture* tex = (Direct3DTexture*)it->second;
 								log_debug("[DBG] [FG]        Corresponding Texture Found: 0x%x, 0x%x",
 									tex, tex->_textureView.Get());
+								// Classify this starfield and store it
+								if (fabs(S.z - 1.0f) < 0.01f)
+								{
+									g_StarfieldSRVs[STARFIELD_TYPE::TOP] = tex;
+								}
+								else if (fabs(S.z + 1.0f) < 0.01f)
+								{
+									g_StarfieldSRVs[STARFIELD_TYPE::BOTTOM] = tex;
+								}
+								else if (fabs(S.x - 1.0f) < 0.01f)
+								{
+									g_StarfieldSRVs[STARFIELD_TYPE::RIGHT] = tex;
+								}
+								else if (fabs(S.x + 1.0f) < 0.01f)
+								{
+									g_StarfieldSRVs[STARFIELD_TYPE::LEFT] = tex;
+								}
+								else if (fabs(S.y - 1.0f) < 0.01f)
+								{
+									g_StarfieldSRVs[STARFIELD_TYPE::BACK] = tex;
+								}
+								else if (fabs(S.y + 1.0f) < 0.01f)
+								{
+									g_StarfieldSRVs[STARFIELD_TYPE::FRONT] = tex;
+								}
 							}
 							else
 								log_debug("[DBG] [FG]        NO Corresponding Texture Found!!!");

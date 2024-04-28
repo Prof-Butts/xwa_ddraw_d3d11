@@ -140,14 +140,17 @@ PixelShaderOutput RenderSkyCylinder(PixelShaderInput input)
 {
 	PixelShaderOutput output;
 
-	output.color    = 0;
+	const float4 texelColor = texture0.Sample(sampler0, input.tex);
+
+	output.color    = texelColor;
 	output.bloom    = 0;
 	output.ssaoMask = 0;
 	output.ssMask   = 0;
 	output.pos3D    = 0;
 	output.normal   = 0;
 
-	output.color = float4(input.tex, 1, 1);
+	//output.color = float4(input.tex, 1, 1);
+	output.color.b += 0.1;
 	return output;
 }
 
@@ -157,7 +160,6 @@ PixelShaderOutput main(PixelShaderInput input)
 	{
 		//return RenderSkyBox(input);
 		return RenderSkyCylinder(input);
-
 	}
 
 	if (bRenderBracket)

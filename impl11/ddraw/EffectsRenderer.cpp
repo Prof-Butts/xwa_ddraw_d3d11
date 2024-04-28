@@ -13,6 +13,7 @@ extern char g_curOPTLoaded[MAX_OPT_NAME];
 // SkyCylinder:
 constexpr float BACKGROUND_CUBE_SIZE_METERS = 1000.0f;
 constexpr float BACKGROUND_CUBE_HALFSIZE_METERS = BACKGROUND_CUBE_SIZE_METERS / 2.0f;
+constexpr float BACKGROUND_CYL_RATIO = 1.09f; // 1.053f ? 1.375f ?
 static constexpr int s_numCylTriangles = 12;
 
 // Raytracing
@@ -213,6 +214,8 @@ Matrix4 GetBLASMatrix(TLASLeafItem& tlasLeaf, int *matrixSlot)
 void ClearGroupIdImageIdToTextureMap()
 {
 	g_GroupIdImageIdToTextureMap.clear();
+	for (int i = 0; i < STARFIELD_TYPE::MAX; i++)
+		g_StarfieldSRVs[i] = nullptr;
 }
 
 float4 TransformProjection(float3 input)
@@ -1849,10 +1852,10 @@ void EffectsRenderer::CreateFlatRectangleMesh(
 
 	// Create the UVs
 	constexpr int texCoordsCount = 4;
-	texCoords[0] = { 0, 0 };
-	texCoords[1] = { 1, 0 };
-	texCoords[2] = { 1, 1 };
-	texCoords[3] = { 0, 1 };
+	texCoords[0] = { 1, 0 };
+	texCoords[1] = { 1, 1 };
+	texCoords[2] = { 0, 1 };
+	texCoords[3] = { 0, 0 };
 
 	initialData.pSysMem = texCoords;
 	device->CreateBuffer(&CD3D11_BUFFER_DESC(texCoordsCount * sizeof(XwaTextureVertex),
@@ -1930,7 +1933,7 @@ void EffectsRenderer::CreateCylinderSideMesh(
 		meshVertices[i + 1] = { xn + disp.x, yn + disp.y, -halfH + disp.z };
 
 		// Create the UVs
-		float un = n / 6.0f;
+		float un = 1.0f - n / 6.0f;
 		texCoords[i + 0] = { un, 0 };
 		texCoords[i + 1] = { un, 1 };
 
@@ -2074,7 +2077,7 @@ void EffectsRenderer::CreateBackgroundMeshes()
 		_bgSideTexCoordsBuffer, _bgSideMeshTexCoordsSRV);
 
 	// Create the sides of the cylinder
-	CreateCylinderSideMesh(BACKGROUND_CUBE_SIZE_METERS, BACKGROUND_CUBE_SIZE_METERS,
+	CreateCylinderSideMesh(BACKGROUND_CUBE_SIZE_METERS, BACKGROUND_CYL_RATIO * BACKGROUND_CUBE_SIZE_METERS,
 		{ 0, 0, 0 }, tris, meshVertices, texCoords,
 		_bgCylVertexBuffer, _bgCylIndexBuffer,
 		_bgCylMeshVerticesBuffer, _bgCylMeshVerticesSRV,
@@ -7253,7 +7256,6 @@ void EffectsRenderer::RenderSkyCylinder()
 	_deviceResources->InitPixelShader(resources->_pixelShaderVRGeom);
 
 	_overrideRTV = BACKGROUND_LYR;
-	//float black[4] = { 0.05f, 0.05f, 0.2f, 1.0f };
 	float black[4] = { 0, 0, 0, 1 };
 	context->ClearRenderTargetView(resources->_backgroundRTV, black);
 	Matrix4 swapScale({ 1,0,0,0,  0,0,-1,0,  0,-1,0,0,  0,0,0,1 });
@@ -7264,13 +7266,6 @@ void EffectsRenderer::RenderSkyCylinder()
 	const float* m = Id.get();
 	for (int i = 0; i < 16; i++) _frameConstants.transformWorldView[i] = m[i];
 	context->UpdateSubresource(_constantBuffer, 0, nullptr, &_frameConstants, 0, 0);
-
-#ifdef DISABLED
-	ID3D11ShaderResourceView* srvs[] = {
-		resources->_textureCubeSRV /* .Get() */, // 21
-	};
-	context->PSSetShaderResources(21, 1, srvs);
-#endif
 
 	ID3D11ShaderResourceView* vsSSRV[4] = { nullptr, nullptr, nullptr, nullptr };
 
@@ -7288,8 +7283,14 @@ void EffectsRenderer::RenderSkyCylinder()
 
 	// Top cap (Z+):
 	{
+		ID3D11ShaderResourceView* srvs[] = {
+			g_StarfieldSRVs[STARFIELD_TYPE::TOP] != nullptr ?
+				g_StarfieldSRVs[STARFIELD_TYPE::TOP]->_textureView.Get() : nullptr
+		};
+		context->PSSetShaderResources(0, 1, srvs);
+
 		// The caps are created at the origin, so we need to translate them to the poles:
-		Matrix4 T = Matrix4().translate(0, 0, BACKGROUND_CUBE_HALFSIZE_METERS * METERS_TO_OPT);
+		Matrix4 T = Matrix4().translate(0, 0, BACKGROUND_CYL_RATIO * BACKGROUND_CUBE_HALFSIZE_METERS * METERS_TO_OPT);
 		Matrix4 DotTransform = swapScale * g_VRGeometryCBuffer.viewMat * T;
 
 		// The Vertex Shader does post-multiplication, so we need to transpose the matrix:
@@ -7304,8 +7305,14 @@ void EffectsRenderer::RenderSkyCylinder()
 
 	// Bottom cap (Z-):
 	{
+		ID3D11ShaderResourceView* srvs[] = {
+			g_StarfieldSRVs[STARFIELD_TYPE::BOTTOM] != nullptr ?
+			g_StarfieldSRVs[STARFIELD_TYPE::BOTTOM]->_textureView.Get() : nullptr
+		};
+		context->PSSetShaderResources(0, 1, srvs);
+
 		// The caps are created at the origin, so we need to translate them to the poles:
-		Matrix4 T = Matrix4().translate(0, 0, -BACKGROUND_CUBE_HALFSIZE_METERS * METERS_TO_OPT);
+		Matrix4 T = Matrix4().translate(0, 0, -BACKGROUND_CYL_RATIO * BACKGROUND_CUBE_HALFSIZE_METERS * METERS_TO_OPT);
 		Matrix4 DotTransform = swapScale * g_VRGeometryCBuffer.viewMat * T;
 
 		// The Vertex Shader does post-multiplication, so we need to transpose the matrix:
@@ -7359,6 +7366,11 @@ void EffectsRenderer::RenderSkyCylinder()
 
 	// Front (Y-):
 	{
+		ID3D11ShaderResourceView* srvs[] = {
+			g_StarfieldSRVs[STARFIELD_TYPE::FRONT] != nullptr ?
+			g_StarfieldSRVs[STARFIELD_TYPE::FRONT]->_textureView.Get() : nullptr
+		};
+		context->PSSetShaderResources(0, 1, srvs);
 		Matrix4 DotTransform = swapScale * g_VRGeometryCBuffer.viewMat;
 
 		// The Vertex Shader does post-multiplication, so we need to transpose the matrix:
@@ -7373,6 +7385,11 @@ void EffectsRenderer::RenderSkyCylinder()
 
 	// Left: (X-):
 	{
+		ID3D11ShaderResourceView* srvs[] = {
+			g_StarfieldSRVs[STARFIELD_TYPE::LEFT] != nullptr ?
+			g_StarfieldSRVs[STARFIELD_TYPE::LEFT]->_textureView.Get() : nullptr
+		};
+		context->PSSetShaderResources(0, 1, srvs);
 		Matrix4 DotTransform = swapScale * g_VRGeometryCBuffer.viewMat * Matrix4().rotateZ(90.0f);
 
 		// The Vertex Shader does post-multiplication, so we need to transpose the matrix:
@@ -7387,6 +7404,11 @@ void EffectsRenderer::RenderSkyCylinder()
 
 	// Back: (Y+):
 	{
+		ID3D11ShaderResourceView* srvs[] = {
+			g_StarfieldSRVs[STARFIELD_TYPE::BACK] != nullptr ?
+			g_StarfieldSRVs[STARFIELD_TYPE::BACK]->_textureView.Get() : nullptr
+		};
+		context->PSSetShaderResources(0, 1, srvs);
 		Matrix4 DotTransform = swapScale * g_VRGeometryCBuffer.viewMat * Matrix4().rotateZ(180.0f);
 
 		// The Vertex Shader does post-multiplication, so we need to transpose the matrix:
@@ -7401,6 +7423,11 @@ void EffectsRenderer::RenderSkyCylinder()
 
 	// Right: (X+):
 	{
+		ID3D11ShaderResourceView* srvs[] = {
+			g_StarfieldSRVs[STARFIELD_TYPE::RIGHT] != nullptr ?
+			g_StarfieldSRVs[STARFIELD_TYPE::RIGHT]->_textureView.Get() : nullptr
+		};
+		context->PSSetShaderResources(0, 1, srvs);
 		Matrix4 DotTransform = swapScale * g_VRGeometryCBuffer.viewMat * Matrix4().rotateZ(270.0f);
 
 		// The Vertex Shader does post-multiplication, so we need to transpose the matrix:

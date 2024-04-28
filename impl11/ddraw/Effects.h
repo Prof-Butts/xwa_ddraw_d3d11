@@ -206,8 +206,23 @@ extern std::map<int32_t, std::tuple<std::string, int, int>> g_DebugMeshToNameMap
 
 /// <summary>
 /// Maps GroupId-ImageId keys to Direct3DTexture pointers.
+/// Used to associate Backdrop Ids with GroupId-ImageId pairs.
 /// </summary>
 extern std::map<int, void*> g_GroupIdImageIdToTextureMap;
+namespace STARFIELD_TYPE
+{
+	enum STARFIELD_TYPE
+	{
+		TOP = 0,
+		BOTTOM,
+		FRONT,
+		BACK,
+		LEFT,
+		RIGHT,
+		MAX
+	};
+};
+extern Direct3DTexture* g_StarfieldSRVs[STARFIELD_TYPE::MAX];
 
 // ********************************
 // DATReader function pointers

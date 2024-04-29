@@ -7442,7 +7442,6 @@ void EffectsRenderer::RenderSkyCylinder()
 
 	RestoreContext();
 	_overrideRTV = TRANSP_LYR_NONE;
-	g_bracketsVR.clear();
 	_deviceResources->EndAnnotatedEvent();
 }
 

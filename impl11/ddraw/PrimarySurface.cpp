@@ -12696,24 +12696,23 @@ void PrimarySurface::RenderSkyCylinder()
 {
 	if (!g_bRendering3D) return;
 
-	const bool bExternalCamera = g_iPresentCounter > PLAYERDATATABLE_MIN_SAFE_FRAME &&
-		PlayerDataTable[*g_playerIndex].Camera.ExternalCamera;
-
-	//Matrix4 Heading;
-	//GetHyperspaceEffectMatrix(&Heading);
-	//GetCockpitViewMatrix(&Heading);
 	Vector4 Rs, Us, Fs;
-	// Maybe try using GetCurrentHeadingViewMatrix() instead?
-	Matrix4 Heading = GetCurrentHeadingMatrix(Rs, Us, Fs, false);
-	//Matrix4 ViewMatrix = g_VSMatrixCB.fullViewMat; // See RenderSpeedEffect() for details
-	//ViewMatrix.invert();
-	//Matrix4 S = Matrix4().scale(-1, -1, 1);
-	//ViewMatrix = S * ViewMatrix * S * Heading;
-
-	// Non-VR path:
 	Matrix4 ViewMatrix;
-	GetCockpitViewMatrixSpeedEffectOPTSys(&ViewMatrix, false);
-	ViewMatrix = ViewMatrix * GetPlayerCraftMatrix(Rs, Us, Fs, -1.0f, false, false);
+	Matrix4 Heading = GetPlayerCraftMatrix(Rs, Us, Fs, -1.0f, false, false);
+	if (g_bUseSteamVR)
+	{
+		Matrix4 swap({ 1,0,0,0,  0,0,1,0,  0,1,0,0,  0,0,0,1 });
+		ViewMatrix = g_VSMatrixCB.fullViewMat; // See RenderSpeedEffect() for details
+		ViewMatrix.invert();
+		ViewMatrix = swap * ViewMatrix * swap * Heading;
+	}
+	else
+	{
+		// Non-VR path:
+		GetCockpitViewMatrixSpeedEffectOPTSys(&ViewMatrix, false);
+		ViewMatrix = ViewMatrix * Heading;
+	}
+	g_VRGeometryCBuffer.viewMat = ViewMatrix;
 
 	// DEBUG:
 	Vector4 U = ViewMatrix * Vector4(0, 0, 1, 0);
@@ -12723,18 +12722,6 @@ void PrimarySurface::RenderSkyCylinder()
 	//log_debug_vr("Up: %0.3f, %0.3f, %0.3f", U.x, U.y, U.z);
 	//log_debug_vr("Fd: %0.3f, %0.3f, %0.3f", F.x, F.y, F.z);
 
-	// ViewMatrix maps OPT-World coords to "Normal Mapping"/DX11 Viewspace coords:
-	// X+ (Rt, OPT) maps to X+
-	// Z+ (Up, OPT) maps to Y+
-	// Y- (Fd, OPT) maps to Z+
-	// In order to map from DX11 Viewspace coords to DX11 World coords, we need
-	// to invert ViewMatrix and then rename Z+ --> Y+ and Z+ --> Y-
-	//Matrix4 swapScale({ 1,0,0,0,  0,0,1,0,  0,-1,0,0,  0,0,0,1 });
-	//ViewMatrix.invert();
-	//g_VRGeometryCBuffer.viewMat = swapScale * ViewMatrix;
-	g_VRGeometryCBuffer.viewMat = ViewMatrix;
-
-	// This method should only be called in VR mode:
 	EffectsRenderer* renderer = (EffectsRenderer*)g_current_renderer;
 	renderer->RenderSkyCylinder();
 }

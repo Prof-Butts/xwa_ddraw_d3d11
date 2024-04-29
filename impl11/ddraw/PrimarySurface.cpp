@@ -10075,6 +10075,7 @@ HRESULT PrimarySurface::Flip(
 			}
 
 			// Overwrite the backdrop with a texture cube:
+#ifdef DISABLED
 			if (g_bUseSteamVR && g_bUseTextureCube && !g_bMapMode)
 			{
 				RenderSkyBoxVR(false);
@@ -10082,11 +10083,13 @@ HRESULT PrimarySurface::Flip(
 				if (g_bDumpSSAOBuffers)
 					DirectX::SaveDDSTextureToFile(context, resources->_backgroundBuffer, L"c:\\temp\\_backgroundBufferAfterSkybox.dds");
 			}
+#endif
 
 			if (g_bReplaceBackdrops && !g_bMapMode)
 			{
-				RenderSkyCylinder();
-				g_bBackgroundCaptured = true;
+				if (RenderSkyCylinder())
+					g_bBackgroundCaptured = true;
+
 				if (g_bDumpSSAOBuffers)
 					DirectX::SaveDDSTextureToFile(context, resources->_backgroundBuffer, L"c:\\temp\\_backgroundBufferAfterSkyCylinder.dds");
 			}
@@ -12692,9 +12695,32 @@ void PrimarySurface::RenderSkyBoxVR(bool debug)
 	renderer->RenderVRSkyBox(debug);
 }
 
-void PrimarySurface::RenderSkyCylinder()
+bool PrimarySurface::RenderSkyCylinder()
 {
-	if (!g_bRendering3D) return;
+	if (!g_bRendering3D) return false;
+
+	const bool bExternalCamera = g_iPresentCounter > PLAYERDATATABLE_MIN_SAFE_FRAME &&
+		PlayerDataTable[*g_playerIndex].Camera.ExternalCamera;
+	const bool bPlayerInHangar = *g_playerInHangar;
+
+	if (g_bUseSteamVR)
+	{
+		if (bPlayerInHangar)
+		{
+			// If VR is on, and we're in the hangar and inside the cockpit, then we don't need to run
+			// this code. In fact, we only need this for VR + Exterior view, but it's nice to see this
+			// working inside the cockpit as well.
+			if (!bExternalCamera)
+				return false;
+		}
+	}
+	else
+	{
+		// In Non-VR mode, the mouse look code follows a different path -- which I won't bother
+		// coding for!
+		if (bPlayerInHangar)
+			return false;
+	}
 
 	Vector4 Rs, Us, Fs;
 	Matrix4 ViewMatrix;
@@ -12724,6 +12750,7 @@ void PrimarySurface::RenderSkyCylinder()
 
 	EffectsRenderer* renderer = (EffectsRenderer*)g_current_renderer;
 	renderer->RenderSkyCylinder();
+	return true;
 }
 
 /*

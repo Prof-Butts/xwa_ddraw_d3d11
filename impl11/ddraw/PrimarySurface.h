@@ -225,7 +225,7 @@ public:
 
 	void RenderSkyBoxVR(bool debug);
 
-	void RenderSkyCylinder();
+	bool RenderSkyCylinder();
 
 	void RenderSynthDCElems();
 

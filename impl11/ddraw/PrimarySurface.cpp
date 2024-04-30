@@ -4034,8 +4034,8 @@ void GetCockpitViewMatrix(Matrix4 *result, bool invert=true) {
  * different from the one used in the shadertoy pixel shaders, so we need a new version of
  * GetCockpitViewMatrix.
  */
-void GetCockpitViewMatrixSpeedEffect(Matrix4 *result, bool invert=true) {
-	
+void GetCockpitViewMatrixSpeedEffect(Matrix4 *result, bool invert=true)
+{
 	Matrix4 rotMatrixFull;
 
 	if (PlayerDataTable[*g_playerIndex].gunnerTurretActive)
@@ -4072,8 +4072,8 @@ void GetCockpitViewMatrixSpeedEffect(Matrix4 *result, bool invert=true) {
 /// Same as GetCockpitViewMatrixSpeedEffect(), but yaw is applied around the Z axis because
 /// in OPT coords, that's the vertical axis. Used to rotate objects in global OPT coords.
 /// </summary>
-void GetCockpitViewMatrixSpeedEffectOPTSys(Matrix4 *result, bool invert=true) {
-
+void GetCockpitViewMatrixSpeedEffectOPTSys(Matrix4 *result, bool invert=true)
+{
 	Matrix4 rotMatrixFull;
 
 	if (PlayerDataTable[*g_playerIndex].gunnerTurretActive)
@@ -12739,14 +12739,6 @@ bool PrimarySurface::RenderSkyCylinder()
 		ViewMatrix = ViewMatrix * Heading;
 	}
 	g_VRGeometryCBuffer.viewMat = ViewMatrix;
-
-	// DEBUG:
-	Vector4 U = ViewMatrix * Vector4(0, 0, 1, 0);
-	Vector4 F = ViewMatrix * Vector4(0, -1, 0, 0);
-	g_VRGeometryCBuffer.U = float4(U.x, U.y, U.z, 0);
-	g_VRGeometryCBuffer.F = float4(F.x, F.y, F.z, 0);
-	//log_debug_vr("Up: %0.3f, %0.3f, %0.3f", U.x, U.y, U.z);
-	//log_debug_vr("Fd: %0.3f, %0.3f, %0.3f", F.x, F.y, F.z);
 
 	EffectsRenderer* renderer = (EffectsRenderer*)g_current_renderer;
 	renderer->RenderSkyCylinder();

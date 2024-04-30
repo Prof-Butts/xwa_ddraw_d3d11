@@ -5409,6 +5409,7 @@ void EffectsRenderer::MainSceneHook(const SceneCompData* scene)
 	const bool bExternalCamera = g_iPresentCounter > PLAYERDATATABLE_MIN_SAFE_FRAME &&
 		PlayerDataTable[*g_playerIndex].Camera.ExternalCamera;
 
+#ifdef DISABLED
 	if (s_captureProjectionDeltas)
 	{
 		// DEBUG: Display changes in projection constants.
@@ -5444,6 +5445,7 @@ void EffectsRenderer::MainSceneHook(const SceneCompData* scene)
 		_frameConstants = _constants;
 		s_captureProjectionDeltas = false;
 	}
+#endif
 
 	context->VSGetConstantBuffers(0, 1, oldVSConstantBuffer.GetAddressOf());
 	context->PSGetConstantBuffers(0, 1, oldPSConstantBuffer.GetAddressOf());
@@ -5826,6 +5828,21 @@ void EffectsRenderer::MainSceneHook(const SceneCompData* scene)
 	// Additional processing for VR or similar. Not implemented in this class, but will be in
 	// other subclasses.
 	ExtraPreprocessing();
+
+	// Capture the projection constants and other data needed to render the sky cylinder.
+	if (s_captureProjectionDeltas)
+	{
+		s_captureProjectionDeltas = false;
+
+		g_f0x08C1600 = *(float*)0x08C1600;
+		g_f0x0686ACC = *(float*)0x0686ACC;
+		g_f0x080ACF8 = *(float*)0x080ACF8;
+		g_f0x07B33C0 = *(float*)0x07B33C0;
+		g_f0x064D1AC = *(float*)0x064D1AC;
+
+		_frameConstants = _constants;
+		_frameVSCBuffer = g_VSCBuffer;
+	}
 
 	// Apply the changes to the vertex and pixel shaders
 	//if (bModifiedShaders) 
@@ -7207,7 +7224,7 @@ void EffectsRenderer::RenderVRSkyBox(bool debug)
 
 void EffectsRenderer::RenderSkyCylinder()
 {
-	if (!g_bRendering3D)
+	if (!g_bRendering3D || g_HyperspacePhaseFSM != HS_INIT_ST)
 		return;
 
 	_deviceResources->BeginAnnotatedEvent(L"RenderSkyCylinder");
@@ -7225,7 +7242,9 @@ void EffectsRenderer::RenderSkyCylinder()
 	//_deviceResources->InitBlendState(_solidBlendState, nullptr);
 	_deviceResources->InitBlendState(_transparentBlendState, nullptr);
 	//_deviceResources->InitDepthStencilState(_transparentDepthState, nullptr);
-	_deviceResources->InitDepthStencilState(_solidDepthState, nullptr);
+	//_deviceResources->InitDepthStencilState(_solidDepthState, nullptr);
+	// _mainDepthState is D3D11_COMPARISON_ALWAYS, so the VR dots are always displayed
+	_deviceResources->InitDepthStencilState(_deviceResources->_mainDepthState, nullptr);
 
 	_deviceResources->InitViewport(&_viewport);
 	_deviceResources->InitTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
@@ -7252,6 +7271,7 @@ void EffectsRenderer::RenderSkyCylinder()
 
 	// Apply the VS and PS constants
 	resources->InitPSConstantBuffer3D(resources->_PSConstantBuffer.GetAddressOf(), &g_PSCBuffer);
+	resources->InitVSConstantBuffer3D(resources->_VSConstantBuffer.GetAddressOf(), &_frameVSCBuffer);
 	resources->InitVRGeometryCBuffer(resources->_VRGeometryCBuffer.GetAddressOf(), &g_VRGeometryCBuffer);
 	_deviceResources->InitPixelShader(resources->_pixelShaderVRGeom);
 

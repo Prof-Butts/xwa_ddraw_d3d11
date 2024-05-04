@@ -6844,8 +6844,7 @@ void PrimarySurface::TagXWALights()
 	int numSuns = 0;
 	const int numLights = *s_XwaGlobalLightsCount;
 	// When the player is in the hangar, the current region is maxRegion + 1 (apparently).
-	// So, in that case, we're defaulting to the first region instead. I'm not sure that this
-	// is correct.
+	// So, in that case, we're defaulting to the first region instead.
 	const int curRegion = *g_playerInHangar ? 0 : PlayerDataTable[*g_playerIndex].currentRegion;
 
 	constexpr int MAX_FLIGHT_GROUPS = 192;
@@ -6864,17 +6863,6 @@ void PrimarySurface::TagXWALights()
 		g_XWALightInfo[i].bTagged = false;
 	}
 
-	// From:
-	// https://github.com/JeremyAnsel/xwa_hooks/blob/master/xwa_hook_backdrops/hook_backdrops/backdrops.cpp
-	// Starfield Zenith (Up) is Z+ (StarPoints[0].Z = 1)
-	// GlobalCargoIndex is the same as shadow (for instance 5)
-	// Cargo = "0.0" (string)
-	// SpecialCargo = "0.94" (string). This is the scale.
-
-	// Nadir is Z-, all other fields are equal to the Zenith
-	// North (Fwd) is Y-, SpecialCargo is "1.053"
-
-	int maxRegion = 0;
 	for (int FGIdx = 0; FGIdx < MAX_FLIGHT_GROUPS; FGIdx++)
 	{
 		if (g_ShadowMapping.bAllLightsTagged)
@@ -6890,7 +6878,6 @@ void PrimarySurface::TagXWALights()
 			const short SZ     = mission->FlightGroups[FGIdx].StartPoints->Z;
 			const int   region = mission->FlightGroups[FGIdx].StartPointRegions[0];
 
-			maxRegion = max(maxRegion, region);
 			// By looking here:
 			// https://github.com/MikeG621/Platform/blob/master/Xwa/FlightGroup.cs
 			// and Yogeme, it turns out that GlobalCargo is mapped to the "shadow" field
@@ -6951,94 +6938,11 @@ void PrimarySurface::TagXWALights()
 						}
 					}
 				}
-				// Starfields tend to have ModelIndex == 0
-				else if (ModelIndex == 0 && GroupId < 0)
-				{
-					Vector3 S = Vector3((float)SX, (float)SY, (float)SZ);
-					S.normalize();
-					log_debug("[DBG] [FG] Backdrop. region: %d, PlanetId: %d-%d, S:[%0.3f, %0.3f, %0.3f], scale: %s",
-						region, PlanetId, shadow, S.x, S.y, S.z, spCargo);
-
-					// Let's see if this backdrop is contained in Planet2.dat:
-					const auto& it = g_BackdropIdToGroupId.find(PlanetId);
-					if (it != g_BackdropIdToGroupId.end())
-					{
-						// This backdrop can be a planet, nebula or starfield
-						int groupId = it->second;
-						int key = MakeKeyFromGroupIdImageId(groupId, shadow);
-						// Check if this backdrop is a starfield
-						if (g_StarfieldGroupIdImageIdMap.find(key) != g_StarfieldGroupIdImageIdMap.end())
-						{
-							log_debug("[DBG] [FG]    STARFIELD --> GroupId-ImageId: %d-%d", groupId, shadow);
-							const auto& it = g_GroupIdImageIdToTextureMap.find(key);
-							if (it != g_GroupIdImageIdToTextureMap.end())
-							{
-								Direct3DTexture* tex = (Direct3DTexture*)it->second;
-								log_debug("[DBG] [FG]        Corresponding Texture Found: 0x%x, 0x%x",
-									tex, tex->_textureView.Get());
-								// Classify this starfield and store it
-								if (fabs(S.z - 1.0f) < 0.01f)
-								{
-									g_StarfieldSRVs[STARFIELD_TYPE::TOP] = tex;
-								}
-								else if (fabs(S.z + 1.0f) < 0.01f)
-								{
-									g_StarfieldSRVs[STARFIELD_TYPE::BOTTOM] = tex;
-								}
-								else if (fabs(S.x - 1.0f) < 0.01f)
-								{
-									g_StarfieldSRVs[STARFIELD_TYPE::RIGHT] = tex;
-								}
-								else if (fabs(S.x + 1.0f) < 0.01f)
-								{
-									g_StarfieldSRVs[STARFIELD_TYPE::LEFT] = tex;
-								}
-								else if (fabs(S.y - 1.0f) < 0.01f)
-								{
-									g_StarfieldSRVs[STARFIELD_TYPE::BACK] = tex;
-								}
-								else if (fabs(S.y + 1.0f) < 0.01f)
-								{
-									g_StarfieldSRVs[STARFIELD_TYPE::FRONT] = tex;
-								}
-							}
-							else
-								log_debug("[DBG] [FG]        NO Corresponding Texture Found!!!");
-						}
-						else
-						{
-							// This backdrop is a planet
-							log_debug("[DBG] [FG]    PLANET/NEBULA --> GroupId-ImageId: %d-%d", groupId, shadow);
-						}
-					}
-					else
-					{
-						log_debug("[DBG] [FG]    UNCLASSIFIED");
-					}
-				}
-				else
-				{
-					// NEBULA.DAT
-					// 7001-100  --> 64-0
-					// 7002-200  --> 65-0
-					// ...
-					// 7011-1100 --> 73-0
-
-					// GALAXY.DAT
-					// 8001-100  --> 74-0
-					// ...
-					// 8007-700  --> 80-0
-					// ...
-					// 8010-1000 --> 83-0
-					log_debug("[DBG] [FG] UNK: GroupId-ImageId: %d-%d, PlanetId: %d",
-						GroupId, ImageId, PlanetId);
-				}
 			}
 		}
 	}
 	// The hangar appears to be maxRegion + 1, which means there's never an entry
 	// for it in the FGs.
-	log_debug("[DBG] [FG] maxRegion: %d", maxRegion);
 
 	// Finish tagging all the other lights
 	for (int i = 0; i < numLights; i++)
@@ -7082,6 +6986,189 @@ void PrimarySurface::TagXWALights()
 }
 
 /*
+* Tag the lights by looking at the Flight Groups and checking the GroupId-ImageId.
+*/
+void PrimarySurface::TagXWABackdrops()
+{
+	if (g_iBackdropsToTag > 0 && g_iBackdropsToTag == g_iBackdropsTagged)
+		return;
+
+	// When the player is in the hangar, the current region is maxRegion + 1 (apparently).
+	// So, in that case, we're defaulting to the first region instead.
+	const int curRegion = *g_playerInHangar ? 0 : PlayerDataTable[*g_playerIndex].currentRegion;
+
+	constexpr int MAX_FLIGHT_GROUPS = 192;
+	constexpr int MAX_PLANET_IDS    = 104;
+	constexpr int MAX_MODEL_IDX     = 557;
+	constexpr int CraftId_183_9001_1100_ResData_Backdrop = 183;
+	const XwaMission* mission = *(XwaMission**)0x09EB8E0;
+
+	if (g_bBackdropsReset)
+	{
+		log_debug("[DBG] [CUBE] ------------------------------");
+		log_debug("[DBG] [CUBE] Tagging Backdrops. curRegion: %d", curRegion);
+	}
+
+	// From:
+	// https://github.com/JeremyAnsel/xwa_hooks/blob/master/xwa_hook_backdrops/hook_backdrops/backdrops.cpp
+	// Starfield Zenith (Up) is Z+ (StarPoints[0].Z = 1)
+	// GlobalCargoIndex is the same as shadow (for instance 5)
+	// Cargo = "0.0" (string)
+	// SpecialCargo = "0.94" (string). This is the scale.
+
+	// Nadir is Z-, all other fields are equal to the Zenith
+	// North (Fwd) is Y-, SpecialCargo is "1.053"
+
+	for (int FGIdx = 0; FGIdx < MAX_FLIGHT_GROUPS; FGIdx++)
+	{
+		/*if (g_ShadowMapping.bAllLightsTagged)
+			break;*/
+
+		const int CraftId  = mission->FlightGroups[FGIdx].CraftId;
+		const int PlanetId = mission->FlightGroups[FGIdx].PlanetId;
+
+		if (CraftId == CraftId_183_9001_1100_ResData_Backdrop && PlanetId < MAX_PLANET_IDS)
+		{
+			const short SX     = mission->FlightGroups[FGIdx].StartPoints->X;
+			const short SY     = mission->FlightGroups[FGIdx].StartPoints->Y;
+			const short SZ     = mission->FlightGroups[FGIdx].StartPoints->Z;
+			const int   region = mission->FlightGroups[FGIdx].StartPointRegions[0];
+
+			// By looking here:
+			// https://github.com/MikeG621/Platform/blob/master/Xwa/FlightGroup.cs
+			// and Yogeme, it turns out that GlobalCargo is mapped to the "shadow" field
+			// when this is a backdrop -- and sometimes this field can be negative, hence
+			// the use of max(0, X) below:
+			int shadow = (int)mission->FlightGroups[FGIdx].GlobalCargoIndex;
+			const char* spCargo = mission->FlightGroups[FGIdx].SpecialCargo;
+			if (shadow == 255) shadow = 0;
+
+			// The scale of the backdrops is pre-determined. The first two backdrops are
+			// scale = 0.895 (and it appears that "shadow" is always 5 in this case).
+			// The rest of the backdrops are scale 1.055 and "shadow" can be any number
+			// See Yogeme, XwaForm.cs, search for "0.895"
+
+			const int ModelIndex = g_XwaPlanets[PlanetId].ModelIndex;
+			const uint8_t BackdropFlags = g_XwaPlanets[PlanetId].BackdropFlags;
+
+			/*log_debug("[DBG] [FG] FGIdx: %d, PlanetId: %d-%d, region: %d, ModelIndex: %d",
+			FGIdx, PlanetId, shadow, region, ModelIndex);*/
+			if (region == curRegion && ModelIndex < MAX_MODEL_IDX)
+			{
+				const int GroupId = g_ExeObjectsTable[ModelIndex].DataIndex1;
+				const int ImageId = g_ExeObjectsTable[ModelIndex].DataIndex2;
+
+				Vector3 S = Vector3((float)SX, (float)SY, (float)SZ);
+				S.normalize();
+
+				if (9001 <= GroupId && GroupId <= 9010)
+				{
+					// This is a Sun, ignore for now...
+				}
+				// Starfields tend to have ModelIndex == 0
+				else if (ModelIndex == 0 && GroupId < 0)
+				{
+					if (g_bBackdropsReset)
+						log_debug("[DBG] [CUBE] Backdrop. region: %d, PlanetId: %d-%d, S:[%0.3f, %0.3f, %0.3f], scale: %s",
+							region, PlanetId, shadow, S.x, S.y, S.z, spCargo);
+
+					// Let's see if this backdrop is contained in Planet2.dat:
+					const auto& it = g_BackdropIdToGroupId.find(PlanetId);
+					if (it != g_BackdropIdToGroupId.end())
+					{
+						// This backdrop can be a planet, nebula or starfield
+						int groupId = it->second;
+						int key = MakeKeyFromGroupIdImageId(groupId, shadow);
+						// Check if this backdrop is a starfield
+						if (g_StarfieldGroupIdImageIdMap.find(key) != g_StarfieldGroupIdImageIdMap.end())
+						{
+							if (g_bBackdropsReset) g_iBackdropsToTag++;
+							if (g_bBackdropsReset)
+								log_debug("[DBG] [CUBE]    STARFIELD --> GroupId-ImageId: %d-%d", groupId, shadow);
+							const auto& it = g_GroupIdImageIdToTextureMap.find(key);
+							if (it != g_GroupIdImageIdToTextureMap.end())
+							{
+								Direct3DTexture* tex = (Direct3DTexture*)it->second;
+								if (g_bBackdropsReset)
+									log_debug("[DBG] [CUBE]        Corresponding Texture Found: 0x%x, 0x%x",
+										tex, tex->_textureView.Get());
+								g_iBackdropsTagged++;
+								// Classify this starfield and store it
+								if (fabs(S.z - 1.0f) < 0.01f)
+								{
+									g_StarfieldSRVs[STARFIELD_TYPE::TOP] = tex;
+								}
+								else if (fabs(S.z + 1.0f) < 0.01f)
+								{
+									g_StarfieldSRVs[STARFIELD_TYPE::BOTTOM] = tex;
+								}
+								else if (fabs(S.x - 1.0f) < 0.01f)
+								{
+									g_StarfieldSRVs[STARFIELD_TYPE::RIGHT] = tex;
+								}
+								else if (fabs(S.x + 1.0f) < 0.01f)
+								{
+									g_StarfieldSRVs[STARFIELD_TYPE::LEFT] = tex;
+								}
+								else if (fabs(S.y - 1.0f) < 0.01f)
+								{
+									g_StarfieldSRVs[STARFIELD_TYPE::BACK] = tex;
+								}
+								else if (fabs(S.y + 1.0f) < 0.01f)
+								{
+									g_StarfieldSRVs[STARFIELD_TYPE::FRONT] = tex;
+								}
+							}
+							else
+							{
+								if (g_bBackdropsReset)
+									log_debug("[DBG] [CUBE]        NO Corresponding Texture Found!!!");
+							}
+						}
+						else
+						{
+							// This backdrop is a planet
+							if (g_bBackdropsReset)
+								log_debug("[DBG] [CUBE]    PLANET/NEBULA --> GroupId-ImageId: %d-%d", groupId, shadow);
+						}
+					}
+					else
+					{
+						if (g_bBackdropsReset)
+							log_debug("[DBG] [CUBE]    UNCLASSIFIED");
+					}
+				}
+				else
+				{
+					// NEBULA.DAT
+					// 7001-100  --> 64-0
+					// 7002-200  --> 65-0
+					// ...
+					// 7011-1100 --> 73-0
+
+					// GALAXY.DAT
+					// 8001-100  --> 74-0
+					// ...
+					// 8007-700  --> 80-0
+					// ...
+					// 8010-1000 --> 83-0
+					if (g_bBackdropsReset)
+						log_debug("[DBG] [CUBE] UNK: GroupId-ImageId: %d-%d, PlanetId: %d",
+							GroupId, ImageId, PlanetId);
+				}
+			}
+		}
+	}
+	if (g_bBackdropsReset)
+	{
+		log_debug("[DBG] [CUBE] Total backdrops: %d, tagged so far: %d",
+			g_iBackdropsToTag, g_iBackdropsTagged);
+		log_debug("[DBG] [CUBE] ------------------------------");
+	}
+	g_bBackdropsReset = false;
+}
+
+/*
  * Calls TagXWALights and then fades the lights if necessary.
  */
 void PrimarySurface::TagAndFadeXWALights()
@@ -7105,6 +7192,11 @@ void PrimarySurface::TagAndFadeXWALights()
 			// When viewing a film, the lights are apparently not in the right position (!)
 			OldTagXWALights();
 		}
+	}
+
+	if (g_iPresentCounter > 5)
+	{
+		TagXWABackdrops();
 	}
 
 	// Display debug information on g_XWALightInfo (are the lights tagged, are they suns?)

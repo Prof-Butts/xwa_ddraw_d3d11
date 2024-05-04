@@ -701,6 +701,9 @@ void ResetXWALightInfo()
 		g_ShadowMapVSCBuffer.sm_minZ[i] = 0.0f;
 		g_ShadowMapVSCBuffer.sm_maxZ[i] = DEFAULT_COCKPIT_SHADOWMAP_MAX_Z; // Regular range for the cockpit
 	}
+	g_bBackdropsReset = true;
+	g_iBackdropsTagged = 0;
+	g_iBackdropsToTag = 0;
 }
 
 bool LoadGeneric3DCoords(char *buf, float *x, float *y, float *z)

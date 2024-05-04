@@ -145,6 +145,8 @@ public:
 
 	void TagXWALights();
 
+	void TagXWABackdrops();
+
 	void TagAndFadeXWALights();
 
 	void RenderSpeedEffect();

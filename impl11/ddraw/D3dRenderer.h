@@ -195,5 +195,20 @@ extern std::map<int, int> g_BackdropIdToGroupId;
 /// If a GroupId-ImageId is in this map, then it's a starfield.
 /// </summary>
 extern std::map<int, bool> g_StarfieldGroupIdImageIdMap;
+/// <summary>
+/// Set to true every time a new mission or region is loaded. When true, we must parse
+/// the backdrops and count how many we need to tag
+/// </summary>
+extern bool g_bBackdropsReset;
+/// <summary>
+/// Counts how many backdrops need to be tagged in the current region. Only updated when
+/// g_bBackdropsReset is true.
+/// </summary>
+extern int g_iBackdropsToTag;
+/// <summary>
+/// Counts how many backdrops have been tagged so far.
+/// </summary>
+extern int g_iBackdropsTagged;
+
 
 void ClearCachedSRVs();

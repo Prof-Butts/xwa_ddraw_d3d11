@@ -635,6 +635,12 @@ LRESULT CALLBACK MyWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam
 					DisplayTimedMessage(3, 0, "FXAA Enabled");
 				else
 					DisplayTimedMessage(3, 0, "FXAA Disabled");
+
+				/*g_bReplaceBackdrops = !g_bReplaceBackdrops;
+				if (g_bReplaceBackdrops)
+					DisplayTimedMessage(3, 0, "REPLACE Backdrops");
+				else
+					DisplayTimedMessage(3, 0, "ORIGINAL Backdrops");*/
 				return 0;
 			// Dump Debug buffers
 			case 'X':

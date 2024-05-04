@@ -201,6 +201,9 @@ std::map<int, int> g_FGToLODMap;
 // This map is used to compute the tangents for normal mapping.
 std::map<int, std::vector<FGData>> g_meshToFGMap;
 
+// Backdrops
+bool g_bBackdropsReset = true;
+int g_iBackdropsToTag = -1, g_iBackdropsTagged = 0;
 std::map<int, int> g_BackdropIdToGroupId;
 std::map<int, bool> g_StarfieldGroupIdImageIdMap;
 std::map<int, void*> g_GroupIdImageIdToTextureMap;

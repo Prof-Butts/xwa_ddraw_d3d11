@@ -10168,7 +10168,7 @@ HRESULT PrimarySurface::Flip(
 
 			// Overwrite the backdrop with a texture cube. Warning: This obviously interferes with the
 			// SkyCylinder below. Use one or the other!
-			if (/*g_bUseSteamVR && */ g_bUseTextureCube && !g_bReplaceBackdrops && !g_bMapMode)
+			if (g_bUseTextureCube && !g_bReplaceBackdrops && !g_bMapMode)
 			{
 				RenderSkyBoxVR(false);
 				g_bBackgroundCaptured = true;
@@ -12649,7 +12649,6 @@ void PrimarySurface::CacheBracketsVR()
 
 void PrimarySurface::RenderSkyBoxVR(bool debug)
 {
-	//if (!g_bUseSteamVR || !g_bRendering3D) return;
 	if (!g_bRendering3D) return;
 
 	const bool bExternalCamera = g_iPresentCounter > PLAYERDATATABLE_MIN_SAFE_FRAME &&
@@ -12715,33 +12714,47 @@ void PrimarySurface::RenderSkyBoxVR(bool debug)
 	//GetHyperspaceEffectMatrix(&Heading);
 	//GetCockpitViewMatrix(&Heading);
 	Vector4 Rs, Us, Fs;
-	// Maybe try using GetCurrentHeadingViewMatrix() instead?
-	Matrix4 Heading = GetCurrentHeadingMatrix(Rs, Us, Fs, false);
-	Matrix4 ViewMatrix = g_VSMatrixCB.fullViewMat; // See RenderSpeedEffect() for details
-	ViewMatrix.invert();
-	Matrix4 S = Matrix4().scale(-1, -1, 1);
-	ViewMatrix = S * ViewMatrix * S * Heading;
+	Matrix4 Heading, ViewMatrix;
+	if (g_bUseSteamVR)
+	{
+		// Maybe try using GetCurrentHeadingViewMatrix() instead?
+		Heading = GetCurrentHeadingMatrix(Rs, Us, Fs, false);
+		ViewMatrix = g_VSMatrixCB.fullViewMat; // See RenderSpeedEffect() for details
+		ViewMatrix.invert();
+		Matrix4 S = Matrix4().scale(-1, -1, 1);
+		ViewMatrix = S * ViewMatrix * S * Heading;
 
-	// DEBUG:
-	Vector4 U = ViewMatrix * Vector4(0, 0, 1, 0);
-	Vector4 F = ViewMatrix * Vector4(0, -1, 0, 0);
-	g_VRGeometryCBuffer.U = float4(U.x, U.y, U.z, 0);
-	g_VRGeometryCBuffer.F = float4(F.x, F.y, F.z, 0);
-	//log_debug_vr("Up: %0.3f, %0.3f, %0.3f", U.x, U.y, U.z);
-	//log_debug_vr("Fd: %0.3f, %0.3f, %0.3f", F.x, F.y, F.z);
+		// DEBUG:
+		Vector4 U = ViewMatrix * Vector4(0, 0, 1, 0);
+		Vector4 F = ViewMatrix * Vector4(0, -1, 0, 0);
+		g_VRGeometryCBuffer.U = float4(U.x, U.y, U.z, 0);
+		g_VRGeometryCBuffer.F = float4(F.x, F.y, F.z, 0);
+		//log_debug_vr("Up: %0.3f, %0.3f, %0.3f", U.x, U.y, U.z);
+		//log_debug_vr("Fd: %0.3f, %0.3f, %0.3f", F.x, F.y, F.z);
 
-	// ViewMatrix maps OPT-World coords to "Normal Mapping"/DX11 Viewspace coords:
-	// X+ (Rt, OPT) maps to X+
-	// Z+ (Up, OPT) maps to Y+
-	// Y- (Fd, OPT) maps to Z+
-	// In order to map from DX11 Viewspace coords to DX11 World coords, we need
-	// to invert ViewMatrix and then rename Z+ --> Y+ and Z+ --> Y-
-	Matrix4 swapScale({ 1,0,0,0,  0,0,1,0,  0,-1,0,0,  0,0,0,1 });
-	// Finally, the skymap appears to be upside down, so let's rotate it around the
-	// Z axis to recover the normal orientation:
-	Matrix4 SkyMapRotation = Matrix4().rotateZ(180.0f);
-	ViewMatrix.invert();
-	g_VRGeometryCBuffer.viewMat = SkyMapRotation * swapScale * ViewMatrix;
+		// ViewMatrix maps OPT-World coords to "Normal Mapping"/DX11 Viewspace coords:
+		// X+ (Rt, OPT) maps to X+
+		// Z+ (Up, OPT) maps to Y+
+		// Y- (Fd, OPT) maps to Z+
+		// In order to map from DX11 Viewspace coords to DX11 World coords, we need
+		// to invert ViewMatrix and then rename Z+ --> Y+ and Z+ --> Y-
+		Matrix4 swapScale({ 1,0,0,0,  0,0,1,0,  0,-1,0,0,  0,0,0,1 });
+		// Finally, the skymap appears to be upside down, so let's rotate it around the
+		// Z axis to recover the regular orientation:
+		Matrix4 SkyMapRotation = Matrix4().rotateZ(180.0f);
+		ViewMatrix.invert();
+		g_VRGeometryCBuffer.viewMat = SkyMapRotation * swapScale * ViewMatrix;
+	}
+	else
+	{
+		// Non-VR path:
+		Matrix4 swap({ 1,0,0,0,  0,0,1,0,  0,1,0,0,  0,0,0,1 });
+
+		Matrix4 Heading = GetPlayerCraftMatrix(Rs, Us, Fs, 1.0f, true, false);
+		GetCockpitViewMatrixSpeedEffect(&ViewMatrix, true);
+		ViewMatrix = swap * Heading * swap * ViewMatrix;
+		g_VRGeometryCBuffer.viewMat = ViewMatrix;
+	}
 
 	static bool bBracketIsCached = false;
 	static BracketVR screenBracket = {};
@@ -12782,7 +12795,6 @@ void PrimarySurface::RenderSkyBoxVR(bool debug)
 		*(float*)0x064D1AC = f4;
 	}
 
-	// This method should only be called in VR mode:
 	EffectsRenderer* renderer = (EffectsRenderer*)g_current_renderer;
 	renderer->RenderVRSkyBox(debug);
 }

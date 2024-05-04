@@ -2579,7 +2579,9 @@ HRESULT DeviceResources::OnSizeChanged(HWND hWnd, DWORD dwWidth, DWORD dwHeight)
 			if (FAILED(hr))
 				goto out;
 
-			if (g_bUseTextureCube)
+			// Some missions don't have a starfield (!) so we're going to have to load
+			// a default starfield for those missions just in case.
+			//if (g_bUseTextureCube)
 			{
 				CD3D11_TEXTURE2D_DESC tmpDesc = desc;
 
@@ -2595,10 +2597,12 @@ HRESULT DeviceResources::OnSizeChanged(HWND hWnd, DWORD dwWidth, DWORD dwHeight)
 					goto out;
 				*/
 
-				/*HRESULT res = DirectX::CreateDDSTextureFromFile(this->_d3dDevice, L"C:\\temp\\skymap.dds",
-					(ID3D11Resource **)&_textureCube, &_textureCubeSRV);*/
-				HRESULT res = DirectX::CreateDDSTextureFromFile(this->_d3dDevice, L".\\Effects\\blue_nebula.dds", NULL, &_textureCubeSRV);
-				log_debug("[DBG] [CUBE] Loaded DDS for texture cube. res = 0x%x", res);
+				//HRESULT res = DirectX::CreateDDSTextureFromFile(this->_d3dDevice, L"C:\\temp\\skymap.dds", (ID3D11Resource **)&_textureCube, &_textureCubeSRV);
+				HRESULT res = DirectX::CreateDDSTextureFromFile(this->_d3dDevice, L".\\Effects\\DefaultStarfield.dds", NULL, &_textureCubeSRV);
+				if (SUCCEEDED(res))
+					log_debug("[DBG] [CUBE] Loaded DefaultStarfield.dds");
+				else
+					log_debug("[DBG] [CUBE] ERROR 0x%d, could not load DefaultStarfield.dds", res);
 
 				desc = tmpDesc;
 			}

@@ -7103,7 +7103,6 @@ void EffectsRenderer::RenderVRHUD()
 
 void EffectsRenderer::RenderVRSkyBox(bool debug)
 {
-	//if (!g_bUseSteamVR || !g_bRendering3D)
 	if (!g_bRendering3D)
 		return;
 

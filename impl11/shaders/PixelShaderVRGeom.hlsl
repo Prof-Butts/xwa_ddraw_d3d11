@@ -158,7 +158,11 @@ PixelShaderOutput main(PixelShaderInput input)
 {
 	if (bIsShadeless == 2)
 	{
-		//return RenderSkyBox(input);
+		return RenderSkyBox(input);
+	}
+
+	if (bIsShadeless == 3)
+	{
 		return RenderSkyCylinder(input);
 	}
 

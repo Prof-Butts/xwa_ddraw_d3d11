@@ -2595,9 +2595,9 @@ HRESULT DeviceResources::OnSizeChanged(HWND hWnd, DWORD dwWidth, DWORD dwHeight)
 					goto out;
 				*/
 
-				HRESULT res = DirectX::CreateDDSTextureFromFile(this->_d3dDevice, L"C:\\temp\\skymap.dds",
-					(ID3D11Resource **)&_textureCube, &_textureCubeSRV);
-				//HRESULT res = DirectX::CreateDDSTextureFromFile(this->_d3dDevice, L".\\Effects\\blue_nebula.dds", NULL, &_textureCubeSRV);
+				/*HRESULT res = DirectX::CreateDDSTextureFromFile(this->_d3dDevice, L"C:\\temp\\skymap.dds",
+					(ID3D11Resource **)&_textureCube, &_textureCubeSRV);*/
+				HRESULT res = DirectX::CreateDDSTextureFromFile(this->_d3dDevice, L".\\Effects\\blue_nebula.dds", NULL, &_textureCubeSRV);
 				log_debug("[DBG] [CUBE] Loaded DDS for texture cube. res = 0x%x", res);
 
 				desc = tmpDesc;
@@ -3139,8 +3139,9 @@ HRESULT DeviceResources::OnSizeChanged(HWND hWnd, DWORD dwWidth, DWORD dwHeight)
 				&shaderResourceViewDesc, &this->_transp2SRV)))
 				goto out;
 
-			//if (g_bUseTextureCube)
-			if (false)
+			// Use either this version or the one above where a DDS is loaded. Can't use
+			// both!
+			/*if (g_bUseTextureCube)
 			{
 				step = "_textureCubeSRV";
 
@@ -3153,7 +3154,7 @@ HRESULT DeviceResources::OnSizeChanged(HWND hWnd, DWORD dwWidth, DWORD dwHeight)
 					&shaderResourceViewDesc, &this->_textureCubeSRV)))
 					goto out;
 				shaderResourceViewDesc = tmpDesc;
-			}
+			}*/
 
 			step = "_shadertoySRV";
 			hr = this->_d3dDevice->CreateShaderResourceView(this->_shadertoyBuf, &shaderResourceViewDesc, &this->_shadertoySRV);

@@ -10166,18 +10166,17 @@ HRESULT PrimarySurface::Flip(
 						resources->_depthBuf, D3D11CalcSubresource(0, 1, 1), AO_DEPTH_BUFFER_FORMAT);
 			}
 
-			// Overwrite the backdrop with a texture cube:
-#ifdef DISABLED
-			if (g_bUseSteamVR && g_bUseTextureCube && !g_bMapMode)
+			// Overwrite the backdrop with a texture cube. Warning: This obviously interferes with the
+			// SkyCylinder below. Use one or the other!
+			if (/*g_bUseSteamVR && */ g_bUseTextureCube && !g_bReplaceBackdrops && !g_bMapMode)
 			{
 				RenderSkyBoxVR(false);
 				g_bBackgroundCaptured = true;
 				if (g_bDumpSSAOBuffers)
 					DirectX::SaveDDSTextureToFile(context, resources->_backgroundBuffer, L"c:\\temp\\_backgroundBufferAfterSkybox.dds");
 			}
-#endif
 
-			if (g_bReplaceBackdrops && !g_bMapMode)
+			if (!g_bUseTextureCube && g_bReplaceBackdrops && !g_bMapMode)
 			{
 				if (RenderSkyCylinder())
 					g_bBackgroundCaptured = true;
@@ -12650,7 +12649,8 @@ void PrimarySurface::CacheBracketsVR()
 
 void PrimarySurface::RenderSkyBoxVR(bool debug)
 {
-	if (!g_bUseSteamVR || !g_bRendering3D) return;
+	//if (!g_bUseSteamVR || !g_bRendering3D) return;
+	if (!g_bRendering3D) return;
 
 	const bool bExternalCamera = g_iPresentCounter > PLAYERDATATABLE_MIN_SAFE_FRAME &&
 		PlayerDataTable[*g_playerIndex].Camera.ExternalCamera;

@@ -10,7 +10,9 @@ bool g_bEnableAnimations = true;
 extern bool g_bKeepMouseInsideWindow;
 extern char g_curOPTLoaded[MAX_OPT_NAME];
 
-// SkyCylinder:
+// SkyBox/SkyCylinder:
+constexpr int RENDER_SKY_BOX_MODE      = 2;
+constexpr int RENDER_SKY_CYLINDER_MODE = 3;
 constexpr float BACKGROUND_CUBE_SIZE_METERS = 1000.0f;
 constexpr float BACKGROUND_CUBE_HALFSIZE_METERS = BACKGROUND_CUBE_SIZE_METERS / 2.0f;
 constexpr float BACKGROUND_CYL_RATIO = 1.09f; // 1.053f ? 1.375f ?
@@ -2094,7 +2096,7 @@ void EffectsRenderer::CreateBackdropIdMapping()
 		log_debug("[DBG] [CUBE] Could not load DATReader!");
 
 	g_BackdropIdToGroupId.clear();
-	LoadDATFile(".\\ResData\\Planet2.dat");
+	LoadDATFile(".\\ResData\\Planet.dat");
 	int numGroups = GetDATGroupCount();
 	log_debug("[DBG] [CUBE] numGroups: %d", numGroups);
 	short* groups = new short[numGroups];
@@ -2104,7 +2106,7 @@ void EffectsRenderer::CreateBackdropIdMapping()
 		int backdropId = i + 1;
 		// Backdrop #25 does not exist:
 		if (backdropId >= 25) backdropId++;
-		//log_debug("[DBG] [CUBE]   backdropId[%d] = %d", backdropId, groups[i]);
+		log_debug("[DBG] [CUBE]   backdropId[%d] = %d", backdropId, groups[i]);
 		g_BackdropIdToGroupId[backdropId] = groups[i];
 	}
 	delete[] groups;
@@ -7101,7 +7103,8 @@ void EffectsRenderer::RenderVRHUD()
 
 void EffectsRenderer::RenderVRSkyBox(bool debug)
 {
-	if (!g_bUseSteamVR || !g_bRendering3D)
+	//if (!g_bUseSteamVR || !g_bRendering3D)
+	if (!g_bRendering3D)
 		return;
 
 	_deviceResources->BeginAnnotatedEvent(L"RenderVRSkyBox");
@@ -7131,7 +7134,7 @@ void EffectsRenderer::RenderVRSkyBox(bool debug)
 	UINT vertexBufferOffset = 0;
 
 	ZeroMemory(&g_PSCBuffer, sizeof(g_PSCBuffer));
-	g_PSCBuffer.bIsShadeless = 2;
+	g_PSCBuffer.bIsShadeless = RENDER_SKY_BOX_MODE;
 	g_PSCBuffer.fPosNormalAlpha = 0.0f;
 
 	g_VRGeometryCBuffer.numStickyRegions = 0;
@@ -7256,7 +7259,7 @@ void EffectsRenderer::RenderSkyCylinder()
 	UINT vertexBufferOffset = 0;
 
 	ZeroMemory(&g_PSCBuffer, sizeof(g_PSCBuffer));
-	g_PSCBuffer.bIsShadeless = 2;
+	g_PSCBuffer.bIsShadeless = RENDER_SKY_CYLINDER_MODE;
 	g_PSCBuffer.fPosNormalAlpha = 0.0f;
 
 	g_VRGeometryCBuffer.numStickyRegions = 0;

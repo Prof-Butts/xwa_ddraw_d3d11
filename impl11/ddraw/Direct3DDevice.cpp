@@ -3056,21 +3056,6 @@ HRESULT Direct3DDevice::Execute(
 		}
 	}
 
-	/*
-	 * When the game is displaying 3D geometry in the tech room, we have a hybrid situation.
-	 * First, the game will call UpdateViewMatrix() at the beginning of 2D content, like the Concourse
-	 * and 2D menus, but if the Tech Room is displayed, then it will come down this path to render 3D
-	 * content before going back to the 2D path and executing the final Flip().
-	 * In other words, when the Tech Room is displayed, we already called UpdateViewMatrix(), so we
-	 * don't need to call it again here.
-	 */
-	if (g_ExecuteCount == 1 && !g_bInTechRoom) { //only wait once per frame
-		// Synchronization point to wait for vsync before we start to send work to the GPU
-		// This avoids blocking the CPU while the compositor waits for the pixel shader effects to run in the GPU
-		// (that's what happens if we sync after Submit+Present)
-		UpdateViewMatrix(); // g_ExecuteCount == 1 && !g_bInTechRoom
-	}
-
 	// Render images
 	if (SUCCEEDED(hr))
 	{
@@ -6274,15 +6259,31 @@ HRESULT Direct3DDevice::BeginScene()
 			context->ClearRenderTargetView(resources->_renderTargetViewDepthBufR, infinity);
 	}
 
-	if (!g_bInTechRoom && !g_bMapMode)
-	{
-		RenderSkyBox();
-	}
-
 	if (!bTransitionToHyperspace) {
 		context->ClearDepthStencilView(resources->_depthStencilViewL, D3D11_CLEAR_DEPTH, resources->clearDepth, 0);
 		if (g_bUseSteamVR)
 			context->ClearDepthStencilView(resources->_depthStencilViewR, D3D11_CLEAR_DEPTH, resources->clearDepth, 0);
+	}
+
+	/*
+	* When the game is displaying 3D geometry in the tech room, we have a hybrid situation.
+	* First, the game will call UpdateViewMatrix() at the beginning of 2D content, like the Concourse
+	* and 2D menus, but if the Tech Room is displayed, then it will come down this path to render 3D
+	* content before going back to the 2D path and executing the final Flip().
+	* In other words, when the Tech Room is displayed, we already called UpdateViewMatrix(), so we
+	* don't need to call it again here.
+	*/
+	if (!g_bInTechRoom)
+	{
+		// Synchronization point to wait for vsync before we start to send work to the GPU
+		// This avoids blocking the CPU while the compositor waits for the pixel shader effects to run in the GPU
+		// (that's what happens if we sync after Submit+Present)
+		UpdateViewMatrix(); // g_ExecuteCount == 1 && !g_bInTechRoom
+
+		// Render the skybox right after we have updated the view matrix. If we do it
+		// before this step, the view will be all wrong in SteamVR!
+		if (!g_bMapMode)
+			RenderSkyBox();
 	}
 
 	if (g_config.HDConcourseEnabled)

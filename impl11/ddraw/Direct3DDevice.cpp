@@ -660,6 +660,7 @@ int g_iNumLaserCannons = 0, g_iNumIonCannons = 0;
 // Sun Colors, to be used to apply colors to the flares later
 float4 g_SunColors[MAX_SUN_FLARES];
 int g_iSunFlareCount = 0;
+void RenderSkyBox();
 
 float clamp(float val, float min, float max);
 
@@ -2552,6 +2553,7 @@ inline ID3D11RenderTargetView *Direct3DDevice::SelectOffscreenBuffer() {
 	// the cockpit on the regularRTV
 	if (resources->_overrideRTV == TRANSP_LYR_1) return resources->_transp1RTV;
 	if (resources->_overrideRTV == TRANSP_LYR_2) return resources->_transp2RTV;
+	if (resources->_overrideRTV == BACKGROUND_LYR) return resources->_backgroundRTV;
 	// Normal output buffer (_offscreenBuffer)
 	return regularRTV;
 }
@@ -4863,8 +4865,8 @@ HRESULT Direct3DDevice::Execute(
 					g_PSCBuffer.bIsShadeless = 1;
 					g_PSCBuffer.fPosNormalAlpha = 0.0f;
 					g_PSCBuffer.special_control.ExclusiveMask = SPECIAL_CONTROL_BACKGROUND;
-					// Suns are pushed to infinity too:
-					//if (bIsSun) log_debug("[DBG] Sun pushed to infinity");
+					// Redirect all background objects to the proper layer:
+					resources->_overrideRTV = BACKGROUND_LYR;
 				}
 
 				// Apply specific material properties for the current texture
@@ -5556,6 +5558,9 @@ HRESULT Direct3DDevice::Execute(
 					resources->InitVSConstantBuffer3D(resources->_VSConstantBuffer.GetAddressOf(), &g_VSCBuffer);
 				}
 
+				// Reset the _overrideRTV target
+				resources->_overrideRTV = TRANSP_LYR_NONE;
+
 				//g_PSCBuffer = { 0 };
 				//g_PSCBuffer.brightness = MAX_BRIGHTNESS;
 				//g_PSCBuffer.ct_brightness = g_fCoverTextureBrightness;
@@ -6218,12 +6223,14 @@ HRESULT Direct3DDevice::BeginScene()
 	auto& context = this->_deviceResources->_d3dDeviceContext;
 	auto& resources = this->_deviceResources;
 
+	// BeginScene():ClearRenderTargetView: Clear all RTVs in this section (there's more blocks below)
 	if (!bTransitionToHyperspace) {
 		context->ClearRenderTargetView(this->_deviceResources->_renderTargetView, this->_deviceResources->clearColor);
 		context->ClearRenderTargetView(resources->_shadertoyRTV, resources->clearColorRGBA);
 		context->ClearRenderTargetView(resources->_transp1RTV, resources->clearColor);
 		context->ClearRenderTargetView(resources->_transp2RTV, resources->clearColor);
 		context->ClearRenderTargetView(resources->_ReticleRTV, resources->clearColorRGBA);
+
 		if (g_bUseSteamVR) {
 			context->ClearRenderTargetView(this->_deviceResources->_renderTargetViewR, this->_deviceResources->clearColor);
 			context->ClearRenderTargetView(this->_deviceResources->_renderTargetViewHd, this->_deviceResources->clearColor);
@@ -6240,7 +6247,8 @@ HRESULT Direct3DDevice::BeginScene()
 				context->ClearRenderTargetView(resources->_renderTargetViewBloomMaskR, resources->clearColor);
 		}
 
-	if (g_bReshadeEnabled && !bTransitionToHyperspace) {
+	//if (g_bReshadeEnabled /*&& !bTransitionToHyperspace*/)
+	{
 		//float infinity[4] = { 0, 0, 32000.0f, 0 };
 		float zero[4] = { 0, 0, 0, 0 };
 		float blankMaterial[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
@@ -6264,6 +6272,11 @@ HRESULT Direct3DDevice::BeginScene()
 		context->ClearRenderTargetView(resources->_renderTargetViewDepthBuf, infinity);
 		if (g_bUseSteamVR)
 			context->ClearRenderTargetView(resources->_renderTargetViewDepthBufR, infinity);
+	}
+
+	if (!g_bInTechRoom && !g_bMapMode)
+	{
+		RenderSkyBox();
 	}
 
 	if (!bTransitionToHyperspace) {

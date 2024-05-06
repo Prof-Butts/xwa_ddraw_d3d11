@@ -983,7 +983,8 @@ void Direct3DTexture::TagTexture() {
 			    (GroupId >= 6070 && GroupId <= 6084) ||
 			    (GroupId >= 6090 && GroupId <= 6094) ||
 			    (GroupId >= 6100 && GroupId <= 6104) ||
-			    (GroupId >= 6110 && GroupId <= 6114))
+			    (GroupId >= 6110 && GroupId <= 6114) ||
+			    (GroupId >= 6304 && GroupId <= 6311)) // New in XWAU 2024
 			{
 				this->is_Backdrop = true;
 				log_debug("[DBG] [CUBE] Backdrop: %s", surface->_cname);

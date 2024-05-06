@@ -53,6 +53,7 @@ extern HyperspacePhaseEnum g_HyperspacePhaseFSM;
 
 bool IsInsideTriangle(Vector2 P, Vector2 A, Vector2 B, Vector2 C, float *u, float *v);
 Matrix4 ComputeLightViewMatrix(int idx, Matrix4 &Heading, bool invert);
+void RenderSkyBox();
 
 class EffectsRenderer : public D3dRenderer
 {
@@ -278,7 +279,7 @@ public:
 	void RenderVRDots();
 	void RenderVRBrackets();
 	void RenderVRHUD();
-	void RenderVRSkyBox(bool debug);
+	void RenderSkyBox(bool debug);
 	void RenderVRKeyboard();
 	void RenderVRGloves();
 	void RenderSkyCylinder();

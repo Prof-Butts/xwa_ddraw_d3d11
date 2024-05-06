@@ -225,8 +225,6 @@ public:
 
 	void CacheBracketsVR();
 
-	void RenderSkyBoxVR(bool debug);
-
 	bool RenderSkyCylinder();
 
 	void RenderSynthDCElems();

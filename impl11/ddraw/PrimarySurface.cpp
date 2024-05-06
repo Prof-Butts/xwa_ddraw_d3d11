@@ -2190,12 +2190,6 @@ void SetLights(DeviceResources *resources, float fSSDOEnabled) {
 		//DumpGlobalLights();
 	}
 
-	if (g_bUseTextureCube)
-	{
-		g_ShadowMapVSCBuffer.Camera = g_CurrentHeadingViewMatrix;
-		g_ShadowMapVSCBuffer.Camera.invert();
-	}
-
 	if (g_HyperspacePhaseFSM != HS_HYPER_TUNNEL_ST)
 	{
 		for (int i = 0; i < maxLights; i++)
@@ -3392,14 +3386,6 @@ void PrimarySurface::DeferredPass()
 				resources->_ReticleSRV.Get(), // 20
 			};
 			context->PSSetShaderResources(18, 3, srvs);
-		}
-
-		if (g_bUseTextureCube)
-		{
-			ID3D11ShaderResourceView* srvs[] = {
-				resources->_textureCubeSRV /* .Get() */, // 21
-			};
-			context->PSSetShaderResources(21, 1, srvs);
 		}
 
 		if (g_bUseSteamVR)
@@ -4972,9 +4958,8 @@ void PrimarySurface::RenderHyperspaceEffect(D3D11_VIEWPORT *lastViewport,
 		// Capture the background buffer: it should contain the hyper effect + hyper zoom, and we'll
 		// need it for the final DeferredPass() below
 		context->CopyResource(resources->_backgroundBuffer, resources->_offscreenBufferPost);
-		g_bBackgroundCaptured = true;
 		if (g_bDumpSSAOBuffers)
-			DirectX::SaveDDSTextureToFile(context, resources->_backgroundBuffer, L"c:\\temp\\_backgroundBuffer.dds");
+			DirectX::SaveDDSTextureToFile(context, resources->_backgroundBuffer, L"c:\\temp\\_backgroundBufferHyper.dds");
 	}
 
 	// Restore the original state: VertexBuffer, Shaders, Topology, Z-Buffer state, etc...
@@ -6986,11 +6971,14 @@ void PrimarySurface::TagXWALights()
 }
 
 /*
-* Tag the lights by looking at the Flight Groups and checking the GroupId-ImageId.
+* Tag the backdrops by looking at the Flight Groups and checking the GroupId-ImageId.
 */
 void PrimarySurface::TagXWABackdrops()
 {
 	if (g_iBackdropsToTag > 0 && g_iBackdropsToTag == g_iBackdropsTagged)
+		return;
+
+	if (g_playerIndex == nullptr || g_playerInHangar == nullptr)
 		return;
 
 	// When the player is in the hangar, the current region is maxRegion + 1 (apparently).
@@ -7021,9 +7009,6 @@ void PrimarySurface::TagXWABackdrops()
 
 	for (int FGIdx = 0; FGIdx < MAX_FLIGHT_GROUPS; FGIdx++)
 	{
-		/*if (g_ShadowMapping.bAllLightsTagged)
-			break;*/
-
 		const int CraftId  = mission->FlightGroups[FGIdx].CraftId;
 		const int PlanetId = mission->FlightGroups[FGIdx].PlanetId;
 
@@ -7159,6 +7144,7 @@ void PrimarySurface::TagXWABackdrops()
 			}
 		}
 	}
+
 	if (g_bBackdropsReset)
 	{
 		log_debug("[DBG] [CUBE] Total backdrops: %d, tagged so far: %d",
@@ -7194,10 +7180,11 @@ void PrimarySurface::TagAndFadeXWALights()
 		}
 	}
 
-	if (g_iPresentCounter > 5)
+	// WIP: Re-enable later
+	/*if (g_iPresentCounter > 0)
 	{
 		TagXWABackdrops();
-	}
+	}*/
 
 	// Display debug information on g_XWALightInfo (are the lights tagged, are they suns?)
 	if (g_bDumpSSAOBuffers) {
@@ -10168,6 +10155,7 @@ HRESULT PrimarySurface::Flip(
 
 			// Overwrite the backdrop with a texture cube. Warning: This obviously interferes with the
 			// SkyCylinder below. Use one or the other!
+#ifdef DISABLED
 			if (g_bUseTextureCube && !g_bReplaceBackdrops && !g_bMapMode)
 			{
 				RenderSkyBoxVR(false);
@@ -10175,16 +10163,18 @@ HRESULT PrimarySurface::Flip(
 				if (g_bDumpSSAOBuffers)
 					DirectX::SaveDDSTextureToFile(context, resources->_backgroundBuffer, L"c:\\temp\\_backgroundBufferAfterSkybox.dds");
 			}
+#endif
 
 			if (!g_bUseTextureCube && g_bReplaceBackdrops && !g_bMapMode)
 			{
-				if (RenderSkyCylinder())
-					g_bBackgroundCaptured = true;
+				/*if (RenderSkyCylinder())
+					g_bBackgroundCaptured = true;*/
 
 				if (g_bDumpSSAOBuffers)
 					DirectX::SaveDDSTextureToFile(context, resources->_backgroundBuffer, L"c:\\temp\\_backgroundBufferAfterSkyCylinder.dds");
 			}
 
+#ifdef DISABLED
 			if (!g_bBackgroundCaptured)
 			{
 				g_bBackgroundCaptured = true;
@@ -10197,10 +10187,10 @@ HRESULT PrimarySurface::Flip(
 					if (g_bUseSteamVR)
 						context->ClearRenderTargetView(resources->_renderTargetViewHd, resources->clearColor);
 				}
-
-				if (g_bDumpSSAOBuffers)
-					DirectX::SaveDDSTextureToFile(context, resources->_backgroundBuffer, L"c:\\temp\\_backgroundBufferP.dds");
 			}
+#endif
+			if (g_bDumpSSAOBuffers)
+				DirectX::SaveDDSTextureToFile(context, resources->_backgroundBuffer, L"c:\\temp\\_backgroundBuffer.dds");
 
 			context->ResolveSubresource(resources->_transpBufferAsInput1, 0, resources->_transpBuffer1, 0, BACKBUFFER_FORMAT);
 			context->ResolveSubresource(resources->_transpBufferAsInput2, 0, resources->_transpBuffer2, 0, BACKBUFFER_FORMAT);
@@ -10897,7 +10887,6 @@ HRESULT PrimarySurface::Flip(
 				g_iNumSunCentroids = 0; // Reset the number of sun centroids seen in this frame
 				g_iReactorExplosionCount = 0;
 				g_iD3DExecuteCounter = 0; // Reset the draw call counter for the D3DRendererHook
-				g_bBackgroundCaptured = false;
 
 				if (*g_playerInHangar && !g_bPrevPlayerInHangar)
 				{
@@ -12647,19 +12636,20 @@ void PrimarySurface::CacheBracketsVR()
 	renderer->RenderVRBrackets();
 }
 
-void PrimarySurface::RenderSkyBoxVR(bool debug)
+void RenderSkyBox()
 {
-	if (!g_bRendering3D) return;
+	if (g_iPresentCounter <= PLAYERDATATABLE_MIN_SAFE_FRAME) return;
+	if (!g_bRendering3D || g_playerIndex == nullptr) return;
+	if (g_HyperspacePhaseFSM != HS_INIT_ST) return;
 
 	const bool bExternalCamera = g_iPresentCounter > PLAYERDATATABLE_MIN_SAFE_FRAME &&
 		PlayerDataTable[*g_playerIndex].Camera.ExternalCamera;
 
-	auto& resources = _deviceResources;
-	auto& context = resources->_d3dDeviceContext;
-
 	// DEBUG: Replace the sides of the texture map with custom data. In this case, the sides
 	// will be painted different colors.
 #ifdef DISABLED
+	auto& resources = _deviceResources;
+	auto& context = resources->_d3dDeviceContext;
 	bool bFirstTime = true;
 	if (bFirstTime)
 	{
@@ -12796,7 +12786,7 @@ void PrimarySurface::RenderSkyBoxVR(bool debug)
 	}
 
 	EffectsRenderer* renderer = (EffectsRenderer*)g_current_renderer;
-	renderer->RenderVRSkyBox(debug);
+	renderer->RenderSkyBox(false);
 }
 
 bool PrimarySurface::RenderSkyCylinder()

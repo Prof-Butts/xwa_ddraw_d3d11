@@ -22,6 +22,7 @@ bool g_bSteamVREnabled = false; // The user sets this flag to true to request su
 bool g_bSteamVRInitialized = false; // The system will set this flag after SteamVR has been initialized
 bool g_bUseSteamVR = false; // The system will set this flag if the user requested SteamVR and SteamVR was initialized properly
 bool g_bUseTextureCube = false;
+bool g_bRenderDefaultStarfield = true;
 bool g_bReplaceBackdrops = false;
 const bool DEFAULT_INTERLEAVED_REPROJECTION = false;
 const bool DEFAULT_STEAMVR_POS_FROM_FREEPIE = false;

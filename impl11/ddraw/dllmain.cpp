@@ -617,8 +617,14 @@ LRESULT CALLBACK MyWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam
 			// Ctrl + Alt + Key
 			// Toggle Debug buffers
 			case 'D':
-				g_bDumpOptNodes = !g_bDumpOptNodes;
-				log_debug("[DBG] g_bDumpOptNodes: %d", g_bDumpOptNodes);
+				g_bRenderDefaultStarfield = !g_bRenderDefaultStarfield;
+				if (g_bRenderDefaultStarfield)
+					DisplayTimedMessage(3, 0, "RENDER Default Starfield");
+				else
+					DisplayTimedMessage(3, 0, "NO Default Starfield");
+
+				//g_bDumpOptNodes = !g_bDumpOptNodes;
+				//log_debug("[DBG] g_bDumpOptNodes: %d", g_bDumpOptNodes);
 
 				//g_bFadeLights = !g_bFadeLights;
 				//log_debug("[DBG] g_bFadeLights: %d", g_bFadeLights);
@@ -635,12 +641,6 @@ LRESULT CALLBACK MyWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam
 					DisplayTimedMessage(3, 0, "FXAA Enabled");
 				else
 					DisplayTimedMessage(3, 0, "FXAA Disabled");
-
-				/*g_bReplaceBackdrops = !g_bReplaceBackdrops;
-				if (g_bReplaceBackdrops)
-					DisplayTimedMessage(3, 0, "REPLACE Backdrops");
-				else
-					DisplayTimedMessage(3, 0, "ORIGINAL Backdrops");*/
 				return 0;
 			// Dump Debug buffers
 			case 'X':

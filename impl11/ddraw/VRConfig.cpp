@@ -247,7 +247,6 @@ float g_fInterdictionShakeInVR = 0.0f;
 float g_fInterdictionAngleScale = 0.25f;
 
 int g_iDelayedDumpDebugBuffers = 0;
-bool g_bBackgroundCaptured = false; // Reset on every frame
 bool g_bMapMode = false; // Recomputed on every frame
 
 // white_point = 1 --> OK

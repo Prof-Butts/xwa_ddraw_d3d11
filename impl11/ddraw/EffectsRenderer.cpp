@@ -6259,6 +6259,7 @@ void EffectsRenderer::RenderScene(bool bBindTranspLyr1)
 	auto& resources = _deviceResources;
 	auto& context = _deviceResources->_d3dDeviceContext;
 
+#ifdef DISABLED
 	if (g_iD3DExecuteCounter == 0 && !g_bInTechRoom)
 	{
 		// Temporarily replace the background with a solid color to debug MSAA halos:
@@ -6280,14 +6281,13 @@ void EffectsRenderer::RenderScene(bool bBindTranspLyr1)
 			context->CopyResource(resources->_backgroundBuffer, resources->_offscreenBuffer);
 			// Wipe out the background:
 			context->ClearRenderTargetView(resources->_renderTargetView, resources->clearColor);
-			//if (g_bUseSteamVR)
-				//context->ClearRenderTargetView(resources->_renderTargetViewHd, resources->clearColor); // Probably not necessary
 		}
 
 		if (g_bDumpSSAOBuffers)
 			DirectX::SaveDDSTextureToFile(context, resources->_backgroundBuffer, L"c:\\temp\\_backgroundBuffer.dds");
 		g_bBackgroundCaptured = true;
 	}
+#endif
 
 	unsigned short scissorLeft = *(unsigned short*)0x07D5244;
 	unsigned short scissorTop = *(unsigned short*)0x07CA354;
@@ -6509,7 +6509,7 @@ void EffectsRenderer::RenderTransparency()
 		if (!g_bInTechRoom)
 		{
 			// We can't select TRANSP_LYR_1 here, because some OPTs have solid areas and transparency,
-			// like the windows on the CRS. If we set _overrideRTV to TRANSP_LRY_1, then the whole window
+			// like the windows on the CRS. If we set _overrideRTV to TRANSP_LYR_1, then the whole window
 			// is rendered on a transparent layer which is later blended without shading the solid areas.
 			// Instead, we bind transp1RTV during RenderScene() below so that we can selectively render
 			// to that layer or offscreenBuffer depending on the alpha channel.
@@ -7101,17 +7101,22 @@ void EffectsRenderer::RenderVRHUD()
 	_deviceResources->EndAnnotatedEvent();
 }
 
-void EffectsRenderer::RenderVRSkyBox(bool debug)
+void EffectsRenderer::RenderSkyBox(bool debug)
 {
 	if (!g_bRendering3D)
 		return;
 
-	_deviceResources->BeginAnnotatedEvent(L"RenderVRSkyBox");
+	_deviceResources->BeginAnnotatedEvent(L"RenderSkyBox");
 
 	auto& resources = _deviceResources;
 	auto& context = resources->_d3dDeviceContext;
 	const bool bGunnerTurret = (g_iPresentCounter > PLAYERDATATABLE_MIN_SAFE_FRAME) ?
 		PlayerDataTable[*g_playerIndex].gunnerTurretActive : false;
+
+	float black[4] = { 0, 0, 0, 1 };
+	context->ClearRenderTargetView(resources->_backgroundRTV, black);
+	if (!g_bRenderDefaultStarfield)
+		return;
 
 	SaveContext();
 
@@ -7161,7 +7166,6 @@ void EffectsRenderer::RenderVRSkyBox(bool debug)
 	resources->InitVRGeometryCBuffer(resources->_VRGeometryCBuffer.GetAddressOf(), &g_VRGeometryCBuffer);
 	_deviceResources->InitPixelShader(resources->_pixelShaderVRGeom);
 
-	const bool bExternalCamera = PlayerDataTable[*g_playerIndex].Camera.ExternalCamera;
 	// Let's replace transformWorldView with the identity matrix:
 	Matrix4 Id;
 	const float* m = Id.get();
@@ -7174,19 +7178,12 @@ void EffectsRenderer::RenderVRSkyBox(bool debug)
 	// |
 	// 3
 	const float meshWidth = g_vrDotMeshVertices[1].x - g_vrDotMeshVertices[0].x;
-	//log_debug_vr("meshWidth: %0.3f", meshWidth);
 
 	ID3D11ShaderResourceView* srvs[] = {
 		resources->_textureCubeSRV /* .Get() */, // 21
 	};
 	context->PSSetShaderResources(21, 1, srvs);
-
-	if (!debug)
-	{
-		_overrideRTV = BACKGROUND_LYR;
-		float black[4] = { 0, 0, 0, 1 };
-		context->ClearRenderTargetView(resources->_backgroundRTV, black);
-	}
+	_overrideRTV = BACKGROUND_LYR;
 
 	for (const auto& bracketVR : g_bracketsVR)
 	{

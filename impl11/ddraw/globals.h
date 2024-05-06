@@ -222,7 +222,6 @@ extern int g_iForceAltExplosion;
 extern float4 g_SunColors[MAX_SUN_FLARES];
 extern int g_iSunFlareCount;
 
-extern bool g_bBackgroundCaptured;
 extern bool g_bMapMode;
 extern int  g_ExecuteCount;
 

@@ -71,6 +71,7 @@ void SteamVRRenderer::RenderScene(bool bBindTranspLyr1)
 	auto &resources = _deviceResources;
 	auto &context = resources->_d3dDeviceContext;
 
+#ifdef DISABLED
 	if (g_iD3DExecuteCounter == 0 && !g_bInTechRoom)
 	{
 		float blankMaterial[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
@@ -90,6 +91,7 @@ void SteamVRRenderer::RenderScene(bool bBindTranspLyr1)
 			DirectX::SaveDDSTextureToFile(context, resources->_backgroundBuffer, L"c:\\temp\\_backgroundBuffer.dds");
 		g_bBackgroundCaptured = true;
 	}
+#endif
 
 	/*
 	unsigned short scissorLeft = *(unsigned short*)0x07D5244;

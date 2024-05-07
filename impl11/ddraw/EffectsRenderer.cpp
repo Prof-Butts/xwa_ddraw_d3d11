@@ -2106,7 +2106,7 @@ void EffectsRenderer::CreateBackdropIdMapping()
 		int backdropId = i + 1;
 		// Backdrop #25 does not exist:
 		if (backdropId >= 25) backdropId++;
-		log_debug("[DBG] [CUBE]   backdropId[%d] = %d", backdropId, groups[i]);
+		//log_debug("[DBG] [CUBE]   backdropId[%d] = %d", backdropId, groups[i]);
 		g_BackdropIdToGroupId[backdropId] = groups[i];
 	}
 	delete[] groups;

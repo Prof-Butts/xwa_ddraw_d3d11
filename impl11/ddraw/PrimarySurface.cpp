@@ -8578,6 +8578,9 @@ void PrimarySurface::OPTVertexToSteamVRPostProcCoords(Vector4 pos3D, Vector4 pos
 /*
  * Input: offscreenBuffer (resolved here)
  * Output: offscreenBufferPost
+ * This method is used to compute intersections with non-AC elements.
+ * It's also used to render the stick-and-balls cursors when the gloves
+ * are not displayed.
  */
 void PrimarySurface::RenderLaserPointer(D3D11_VIEWPORT *lastViewport,
 	ID3D11PixelShader *lastPixelShader, Direct3DTexture *lastTextureSelected,
@@ -8742,7 +8745,9 @@ void PrimarySurface::RenderLaserPointer(D3D11_VIEWPORT *lastViewport,
 		Intersection inters;
 		// The intersection was already found with an active element in EffectsRenderer:ApplyActiveCockpit()
 		// There's no need to traverse the BVH again here
-		if (g_iBestIntersTexIdx[contIdx] != -1)
+		// TODO: Fix this for AC customization:
+		//if (g_iBestIntersTexIdx[contIdx] != -1)
+		if (false)
 		{
 			inters.T     = g_fBestIntersectionDistance[contIdx];
 			inters.TriID = g_iBestIntersTexIdx[contIdx];
@@ -8751,7 +8756,8 @@ void PrimarySurface::RenderLaserPointer(D3D11_VIEWPORT *lastViewport,
 			//g_LaserPointerBuffer.bDebugMode = g_enable_ac_debug;
 		}
 		// I don't think we need these intersection markers when the gloves are visible
-		else if (!g_vrGlovesMeshes[contIdx].visible)
+		//else if (!g_vrGlovesMeshes[contIdx].visible)
+		else
 		{
 			//inters = TLASTraceRaySimpleHit(ray);
 			// Find the ray-geometry intersection by iterating over all the BLASes
@@ -8832,6 +8838,10 @@ void PrimarySurface::RenderLaserPointer(D3D11_VIEWPORT *lastViewport,
 			else
 			{
 				P = ray.origin + inters.T * ray.dir;
+				// HACK: Put the intersection in the CB that gets rendered as a VR dot.
+				// This will force a VR Dot to appear even when we're not pointing at an
+				// AC element.
+				g_LaserPointer3DIntersection[contIdx] = { P.x, P.y, P.z };
 			}
 
 			g_LaserPointerBuffer.bIntersection[contIdx] = true;
@@ -8880,7 +8890,8 @@ void PrimarySurface::RenderLaserPointer(D3D11_VIEWPORT *lastViewport,
 			// ray.dir is already in OPT metric (i.e. its length is 40.96), so the following line is equivalent to:
 			// 0.5f * METERS_TO_OPT * normalize(ray.dir)
 			P = ray.origin + 0.5f * ray.dir;
-			g_LaserPointerBuffer.bIntersection[contIdx] = false;
+			//g_LaserPointerBuffer.bIntersection[contIdx] = false;
+			g_LaserPointerBuffer.bIntersection[contIdx] = true; // Force bIntersection to true to display the dot
 		}
 
 		// If we're gripping either the throttle or the joystick, don't display the intersections -- looks weird

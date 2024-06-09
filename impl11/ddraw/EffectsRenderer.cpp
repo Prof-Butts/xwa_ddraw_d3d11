@@ -2479,7 +2479,7 @@ void EffectsRenderer::SceneBegin(DeviceResources* deviceResources)
 	g_vrKeybState.bRendered = false;
 	g_vrGlovesMeshes[0].rendered = false;
 	g_vrGlovesMeshes[1].rendered = false;
-	_bDotsbRendered = false;
+	_bDotsRendered = false;
 	_bHUDRendered = false;
 	_bBracketsRendered = false;
 
@@ -6557,7 +6557,7 @@ void EffectsRenderer::RenderTransparency()
 
 void EffectsRenderer::RenderVRDots()
 {
-	if (!g_bUseSteamVR || !g_bRendering3D || !g_bActiveCockpitEnabled || _bDotsbRendered || !_bCockpitConstantsCaptured)
+	if (!g_bUseSteamVR || !g_bRendering3D || !g_bActiveCockpitEnabled || _bDotsRendered || !_bCockpitConstantsCaptured)
 		return;
 
 	_deviceResources->BeginAnnotatedEvent(L"RenderVRDots");
@@ -6651,8 +6651,10 @@ void EffectsRenderer::RenderVRDots()
 
 	for (int contIdx = 0; contIdx < 2; contIdx++)
 	{
-		if (g_iBestIntersTexIdx[contIdx] == -1)
-			continue;
+		// We need to disable this so that intersections with non-AC elements
+		// can also be displayed.
+		//if (g_iBestIntersTexIdx[contIdx] == -1)
+		//	continue;
 
 		// Compute a new matrix for the dot by using the origin -> intersection point view vector.
 		// First we'll align this vector with Z+ and then we'll use the inverse of this matrix to
@@ -6747,7 +6749,7 @@ void EffectsRenderer::RenderVRDots()
 		RenderScene(false);
 	}
 
-	_bDotsbRendered = true;
+	_bDotsRendered = true;
 	RestoreContext();
 	_deviceResources->EndAnnotatedEvent();
 }

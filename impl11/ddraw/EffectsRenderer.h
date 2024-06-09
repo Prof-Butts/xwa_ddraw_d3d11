@@ -137,7 +137,7 @@ protected:
 	ComPtr<ID3D11ShaderResourceView> _bgCylMeshVerticesSRV;
 	ComPtr<ID3D11ShaderResourceView> _bgCylMeshTexCoordsSRV;
 
-	bool _bDotsbRendered;
+	bool _bDotsRendered;
 	bool _bHUDRendered;
 	bool _bBracketsRendered;
 

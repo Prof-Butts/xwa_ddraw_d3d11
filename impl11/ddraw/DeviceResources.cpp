@@ -1862,7 +1862,9 @@ HRESULT DeviceResources::OnSizeChanged(HWND hWnd, DWORD dwWidth, DWORD dwHeight)
 	if (g_bReshadeEnabled) {
 		this->_offscreenBufferBloomMask.Release();
 		this->_offscreenBufferAsInputBloomMask.Release();
+		this->_offscreenBufferAsInputBloomMaskMipMaps.Release();
 		this->_offscreenAsInputBloomMaskSRV.Release();
+		this->_offscreenAsInputBloomMaskMipMapsSRV.Release();
 		this->_renderTargetViewBloomMask.Release();
 		this->_bloomOutput1.Release();
 		this->_bloomOutput1SRV.Release();
@@ -1891,8 +1893,6 @@ HRESULT DeviceResources::OnSizeChanged(HWND hWnd, DWORD dwWidth, DWORD dwHeight)
 		//this->_renderTargetViewEmissionMask.Release();
 		if (g_bUseSteamVR) {
 			this->_offscreenBufferBloomMaskR.Release();
-			this->_offscreenBufferAsInputBloomMaskR.Release();
-			this->_offscreenAsInputBloomMaskSRV_R.Release();
 			this->_renderTargetViewBloomMaskR.Release();
 
 			this->_ssaoMaskR.Release();
@@ -2619,7 +2619,14 @@ HRESULT DeviceResources::OnSizeChanged(HWND hWnd, DWORD dwWidth, DWORD dwHeight)
 			desc.ArraySize = g_bUseSteamVR ? 2 : 1;
 
 			if (g_bReshadeEnabled) {
+				CD3D11_TEXTURE2D_DESC tmp = desc;
 				desc.Format = BLOOM_BUFFER_FORMAT;
+
+				desc.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET;
+				desc.MiscFlags = D3D11_RESOURCE_MISC_GENERATE_MIPS;
+				desc.MipLevels = 0; // MAX_MIP_LEVELS
+				desc.CPUAccessFlags = 0;
+
 				step = "_offscreenBufferAsInputBloomMask";
 				hr = this->_d3dDevice->CreateTexture2D(&desc, nullptr, &this->_offscreenBufferAsInputBloomMask);
 				if (FAILED(hr)) {
@@ -2628,16 +2635,15 @@ HRESULT DeviceResources::OnSizeChanged(HWND hWnd, DWORD dwWidth, DWORD dwHeight)
 					goto out;
 				}
 
-				if (g_bUseSteamVR) {
-					step = "_offscreenBufferAsInputBloomMaskR";
-					hr = this->_d3dDevice->CreateTexture2D(&desc, nullptr, &this->_offscreenBufferAsInputBloomMaskR);
-					if (FAILED(hr)) {
-						log_err("dwWidth, Height: %u, %u\n", dwWidth, dwHeight);
-						log_err_desc(step, hWnd, hr, desc);
-						goto out;
-					}
+				step = "_offscreenBufferAsInputBloomMaskMipMaps";
+				hr = this->_d3dDevice->CreateTexture2D(&desc, nullptr, &this->_offscreenBufferAsInputBloomMaskMipMaps);
+				if (FAILED(hr)) {
+					log_err("dwWidth, Height: %u, %u\n", dwWidth, dwHeight);
+					log_err_desc(step, hWnd, hr, desc);
+					goto out;
 				}
-				desc.Format = oldFormat;
+
+				desc = tmp;
 			}
 
 			// bloomOutput1, shadertoyBuf
@@ -3218,7 +3224,9 @@ HRESULT DeviceResources::OnSizeChanged(HWND hWnd, DWORD dwWidth, DWORD dwHeight)
 			// Bloom SRVs
 			if (g_bReshadeEnabled)
 			{
+				D3D11_SHADER_RESOURCE_VIEW_DESC tmp = shaderResourceViewDesc;
 				shaderResourceViewDesc.Format = BLOOM_BUFFER_FORMAT;
+
 				step = "_offscreenAsInputBloomMaskSRV";
 				hr = this->_d3dDevice->CreateShaderResourceView(this->_offscreenBufferAsInputBloomMask,
 					&shaderResourceViewDesc, &this->_offscreenAsInputBloomMaskSRV);
@@ -3228,18 +3236,6 @@ HRESULT DeviceResources::OnSizeChanged(HWND hWnd, DWORD dwWidth, DWORD dwHeight)
 					goto out;
 				}
 
-				//if (g_bUseSteamVR)
-				//{
-				//	step = "_offscreenAsInputBloomSRV_R";
-				//	hr = this->_d3dDevice->CreateShaderResourceView(this->_offscreenBufferAsInputBloomMaskR,
-				//		&shaderResourceViewDesc, &this->_offscreenAsInputBloomMaskSRV_R);
-				//	if (FAILED(hr)) {
-				//		log_err("dwWidth, Height: %u, %u\n", dwWidth, dwHeight);
-				//		log_shaderres_view(step, hWnd, hr, shaderResourceViewDesc);
-				//		goto out;
-				//	}
-				//}
-
 				step = "_bloomOutput1SRV";
 				hr = this->_d3dDevice->CreateShaderResourceView(this->_bloomOutput1,
 					&shaderResourceViewDesc, &this->_bloomOutput1SRV);
@@ -3248,7 +3244,20 @@ HRESULT DeviceResources::OnSizeChanged(HWND hWnd, DWORD dwWidth, DWORD dwHeight)
 					log_shaderres_view(step, hWnd, hr, shaderResourceViewDesc);
 					goto out;
 				}
-				shaderResourceViewDesc.Format = oldFormat;
+
+				shaderResourceViewDesc.Texture2D.MipLevels = -1; // Generate all mip levels
+				shaderResourceViewDesc.Texture2D.MostDetailedMip = 0;
+
+				step = "_offscreenAsInputBloomMaskMipMapsSRV";
+				hr = this->_d3dDevice->CreateShaderResourceView(this->_offscreenBufferAsInputBloomMaskMipMaps,
+					&shaderResourceViewDesc, &this->_offscreenAsInputBloomMaskMipMapsSRV);
+				if (FAILED(hr)) {
+					log_err("dwWidth, Height: %u, %u\n", dwWidth, dwHeight);
+					log_shaderres_view(step, hWnd, hr, shaderResourceViewDesc);
+					goto out;
+				}
+
+				shaderResourceViewDesc = tmp;
 			}
 
 			// Bloom intermediate (bloomOutput1, bloomOutput2) SRVs

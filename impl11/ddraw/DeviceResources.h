@@ -264,7 +264,7 @@ public:
 	ComPtr<ID3D11Texture2D> _offscreenBufferBloomMask;  // Used to render the bloom mask
 	ComPtr<ID3D11Texture2D> _offscreenBufferBloomMaskR; // Used to render the bloom mask to the right image (SteamVR)
 	ComPtr<ID3D11Texture2D> _offscreenBufferAsInputBloomMask;  // Used to resolve offscreenBufferBloomMask
-	ComPtr<ID3D11Texture2D> _offscreenBufferAsInputBloomMaskR; // Used to resolve offscreenBufferBloomMaskR
+	ComPtr<ID3D11Texture2D> _offscreenBufferAsInputBloomMaskMipMaps;
 	ComPtr<ID3D11Texture2D> _bloomOutput1; // Output from bloom pass 1
 	ComPtr<ID3D11Texture2D> _bloomOutput2; // Output from bloom pass 2
 	ComPtr<ID3D11Texture2D> _bloomOutputSum; // Bloom accummulator
@@ -392,7 +392,7 @@ public:
 	ComPtr<ID3D11ShaderResourceView> _shadertoyAuxSRV_R;
 	// Bloom
 	ComPtr<ID3D11ShaderResourceView> _offscreenAsInputBloomMaskSRV;
-	ComPtr<ID3D11ShaderResourceView> _offscreenAsInputBloomMaskSRV_R;
+	ComPtr<ID3D11ShaderResourceView> _offscreenAsInputBloomMaskMipMapsSRV;
 	ComPtr<ID3D11ShaderResourceView> _bloomOutput1SRV;     // SRV for bloomOutput1
 	ComPtr<ID3D11ShaderResourceView> _bloomOutput2SRV;     // SRV for bloomOutput2
 	ComPtr<ID3D11ShaderResourceView> _bloomOutputSumSRV;   // SRV for bloomOutputSum

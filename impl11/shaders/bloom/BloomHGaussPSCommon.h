@@ -10,9 +10,9 @@
 #ifdef INSTANCED_RENDERING
 Texture2DArray texture0 : register(t0);
 #else
-Texture2D    texture0 : register(t0);
+Texture2D      texture0 : register(t0);
 #endif
-SamplerState sampler0 : register(s0);
+SamplerState   sampler0 : register(s0);
 
 cbuffer ConstantBuffer : register(b2)
 {
@@ -24,10 +24,10 @@ cbuffer ConstantBuffer : register(b2)
 
 struct PixelShaderInput
 {
-	float4 pos : SV_POSITION;
-	float2 uv : TEXCOORD;
+	float4 pos    : SV_POSITION;
+	float2 uv     : TEXCOORD;
 #ifdef INSTANCED_RENDERING
-	uint viewId : SV_RenderTargetArrayIndex;
+	uint   viewId : SV_RenderTargetArrayIndex;
 #endif
 };
 
@@ -35,9 +35,9 @@ float4 main(PixelShaderInput input) : SV_TARGET
 {
 	float2 input_uv = input.uv * amplifyFactor;
 #ifdef INSTANCED_RENDERING
-	float3 color = texture0.Sample(sampler0, float3(input_uv, input.viewId)).xyz * weight[0];
+	float3 color = texture0.SampleLevel(sampler0, float3(input_uv, input.viewId), 0).xyz * weight[0];
 #else
-	float3 color = texture0.Sample(sampler0, input_uv).xyz * weight[0];
+	float3 color = texture0.SampleLevel(sampler0, input_uv, 0).xyz * weight[0];
 #endif
 	float3 s1, s2;
 	float2 dx = uvStepSize * float2(pixelSizeX, 0);

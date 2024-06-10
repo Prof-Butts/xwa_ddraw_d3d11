@@ -5246,10 +5246,25 @@ void PrimarySurface::RenderLevels()
 	};
 	context->OMSetRenderTargets(1, rtvs, NULL);
 	// Set the SRVs:
+	// We can use the LevelsPS shader to debug the mipmaps generated for bloom.
+	// We just bind the mip-map-enabled Bloom SRV on the second slot and then
+	// display it on top of everything else. See LevelsPS.
+//#define MIP_MAP_DEBUG_W_LEVELSPS 1
+#ifdef MIP_MAP_DEBUG_W_LEVELSPS
+	ID3D11ShaderResourceView *srvs[2] = {
+#else
 	ID3D11ShaderResourceView *srvs[1] = {
+#endif
 		resources->_offscreenAsInputShaderResourceView.Get(),
+#ifdef MIP_MAP_DEBUG_W_LEVELSPS
+		resources->_offscreenAsInputBloomMaskMipMapsSRV.Get()
+#endif
 	};
+#ifdef MIP_MAP_DEBUG_W_LEVELSPS
+	context->PSSetShaderResources(0, 2, srvs);
+#else
 	context->PSSetShaderResources(0, 1, srvs);
+#endif
 	if (g_bUseSteamVR)
 		context->DrawInstanced(6, 2, 0, 0); // if (g_bUseSteamVR)
 	else
@@ -10488,8 +10503,6 @@ HRESULT PrimarySurface::Flip(
 			if (g_bAOEnabled) {
 #ifdef GENMIPMAPS
 				context->GenerateMips(resources->_depthBufSRV);
-				if (g_bUseSteamVR)
-					context->GenerateMips(resources->_depthBufSRV_R);
 #endif
 
 				// We need to set the blend state properly for SSAO
@@ -10827,6 +10840,12 @@ HRESULT PrimarySurface::Flip(
 			if (g_bBloomEnabled) {
 				// _offscreenBufferAsInputBloomMask is resolved earlier, before the SSAO pass because
 				// SSAO uses that mask to prevent applying SSAO on bright areas
+				// Generate the mipmaps for the bloom buffer
+				context->CopyResource(resources->_offscreenBufferAsInputBloomMaskMipMaps,
+					resources->_offscreenBufferAsInputBloomMask);
+				context->GenerateMips(resources->_offscreenAsInputBloomMaskMipMapsSRV);
+
+				//context->GenerateMips(resources->_offscreenAsInputBloomMaskSRV);
 
 				// We need to set the blend state properly for Bloom, or else we might get
 				// different results when brackets are rendered because they alter the 
@@ -10992,7 +11011,6 @@ HRESULT PrimarySurface::Flip(
 				if (g_bUseSteamVR) {
 					DirectX::SaveWICTextureToFile(context, resources->_offscreenBufferR, GUID_ContainerFormatJpeg,
 						L"C:\\Temp\\_offscreenBufR.jpg");
-					DirectX::SaveDDSTextureToFile(context, resources->_offscreenBufferAsInputBloomMaskR, L"C:\\Temp\\_bloomMask1R.dds");
 				}
 			}
 

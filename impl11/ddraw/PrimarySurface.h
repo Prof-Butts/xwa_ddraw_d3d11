@@ -125,6 +125,8 @@ public:
 
 	void RenderFXAA();
 
+	void RenderBloom2Pass();
+
 	void RenderLevels();
 
 	void RenderStarDebug();

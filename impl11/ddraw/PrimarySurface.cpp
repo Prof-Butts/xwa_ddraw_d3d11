@@ -5183,6 +5183,88 @@ void PrimarySurface::RenderFXAA()
 	this->_deviceResources->EndAnnotatedEvent();
 }
 
+void PrimarySurface::RenderBloom2Pass()
+{
+	this->_deviceResources->BeginAnnotatedEvent(L"RenderBloom2Pass");
+
+	auto& resources = this->_deviceResources;
+	auto& device = resources->_d3dDevice;
+	auto& context = resources->_d3dDeviceContext;
+	float x0, y0, x1, y1;
+	float bgColor[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
+	D3D11_VIEWPORT viewport{};
+
+	GetScreenLimitsInUVCoords(&x0, &y0, &x1, &y1);
+	g_ShadertoyBuffer.x0 = x0;
+	g_ShadertoyBuffer.y0 = y0;
+	g_ShadertoyBuffer.x1 = x1;
+	g_ShadertoyBuffer.y1 = y1;
+	g_ShadertoyBuffer.iResolution[0] = g_fCurScreenWidth;
+	g_ShadertoyBuffer.iResolution[1] = g_fCurScreenHeight;
+	resources->InitPSConstantBufferHyperspace(resources->_hyperspaceConstantBuffer.GetAddressOf(), &g_ShadertoyBuffer);
+
+	viewport.TopLeftX = 0.0f;
+	viewport.TopLeftY = 0.0f;
+	viewport.Width    = g_bUseSteamVR ? (float)resources->_backbufferWidth : g_fCurScreenWidth;
+	viewport.Height   = g_bUseSteamVR ? (float)resources->_backbufferHeight : g_fCurScreenHeight;
+	viewport.MaxDepth = D3D11_MAX_DEPTH;
+	viewport.MinDepth = D3D11_MIN_DEPTH;
+	resources->InitViewport(&viewport);
+	//SetScissoRectFullScreen();
+
+	// Reset the vertex shader to regular 2D post-process
+	// Set the Vertex Shader Constant buffers
+	resources->InitVSConstantBuffer2D(resources->_mainShadersConstantBuffer.GetAddressOf(),
+		0.0f, 1.0f, 1.0f, 1.0f, 0.0f); // Do not use 3D projection matrices
+
+	// Set/Create the VertexBuffer and set the topology, etc
+	UINT stride = sizeof(MainVertex), offset = 0;
+	resources->InitVertexBuffer(resources->_postProcessVertBuffer.GetAddressOf(), &stride, &offset);
+	resources->InitTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+	resources->InitInputLayout(resources->_mainInputLayout);
+
+	resources->InitVertexShader(g_bUseSteamVR ? resources->_mainVertexShaderVR : resources->_mainVertexShader);
+	resources->InitPixelShader(g_bUseSteamVR ? resources->_b2pDownsampleVR : resources->_b2pDownsample);
+	// Clear all the render target views
+	ID3D11RenderTargetView *rtvs_null[5] = {
+		NULL, // Main RTV
+		NULL, // Bloom
+		NULL, // Depth
+		NULL, // Norm Buf
+		NULL, // SSAO Mask
+	};
+	context->OMSetRenderTargets(5, rtvs_null, NULL);
+
+	// TODO: Select a better RTV later
+	context->ClearRenderTargetView(resources->_renderTargetViewPost, bgColor);
+
+	ID3D11RenderTargetView *rtvs[1] = {
+		resources->_renderTargetViewPost.Get(),
+	};
+	context->OMSetRenderTargets(1, rtvs, NULL);
+	// Set the SRVs:
+	ID3D11ShaderResourceView *srvs[1] = {
+		resources->_offscreenAsInputBloomMaskMipMapsSRV.Get(),
+	};
+	context->PSSetShaderResources(0, 1, srvs);
+	if (g_bUseSteamVR)
+		context->DrawInstanced(6, 2, 0, 0); // if (g_bUseSteamVR)
+	else
+		context->Draw(6, 0);
+
+	// Copy the result (_offscreenBufferPost) to the _offscreenBuffer so that it gets displayed
+	//context->CopyResource(resources->_offscreenBuffer, resources->_offscreenBufferPost);
+	if (g_bDumpSSAOBuffers)
+	{
+		DirectX::SaveDDSTextureToFile(context, resources->_offscreenBufferPost, L"C:\\Temp\\_b2pDownsample.dds");
+	}
+
+	// Restore previous rendertarget, etc
+	resources->InitInputLayout(resources->_inputLayout); // Not sure this is really needed
+
+	this->_deviceResources->EndAnnotatedEvent();
+}
+
 void PrimarySurface::RenderLevels()
 {
 	this->_deviceResources->BeginAnnotatedEvent(L"RenderLevels");
@@ -10886,6 +10968,8 @@ HRESULT PrimarySurface::Flip(
 				context->ClearRenderTargetView(resources->_renderTargetViewBloomSum, bgColor);
 				if (g_bUseSteamVR)
 					context->ClearRenderTargetView(resources->_renderTargetViewBloomSumR, bgColor);
+
+				RenderBloom2Pass();
 
 				// DEBUG
 				/*if (g_bDumpSSAOBuffers) {

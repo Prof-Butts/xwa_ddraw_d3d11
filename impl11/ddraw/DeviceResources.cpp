@@ -102,6 +102,8 @@
 #include "../Debug/PBRAdd.h"
 #include "../Debug/PBRAddVR.h"
 #include "../Debug/PixelShaderVRGeom.h"
+#include "../Debug/B2PDownsample.h"
+#include "../Debug/B2PDownsampleVR.h"
 #else
 #include "../Release/MainVertexShader.h"
 #include "../Release/MainVertexShaderVR.h"
@@ -191,6 +193,8 @@
 #include "../Release/PBRAdd.h"
 #include "../Release/PBRAddVR.h"
 #include "../Release/PixelShaderVRGeom.h"
+#include "../Release/B2PDownsample.h"
+#include "../Release/B2PDownsampleVR.h"
 #endif
 
 #include <WICTextureLoader.h>
@@ -4619,6 +4623,9 @@ HRESULT DeviceResources::LoadResources()
 	if (FAILED(hr = this->_d3dDevice->CreatePixelShader(g_PixelShaderVRGeom, sizeof(g_PixelShaderVRGeom), nullptr, &_pixelShaderVRGeom)))
 		return hr;
 
+	if (FAILED(hr = this->_d3dDevice->CreatePixelShader(g_B2PDownsample, sizeof(g_B2PDownsample), nullptr, &_b2pDownsample)))
+		return hr;
+
 	if (g_bEnableVR)
 	{
 		if (FAILED(hr = this->_d3dDevice->CreateVertexShader(g_SBSVertexShader, sizeof(g_SBSVertexShader), nullptr, &_sbsVertexShader)))
@@ -4661,6 +4668,9 @@ HRESULT DeviceResources::LoadResources()
 			return hr;
 
 		if (FAILED(hr = this->_d3dDevice->CreatePixelShader(g_LaserPointerVR, sizeof(g_LaserPointerVR), nullptr, &_laserPointerPS_VR)))
+			return hr;
+
+		if (FAILED(hr = this->_d3dDevice->CreatePixelShader(g_B2PDownsampleVR, sizeof(g_B2PDownsampleVR), nullptr, &_b2pDownsampleVR)))
 			return hr;
 	}
 	else

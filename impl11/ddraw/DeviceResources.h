@@ -560,6 +560,8 @@ public:
 	ComPtr<ID3D11PixelShader> _levelsPS;
 	ComPtr<ID3D11PixelShader> _rtShadowMaskPS;
 	ComPtr<ID3D11PixelShader> _rtShadowMaskPS_VR;
+	ComPtr<ID3D11PixelShader> _b2pDownsample;
+	ComPtr<ID3D11PixelShader> _b2pDownsampleVR;
 
 	ComPtr<ID3D11RasterizerState> _rasterizerState;
 	//ComPtr<ID3D11RasterizerState> _sm_rasterizerState; // TODO: Remove this if proven useless

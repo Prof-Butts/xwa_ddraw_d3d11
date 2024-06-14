@@ -26,7 +26,7 @@ float4 main(PixelShaderInput input) : SV_TARGET
 	//float4 color2 = float4(upsample(texture1, sampler1, ldexp(SCREEN_SIZE, -2.0), input.uv), BLOOM_LAYER_MULT_1);
 	//return color2;
 
-	float4 color1 = texture0.Sample(sampler0, input.uv);
+	float4 color1 = texture0.SampleLevel(sampler0, input.uv, 0);
 	float w = color1.w;
 	return float4(saturate(color1.rgb + color2.rgb), w);
 }

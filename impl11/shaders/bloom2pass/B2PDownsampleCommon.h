@@ -61,23 +61,28 @@ void mainImage(in float2 fragCoord, in uint viewId, out float4 fragColor)
     float2 p  = (fragCoord - float2(xpos - res.x, 0)) / iResolution.xy;
     float2 uv = (fragCoord - float2(xpos - res.x, 0)) / res;
 
+    const float bloomBoost[6] = { 1.1, 1.2, 1.3, 1.5, 1.75, 2.0 };
+//#define BLOOM_BOOST 1.15
+//#define BLOOM_BOOST 1.25
+//#define BLOOM_BOOST 2.0
+#ifdef INSTANCED_RENDERING
+    float4 bloomInput = texture0.SampleLevel(sampler0, float3(uv, viewId), 1.0);
+#else
+    float4 bloomInput = texture0.SampleLevel(sampler0, uv, 1.0);
+#endif
+    bloomInput = max(0, bloomInput) * bloomBoost[0];
+
     // Skip blurring LOD 0 for performance
     if (lod == 0)
     {
-#ifdef INSTANCED_RENDERING
-        fragColor = texture0.SampleLevel(sampler0, float3(uv, viewId), 1.0);
-#else
-        fragColor = texture0.SampleLevel(sampler0, uv, 1.0);
-#endif
+        fragColor = bloomInput;
         return;
     }
 
     const int   rad   = DOWNSAMPLE_BLUR_RADIUS;
     const float sigma = float(rad) * 0.4;
 
-    // TODO: Optimized blur kernel using bilinear
-    //float sc = exp2(float(lod));
-    float w  = 0.0;
+    float w = 0.0;
     for (int x = -rad; x <= rad; x++)
     {
         for (int y = -rad; y <= rad; y++)
@@ -95,10 +100,11 @@ void mainImage(in float2 fragCoord, in uint viewId, out float4 fragColor)
             if (p.x == q.x && p.y == q.y)
             {
 #ifdef INSTANCED_RENDERING
-                fragColor += wg * texture0.SampleLevel(sampler0, float3(p, viewId), float(lod));
+                bloomInput = max(0, texture0.SampleLevel(sampler0, float3(p, viewId), float(lod)));
 #else
-                fragColor += wg * texture0.SampleLevel(sampler0, p, float(lod));
+                bloomInput = max(0, texture0.SampleLevel(sampler0, p, float(lod)));
 #endif
+                fragColor += wg * bloomInput * bloomBoost[lod];
             }
             w += wg;
         }

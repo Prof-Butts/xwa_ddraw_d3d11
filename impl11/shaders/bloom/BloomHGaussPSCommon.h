@@ -47,11 +47,11 @@ float4 main(PixelShaderInput input) : SV_TARGET
 	[unroll]
 	for (int i = 1; i < 3; i++) {
 #ifdef INSTANCED_RENDERING
-		s1 = texture0.Sample(sampler0, float3(uv1,input.viewId)).xyz * weight[i];
-		s2 = texture0.Sample(sampler0, float3(uv2,input.viewId)).xyz * weight[i];
+		s1 = texture0.SampleLevel(sampler0, float3(uv1,input.viewId), 0).xyz * weight[i];
+		s2 = texture0.SampleLevel(sampler0, float3(uv2,input.viewId), 0).xyz * weight[i];
 #else
-		s1 = texture0.Sample(sampler0, uv1).xyz * weight[i];
-		s2 = texture0.Sample(sampler0, uv2).xyz * weight[i];
+		s1 = texture0.SampleLevel(sampler0, uv1, 0).xyz * weight[i];
+		s2 = texture0.SampleLevel(sampler0, uv2, 0).xyz * weight[i];
 #endif
 		color += s1 + s2;
 		uv1 += dx;

@@ -118,6 +118,16 @@
       <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">4.0</ShaderModel>
       <ShaderType Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">Pixel</ShaderType>
     </FxCompile>
+    <FxCompile Include="bloom2pass\B2PUpsample.hlsl">
+      <ShaderType Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">Pixel</ShaderType>
+      <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">4.0</ShaderModel>
+      <ShaderType Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">Pixel</ShaderType>
+    </FxCompile>
+    <FxCompile Include="bloom2pass\B2PUpsampleVR.hlsl">
+      <ShaderType Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">Pixel</ShaderType>
+      <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">4.0</ShaderModel>
+      <ShaderType Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">Pixel</ShaderType>
+    </FxCompile>
     <FxCompile Include="bloom\BloomBufferAddPS.hlsl">
       <ShaderType Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">Pixel</ShaderType>
       <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">4.0</ShaderModel>
@@ -647,8 +657,9 @@
     </None>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="bloom2pass\B2PCommon.h" />
+    <None Include="bloom2pass\B2PCommon.h" />
     <ClInclude Include="bloom2pass\B2PDownsampleCommon.h" />
+    <ClInclude Include="bloom2pass\B2PUpsampleCommon.h" />
     <ClInclude Include="bloom\BloomBufferAddPSCommon.h" />
     <ClInclude Include="bloom\BloomCombinePSCommon.h" />
     <ClInclude Include="bloom\BloomHGaussPSCommon.h" />

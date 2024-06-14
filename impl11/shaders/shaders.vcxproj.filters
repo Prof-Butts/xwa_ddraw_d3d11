@@ -112,9 +112,14 @@
     <FxCompile Include="SpeedEffectPixelShaderVR.hlsl" />
     <FxCompile Include="bloom2pass\B2PDownsample.hlsl" />
     <FxCompile Include="bloom2pass\B2PDownsampleVR.hlsl" />
+    <FxCompile Include="bloom2pass\B2PUpsample.hlsl" />
+    <FxCompile Include="bloom2pass\B2PUpsampleVR.hlsl" />
   </ItemGroup>
   <ItemGroup>
     <None Include="bloom\BloomCommon.fxh">
+      <Filter>Fichiers d%27en-tête</Filter>
+    </None>
+    <None Include="bloom2pass\B2PCommon.h">
       <Filter>Fichiers d%27en-tête</Filter>
     </None>
   </ItemGroup>
@@ -231,9 +236,12 @@
 	  <Filter>Fichiers d%27en-tête</Filter>
     </ClInclude>
     <ClInclude Include="bloom2pass\B2PCommon.h">
-      <Filter>Fichiers d%27en-tête</Filter>
+	  <Filter>Fichiers d%27en-tête</Filter>
     </ClInclude>
     <ClInclude Include="bloom2pass\B2PDownsampleCommon.h">
+      <Filter>Fichiers d%27en-tête</Filter>
+    </ClInclude>
+    <ClInclude Include="bloom2pass\B2PUpsampleCommon.h">
       <Filter>Fichiers d%27en-tête</Filter>
     </ClInclude>
   </ItemGroup>

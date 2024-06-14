@@ -39,6 +39,8 @@ extern float g_f0x080ACF8, g_f0x07B33C0, g_f0x064D1AC;
 // Set to true when rendering the default starfield during Flip()
 bool g_bUseExternalCameraState = false;
 
+extern bool g_bBloom2PassEnabled;
+
 // Text Rendering
 TimedMessage g_TimedMessages[MAX_TIMED_MESSAGES];
 
@@ -5203,9 +5205,20 @@ void PrimarySurface::RenderBloom2Pass()
 	g_ShadertoyBuffer.iResolution[1] = g_fCurScreenHeight;
 	resources->InitPSConstantBufferHyperspace(resources->_hyperspaceConstantBuffer.GetAddressOf(), &g_ShadertoyBuffer);
 
+	// The textures are always going to be g_fCurScreenWidth x g_fCurScreenHeight; but the step
+	// size will be twice as big in the next pass due to the downsample, so we have to compensate
+	// with a zoom factor:
+	//g_BloomPSCBuffer.pixelSizeX			= fPixelScale * g_fCurScreenWidthRcp  / fFirstPassZoomFactor;
+	//g_BloomPSCBuffer.pixelSizeY			= fPixelScale * g_fCurScreenHeightRcp / fFirstPassZoomFactor;
+	//g_BloomPSCBuffer.amplifyFactor		= 1.0f / fFirstPassZoomFactor;
+	//g_BloomPSCBuffer.bloomStrength		= g_fBloomLayerMult[PyramidLevel];
+	g_BloomPSCBuffer.saturationStrength = g_BloomConfig.fSaturationStrength;
+	g_BloomPSCBuffer.uvStepSize			= g_BloomConfig.uvStepSize1;
+	resources->InitPSConstantBufferBloom(resources->_bloomConstantBuffer.GetAddressOf(), &g_BloomPSCBuffer);
+
 	viewport.TopLeftX = 0.0f;
 	viewport.TopLeftY = 0.0f;
-	viewport.Width    = g_bUseSteamVR ? (float)resources->_backbufferWidth : g_fCurScreenWidth;
+	viewport.Width    = g_bUseSteamVR ? (float)resources->_backbufferWidth  : g_fCurScreenWidth;
 	viewport.Height   = g_bUseSteamVR ? (float)resources->_backbufferHeight : g_fCurScreenHeight;
 	viewport.MaxDepth = D3D11_MAX_DEPTH;
 	viewport.MinDepth = D3D11_MIN_DEPTH;
@@ -5235,18 +5248,26 @@ void PrimarySurface::RenderBloom2Pass()
 	};
 	context->OMSetRenderTargets(5, rtvs_null, NULL);
 
-	// TODO: Select a better RTV later
+	// Do we need to resolve the offscreen buffer?
+	context->ResolveSubresource(resources->_offscreenBufferAsInput, 0, resources->_offscreenBuffer, 0, BACKBUFFER_FORMAT);
+	if (g_bUseSteamVR)
+		context->ResolveSubresource(
+			resources->_offscreenBufferAsInput, D3D11CalcSubresource(0, 1, 1),
+			resources->_offscreenBuffer, D3D11CalcSubresource(0, 1, 1), BACKBUFFER_FORMAT);
 	context->ClearRenderTargetView(resources->_renderTargetViewPost, bgColor);
 
-	ID3D11RenderTargetView *rtvs[1] = {
-		resources->_renderTargetViewPost.Get(),
-	};
-	context->OMSetRenderTargets(1, rtvs, NULL);
-	// Set the SRVs:
-	ID3D11ShaderResourceView *srvs[1] = {
-		resources->_offscreenAsInputBloomMaskMipMapsSRV.Get(),
-	};
-	context->PSSetShaderResources(0, 1, srvs);
+	{
+		ID3D11RenderTargetView* rtvs[1] = {
+			resources->_renderTargetViewBloomSum.Get(),
+		};
+		context->OMSetRenderTargets(1, rtvs, NULL);
+
+		// Set the SRVs:
+		ID3D11ShaderResourceView* srvs[1] = {
+			resources->_offscreenAsInputBloomMaskMipMapsSRV.Get(),
+		};
+		context->PSSetShaderResources(0, 1, srvs);
+	}
 	if (g_bUseSteamVR)
 		context->DrawInstanced(6, 2, 0, 0); // if (g_bUseSteamVR)
 	else
@@ -5256,11 +5277,44 @@ void PrimarySurface::RenderBloom2Pass()
 	//context->CopyResource(resources->_offscreenBuffer, resources->_offscreenBufferPost);
 	if (g_bDumpSSAOBuffers)
 	{
-		DirectX::SaveDDSTextureToFile(context, resources->_offscreenBufferPost, L"C:\\Temp\\_b2pDownsample.dds");
+		DirectX::SaveDDSTextureToFile(context, resources->_bloomOutputSum, L"C:\\Temp\\_b2pDownsample.dds");
+	}
+
+	// Second pass: Upsample and mix
+	{
+		ID3D11RenderTargetView* rtvs[1] = {
+			//resources->_renderTargetViewPost.Get(),
+			resources->_renderTargetView.Get(),
+		};
+		context->OMSetRenderTargets(1, rtvs, NULL);
+
+		ID3D11ShaderResourceView* srvs[2] = {
+			resources->_bloomOutputSumSRV.Get(),
+			resources->_offscreenAsInputShaderResourceView.Get(),
+		};
+		context->PSSetShaderResources(0, 2, srvs);
+	}
+
+	resources->InitPixelShader(g_bUseSteamVR ? resources->_b2pUpsampleVR : resources->_b2pUpsample);
+	if (g_bUseSteamVR)
+		context->DrawInstanced(6, 2, 0, 0); // if (g_bUseSteamVR)
+	else
+		context->Draw(6, 0);
+
+	if (g_bDumpSSAOBuffers)
+	{
+		//DirectX::SaveDDSTextureToFile(context, resources->_offscreenBufferPost, L"C:\\Temp\\_b2pUpsample.dds");
+		DirectX::SaveDDSTextureToFile(context, resources->_offscreenBuffer, L"C:\\Temp\\_b2pUpsample.dds");
 	}
 
 	// Restore previous rendertarget, etc
 	resources->InitInputLayout(resources->_inputLayout); // Not sure this is really needed
+	{
+		ID3D11RenderTargetView* rtvs[1] = {
+			nullptr
+		};
+		context->OMSetRenderTargets(1, rtvs, NULL);
+	}
 
 	this->_deviceResources->EndAnnotatedEvent();
 }
@@ -10922,12 +10976,6 @@ HRESULT PrimarySurface::Flip(
 			if (g_bBloomEnabled) {
 				// _offscreenBufferAsInputBloomMask is resolved earlier, before the SSAO pass because
 				// SSAO uses that mask to prevent applying SSAO on bright areas
-				// Generate the mipmaps for the bloom buffer
-				context->CopyResource(resources->_offscreenBufferAsInputBloomMaskMipMaps,
-					resources->_offscreenBufferAsInputBloomMask);
-				context->GenerateMips(resources->_offscreenAsInputBloomMaskMipMapsSRV);
-
-				//context->GenerateMips(resources->_offscreenAsInputBloomMaskSRV);
 
 				// We need to set the blend state properly for Bloom, or else we might get
 				// different results when brackets are rendered because they alter the 
@@ -10969,16 +11017,16 @@ HRESULT PrimarySurface::Flip(
 				if (g_bUseSteamVR)
 					context->ClearRenderTargetView(resources->_renderTargetViewBloomSumR, bgColor);
 
-				RenderBloom2Pass();
+				if (g_bBloom2PassEnabled)
+				{
+					// Generate the mipmaps for the bloom buffer
+					context->CopyResource(resources->_offscreenBufferAsInputBloomMaskMipMaps,
+						resources->_offscreenBufferAsInputBloomMask);
+					context->GenerateMips(resources->_offscreenAsInputBloomMaskMipMapsSRV);
 
-				// DEBUG
-				/*if (g_bDumpSSAOBuffers) {
-					log_debug("[DBG] Dumping bloom buffers");
-					DirectX::SaveDDSTextureToFile(context, resources->_offscreenBufferAsInputBloomMask,
-						L"c:\\temp\\_offscreenBufferBloomMask.dds");
-				}*/
-				// DEBUG
-
+					RenderBloom2Pass();
+				}
+				else
 				{
 					float fScale = 2.0f;
 					// Set the _mainSamplerState on the first 2 texture slots. That way we prevent the
@@ -10992,9 +11040,7 @@ HRESULT PrimarySurface::Flip(
 						BloomPyramidLevelPass(i, AdditionalPasses, fScale);
 						fScale *= 2.0f;
 					}
-				}
 
-				//if (!g_bAOEnabled) {
 					// TODO: Check the statement below, I'm not sure it's current anymore (?)
 					// If SSAO is not enabled, then we can merge the bloom buffer with the offscreen buffer
 					// here. Otherwise, we'll merge it along with the SSAO buffer later.
@@ -11002,7 +11048,8 @@ HRESULT PrimarySurface::Flip(
 					// Input: _bloomSum, _offscreenBufferAsInput
 					// Output: _offscreenBuffer
 					BloomBasicPass(5, 1.0f);
-				//}
+				}
+				context->ClearRenderTargetView(resources->_renderTargetViewBloomSum, bgColor);
 
 				// DEBUG
 				/*if (g_iPresentCounter == 100 || g_bDumpBloomBuffers) {

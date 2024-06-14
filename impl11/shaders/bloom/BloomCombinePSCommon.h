@@ -135,11 +135,11 @@ struct PixelShaderOutput
 float4 main(PixelShaderInput input) : SV_TARGET
 {
 #ifdef INSTANCED_RENDERING
-	float4 color = texture0.Sample(sampler0, float3(input.uv, input.viewId));
-	float3 bloom = bloomTex.Sample(bloomSampler, float3(input.uv, input.viewId)).rgb;
+	float4 color = texture0.SampleLevel(sampler0, float3(input.uv, input.viewId), 0.0);
+	float3 bloom = bloomTex.SampleLevel(bloomSampler, float3(input.uv, input.viewId), 0.0).rgb;
 #else
-	float4 color = texture0.Sample(sampler0, input.uv);
-	float3 bloom = bloomTex.Sample(bloomSampler, input.uv).rgb;
+	float4 color = texture0.SampleLevel(sampler0, input.uv, 0.0);
+	float3 bloom = bloomTex.SampleLevel(bloomSampler, input.uv, 0.0).rgb;
 #endif
 	color.w = 1.0f;
 

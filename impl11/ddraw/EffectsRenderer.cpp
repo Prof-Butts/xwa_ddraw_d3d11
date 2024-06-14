@@ -9,6 +9,7 @@ int g_iD3DExecuteCounter = 0, g_iD3DExecuteCounterSkipHi = -1, g_iD3DExecuteCoun
 
 // Control vars
 bool g_bEnableAnimations = true;
+bool g_bBloom2PassEnabled = true;
 extern bool g_bKeepMouseInsideWindow;
 extern char g_curOPTLoaded[MAX_OPT_NAME];
 
@@ -8647,12 +8648,14 @@ void ProcessKeyboard()
 	bool CtrlKey  = (GetAsyncKeyState(VK_CONTROL) & 0x8000) == 0x8000;
 	bool ShiftKey = (GetAsyncKeyState(VK_SHIFT)   & 0x8000) == 0x8000;
 	bool RKey     = (GetAsyncKeyState(0x52)       & 0x8000) == 0x8000;
+	bool BKey     = (GetAsyncKeyState(0x42)       & 0x8000) == 0x8000;
 	bool UpKey    = (GetAsyncKeyState(VK_UP)      & 0x8000) == 0x8000;
 	bool DnKey    = (GetAsyncKeyState(VK_DOWN)    & 0x8000) == 0x8000;
 	bool LtKey    = (GetAsyncKeyState(VK_LEFT)    & 0x8000) == 0x8000;
 	bool RtKey    = (GetAsyncKeyState(VK_RIGHT)   & 0x8000) == 0x8000;
 
 	static bool prevRKey  = false;
+	static bool prevBKey  = false;
 	static bool prevUpKey = false;
 	static bool prevDnKey = false;
 	static bool prevLtKey = false;
@@ -8668,6 +8671,15 @@ void ProcessKeyboard()
 			log_debug("[DBG] g_bRTEnableSoftShadows: %d", g_bRTEnableSoftShadows);
 			DisplayTimedMessage(3, 0, g_bRTEnableSoftShadows ?
 				"Raytraced Soft Shadows" : "Raytraced Hard Shadows");
+		}
+
+		// Alt+B: Toggle 2-pass bloom
+		if (BKey && !prevBKey)
+		{
+			g_bBloom2PassEnabled = !g_bBloom2PassEnabled;
+			log_debug("[DBG] g_bBloom2PassEnabled: %d", g_bBloom2PassEnabled);
+			DisplayTimedMessage(3, 0, g_bBloom2PassEnabled ?
+				"2-Pass Enabled" : "Regular Bloom");
 		}
 
 		if (UpKey && !prevUpKey)
@@ -8700,6 +8712,7 @@ void ProcessKeyboard()
 	// ... but first we'd need to compute the centroid of each hologram.
 
 	prevRKey  = RKey;
+	prevBKey  = BKey;
 	prevUpKey = UpKey;
 	prevDnKey = DnKey;
 	prevLtKey = LtKey;

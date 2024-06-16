@@ -195,17 +195,17 @@ typedef struct BloomConfigStruct {
 	int iNumPasses;
 } BloomConfig;
 
-typedef struct BloomPixelShaderCBStruct {
-	float pixelSizeX, pixelSizeY, general_bloom_strength, amplifyFactor;
+struct BloomPixelShaderCBuffer {
+	float pixelSizeX, pixelSizeY, bloomStr0, amplifyFactor;
 	// 16 bytes
-	float bloomStrength, uvStepSize, saturationStrength;
-	int unused1;
+	float bloomStrength, uvStepSize, saturationStrength, bloomStr1;
 	// 32 bytes
-	int unused2;
-	float unused3, depth_weight;
+	float bloomStr2, bloomStr3, depth_weight;
 	int debug;
 	// 48 bytes
-} BloomPixelShaderCBuffer;
+	float bloomStr4, bloomStr5, b2pSaturationStr, b2pExponent;
+	// 64 bytes
+};
 
 typedef struct SSAOPixelShaderCBStruct {
 	float screenSizeX, screenSizeY, indirect_intensity, bias;

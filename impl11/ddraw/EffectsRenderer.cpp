@@ -8642,6 +8642,7 @@ void EffectsRenderer::RenderDeferredDrawCalls()
 	_deviceResources->EndAnnotatedEvent();
 }
 
+bool LoadBloomParams();
 void ProcessKeyboard()
 {
 	bool AltKey   = (GetAsyncKeyState(VK_MENU)    & 0x8000) == 0x8000;
@@ -8676,10 +8677,13 @@ void ProcessKeyboard()
 		// Alt+B: Toggle 2-pass bloom
 		if (BKey && !prevBKey)
 		{
+			/*
 			g_bBloom2PassEnabled = !g_bBloom2PassEnabled;
 			log_debug("[DBG] g_bBloom2PassEnabled: %d", g_bBloom2PassEnabled);
 			DisplayTimedMessage(3, 0, g_bBloom2PassEnabled ?
 				"2-Pass Enabled" : "Regular Bloom");
+			*/
+			LoadBloomParams();
 		}
 
 		if (UpKey && !prevUpKey)

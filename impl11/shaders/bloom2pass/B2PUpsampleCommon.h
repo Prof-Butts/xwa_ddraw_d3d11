@@ -14,12 +14,18 @@ Texture2D offscreenBuf : register(t1);
 #endif
 SamplerState sampler0 : register(s0);
 
+// struct BloomPixelShaderCBuffer
 cbuffer ConstantBuffer : register(b2)
 {
-    float pixelSizeX, pixelSizeY, unused1, amplifyFactor;
+    float pixelSizeX, pixelSizeY, bloomStr0, amplifyFactor;
     // 16 bytes
-    float bloomStrength, uvStepSize, saturationStrength, unused2;
+    float bloomStrength, uvStepSize, saturationStrength, bloomStr1;
     // 32 bytes
+    float bloomStr2, bloomStr3, depth_weight;
+    int debug;
+    // 48 bytes
+    float bloomStr4, bloomStr5, b2pSaturationStr, b2pExponent;
+    // 64 bytes
 };
 
 // From http://www.chilliant.com/rgb2hsv.html
@@ -63,7 +69,7 @@ inline float luminance(float3 col)
 
 float3 linearTosRGB(float3 col)
 {
-    uint3 lt = uint3(col.x < 0.0031308, col.y < 0.0031308, col.z < 0.0031308);
+    float3 lt = float3(col.x < 0.0031308, col.y < 0.0031308, col.z < 0.0031308);
     return lerp(1.055 * pow(abs(col), 1.0 / 2.4) - 0.055, col * 12.92, lt);
 }
 
@@ -134,13 +140,29 @@ float4 mainImage(in float2 fragCoord, const uint viewId)
     float3 col = 0;
 
     // Skip 3x3 blur on first 3 mips
-    col += SampleLod(uv, iResolution.xy, 0, viewId).rgb;
+    /*col += SampleLod(uv, iResolution.xy, 0, viewId).rgb;
     col += SampleLod(uv, iResolution.xy, 1, viewId).rgb;
     col += SampleLod(uv, iResolution.xy, 2, viewId).rgb;
 
     col += SampleLodBlurred(uv, iResolution.xy, 3, viewId).rgb;
     col += SampleLodBlurred(uv, iResolution.xy, 4, viewId).rgb;
-    col += SampleLodBlurred(uv, iResolution.xy, 5, viewId).rgb;
+    col += SampleLodBlurred(uv, iResolution.xy, 5, viewId).rgb;*/
+
+    /*col += bloomStr0 * SampleLodBlurred(uv, iResolution.xy, 0, viewId).rgb;
+    col += bloomStr1 * SampleLodBlurred(uv, iResolution.xy, 1, viewId).rgb;
+    col += bloomStr2 * SampleLodBlurred(uv, iResolution.xy, 2, viewId).rgb;
+
+    col += bloomStr3 * SampleLodBlurred(uv, iResolution.xy, 3, viewId).rgb;
+    col += bloomStr4 * SampleLodBlurred(uv, iResolution.xy, 4, viewId).rgb;
+    col += bloomStr5 * SampleLodBlurred(uv, iResolution.xy, 5, viewId).rgb;*/
+
+    col += pow(abs(SampleLodBlurred(uv, iResolution.xy, 0, viewId).rgb), bloomStr0);
+    col += pow(abs(SampleLodBlurred(uv, iResolution.xy, 1, viewId).rgb), bloomStr1);
+    col += pow(abs(SampleLodBlurred(uv, iResolution.xy, 2, viewId).rgb), bloomStr2);
+
+    col += pow(abs(SampleLodBlurred(uv, iResolution.xy, 3, viewId).rgb), bloomStr3);
+    col += pow(abs(SampleLodBlurred(uv, iResolution.xy, 4, viewId).rgb), bloomStr4);
+    col += pow(abs(SampleLodBlurred(uv, iResolution.xy, 5, viewId).rgb), bloomStr5);
 
     //col = max(0, col) / 6.0;
     col = max(0, col);
@@ -149,9 +171,10 @@ float4 mainImage(in float2 fragCoord, const uint viewId)
     //col = ReinhardExtLuma(col, 5.5);
     //float3 bloom = linearTosRGB(max(0, col)); // This line fixes the black haloes
 
-    float3 bloom = col / (col + 1);
+    //float3 bloom = pow(abs(linearTosRGB(col / (col + 1))), b2pExponent);
+    float3 bloom = pow(abs(col / (col + 1)), b2pExponent);
     float3 HSV = RGBtoHSV(bloom);
-    HSV.y = saturate(lerp(HSV.y, HSV.y * saturationStrength, HSV.z));
+    HSV.y = saturate(lerp(HSV.y, HSV.y * b2pSaturationStr, HSV.z));
     bloom = saturate(HSVtoRGB(HSV));
 
 #ifdef INSTANCED_RENDERING

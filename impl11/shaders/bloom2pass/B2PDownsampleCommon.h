@@ -12,14 +12,6 @@ Texture2D      texture0 : register(t0);
 #endif
 SamplerState   sampler0 : register(s0);
 
-cbuffer ConstantBuffer : register(b2)
-{
-    float pixelSizeX, pixelSizeY, unused1, amplifyFactor;
-    // 16 bytes
-    float bloomStrength, uvStepSize, saturationStrength, unused2;
-    // 32 bytes
-};
-
 float gaussian(float2 i, float sigma) {
     return exp(-dot(i,i) / (2.0 * sigma*sigma));
 }
@@ -61,16 +53,13 @@ void mainImage(in float2 fragCoord, in uint viewId, out float4 fragColor)
     float2 p  = (fragCoord - float2(xpos - res.x, 0)) / iResolution.xy;
     float2 uv = (fragCoord - float2(xpos - res.x, 0)) / res;
 
-    const float bloomBoost[6] = { 1.1, 1.2, 1.3, 1.5, 1.75, 2.0 };
-//#define BLOOM_BOOST 1.15
-//#define BLOOM_BOOST 1.25
-//#define BLOOM_BOOST 2.0
+#define BLOOM_BOOST 1.0
 #ifdef INSTANCED_RENDERING
-    float4 bloomInput = texture0.SampleLevel(sampler0, float3(uv, viewId), 1.0);
+    float4 bloomInput = BLOOM_BOOST * texture0.SampleLevel(sampler0, float3(uv, viewId), 1.0);
 #else
-    float4 bloomInput = texture0.SampleLevel(sampler0, uv, 1.0);
+    float4 bloomInput = BLOOM_BOOST * texture0.SampleLevel(sampler0, uv, 1.0);
 #endif
-    bloomInput = max(0, bloomInput) * bloomBoost[0];
+    bloomInput = max(0, bloomInput);
 
     // Skip blurring LOD 0 for performance
     if (lod == 0)
@@ -100,11 +89,11 @@ void mainImage(in float2 fragCoord, in uint viewId, out float4 fragColor)
             if (p.x == q.x && p.y == q.y)
             {
 #ifdef INSTANCED_RENDERING
-                bloomInput = max(0, texture0.SampleLevel(sampler0, float3(p, viewId), float(lod)));
+                bloomInput = BLOOM_BOOST * max(0, texture0.SampleLevel(sampler0, float3(p, viewId), float(lod)));
 #else
-                bloomInput = max(0, texture0.SampleLevel(sampler0, p, float(lod)));
+                bloomInput = BLOOM_BOOST * max(0, texture0.SampleLevel(sampler0, p, float(lod)));
 #endif
-                fragColor += wg * bloomInput * bloomBoost[lod];
+                fragColor += wg * bloomInput;
             }
             w += wg;
         }

@@ -2039,7 +2039,16 @@ bool LoadBloomParams() {
 	g_BloomConfig.fHitEffectsStrength = 1.0f;
 	g_BloomConfig.fSkydomeLightStrength = 0.1f;
 	g_BloomConfig.fBracketStrength = 0.0f;
-	g_BloomPSCBuffer.general_bloom_strength = 1.0f;
+
+	g_BloomPSCBuffer.bloomStr0 = 1.0f;
+	g_BloomPSCBuffer.bloomStr1 = 1.0f;
+	g_BloomPSCBuffer.bloomStr2 = 1.0f;
+	g_BloomPSCBuffer.bloomStr3 = 1.0f;
+	g_BloomPSCBuffer.bloomStr4 = 1.0f;
+	g_BloomPSCBuffer.bloomStr5 = 1.0f;
+	g_BloomPSCBuffer.b2pSaturationStr = 2.5f;
+	g_BloomPSCBuffer.b2pExponent = 1.0f;
+
 	// TODO: Complete the list of default values...
 	while (fgets(buf, 256, file) != NULL) {
 		line++;
@@ -2163,6 +2172,14 @@ bool LoadBloomParams() {
 				g_fBloomLayerMult[9] = fValue;
 			}
 
+			else if (_stricmp(param, "2pass_bloom_sat_strength") == 0) {
+				g_BloomPSCBuffer.b2pSaturationStr = fValue;
+			}
+
+			else if (_stricmp(param, "2pass_bloom_exponent") == 0) {
+				g_BloomPSCBuffer.b2pExponent = fValue;
+			}
+
 			// Bloom Spread
 			else if (_stricmp(param, "bloom_spread_1") == 0) {
 				g_fBloomSpread[1] = fValue;
@@ -2223,6 +2240,13 @@ bool LoadBloomParams() {
 		}
 	}
 	fclose(file);
+
+	g_BloomPSCBuffer.bloomStr0 = 1.0f / g_fBloomLayerMult[0];
+	g_BloomPSCBuffer.bloomStr1 = 1.0f / g_fBloomLayerMult[1];
+	g_BloomPSCBuffer.bloomStr2 = 1.0f / g_fBloomLayerMult[2];
+	g_BloomPSCBuffer.bloomStr3 = 1.0f / g_fBloomLayerMult[3];
+	g_BloomPSCBuffer.bloomStr4 = 1.0f / g_fBloomLayerMult[4];
+	g_BloomPSCBuffer.bloomStr5 = 1.0f / g_fBloomLayerMult[5];
 
 	log_debug("[DBG] Reshade Enabled: %d", g_bReshadeEnabled);
 	log_debug("[DBG] Bloom Enabled: %d", g_bBloomEnabled);

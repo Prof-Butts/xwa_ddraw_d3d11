@@ -4957,8 +4957,8 @@ HRESULT DeviceResources::LoadResources()
 		return hr;
 
 	// Create the constant buffer for the bloom pixel shader
-	constantBufferDesc.ByteWidth = 48;
-	static_assert(sizeof(BloomPixelShaderCBuffer) == 48, "sizeof(BloomPixelShaderCBuffer) must be 48");
+	constantBufferDesc.ByteWidth = 64;
+	static_assert(sizeof(BloomPixelShaderCBuffer) == 64, "sizeof(BloomPixelShaderCBuffer) must be 64");
 	if (FAILED(hr = this->_d3dDevice->CreateBuffer(&constantBufferDesc, nullptr, &this->_bloomConstantBuffer)))
 		return hr;
 

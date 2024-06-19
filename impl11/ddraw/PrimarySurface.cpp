@@ -5282,11 +5282,16 @@ void PrimarySurface::RenderBloom2Pass()
 
 	// Second pass: Upsample and mix
 	{
-		ID3D11RenderTargetView* rtvs[1] = {
+		// Debug only, there's no need to erase this buffer here:
+		float bgColor[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
+		context->ClearRenderTargetView(resources->_renderTargetViewBloom1, bgColor);
+
+		ID3D11RenderTargetView* rtvs[2] = {
 			//resources->_renderTargetViewPost.Get(),
 			resources->_renderTargetView.Get(),
+			resources->_renderTargetViewBloom1.Get(),
 		};
-		context->OMSetRenderTargets(1, rtvs, NULL);
+		context->OMSetRenderTargets(2, rtvs, NULL);
 
 		ID3D11ShaderResourceView* srvs[2] = {
 			resources->_bloomOutputSumSRV.Get(),
@@ -5305,15 +5310,16 @@ void PrimarySurface::RenderBloom2Pass()
 	{
 		//DirectX::SaveDDSTextureToFile(context, resources->_offscreenBufferPost, L"C:\\Temp\\_b2pUpsample.dds");
 		DirectX::SaveDDSTextureToFile(context, resources->_offscreenBuffer, L"C:\\Temp\\_b2pUpsample.dds");
+		DirectX::SaveDDSTextureToFile(context, resources->_bloomOutput1, L"C:\\Temp\\_bloomOutputSum.dds");
 	}
 
 	// Restore previous rendertarget, etc
 	resources->InitInputLayout(resources->_inputLayout); // Not sure this is really needed
 	{
-		ID3D11RenderTargetView* rtvs[1] = {
-			nullptr
+		ID3D11RenderTargetView* rtvs[2] = {
+			nullptr, nullptr,
 		};
-		context->OMSetRenderTargets(1, rtvs, NULL);
+		context->OMSetRenderTargets(2, rtvs, NULL);
 	}
 
 	this->_deviceResources->EndAnnotatedEvent();

@@ -12,6 +12,8 @@ Texture2D      texture0 : register(t0);
 #endif
 SamplerState   sampler0 : register(s0);
 
+static const float weight[3] = {0.38774, 0.24477, 0.06136};
+
 float gaussian(float2 i, float sigma) {
     return exp(-dot(i,i) / (2.0 * sigma*sigma));
 }
@@ -48,10 +50,7 @@ void mainImage(in float2 fragCoord, in uint viewId, out float4 fragColor)
     }
 
     fragColor = 0;
-
-    float2 px = 1.0 / iResolution.xy;
-    float2 p  = (fragCoord - float2(xpos - res.x, 0)) / iResolution.xy;
-    float2 uv = (fragCoord - float2(xpos - res.x, 0)) / res;
+    const float2 uv = (fragCoord - float2(xpos - res.x, 0)) / res;
 
 #define BLOOM_BOOST 1.0
 #ifdef INSTANCED_RENDERING
@@ -68,25 +67,28 @@ void mainImage(in float2 fragCoord, in uint viewId, out float4 fragColor)
         return;
     }
 
-    const int   rad   = DOWNSAMPLE_BLUR_RADIUS;
-    const float sigma = float(rad) * 0.4;
+    //const int rad = DOWNSAMPLE_BLUR_RADIUS;
+    const int rad = 2;
+    //const float sigma = float(rad) * 0.4;
 
     float w = 0.0;
-    for (int x = -rad; x <= rad; x++)
+    for (int y = -rad; y <= rad; y++)
     {
-        for (int y = -rad; y <= rad; y++)
+        const float wgY = weight[abs(y)];
+        for (int x = -rad; x <= rad; x++)
         {
-            float2 o = float2(x, y);
-            float wg = gaussian(o, sigma);
-            //float wg = exp(-dot(o, o) * 0.125);
-            const float2 p = uv + o / float2(res);
+            const float wgX = weight[abs(x)];
+            const float2 o = float2(x, y);
+            const float wg = wgX * wgY;
+            //float wg = gaussian(o, sigma);
+            float2 p = uv + o / float2(res);
 
             // Clamp to edge
-            //p = clamp(p, 0.5 / res, (res - 0.5) / res);
+            p = clamp(p, 0.5 / res, (res - 0.5) / res);
 
             // Clamp to border
-            const float2 q = clamp(p, 0.5 / res, (res - 0.5) / res);
-            if (p.x == q.x && p.y == q.y)
+            //const float2 q = clamp(p, 0.5 / res, (res - 0.5) / res);
+            //if (p.x == q.x && p.y == q.y)
             {
 #ifdef INSTANCED_RENDERING
                 bloomInput = BLOOM_BOOST * max(0, texture0.SampleLevel(sampler0, float3(p, viewId), float(lod)));

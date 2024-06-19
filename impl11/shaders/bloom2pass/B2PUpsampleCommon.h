@@ -28,6 +28,12 @@ cbuffer ConstantBuffer : register(b2)
     // 64 bytes
 };
 
+struct PixelShaderOutput
+{
+    float4 color : SV_TARGET0;
+    float4 bloom : SV_TARGET1; // This is not needed, it's just for debugging the bloom buffer
+};
+
 // From http://www.chilliant.com/rgb2hsv.html
 static float Epsilon = 1e-10;
 
@@ -97,7 +103,7 @@ float4 SampleLod(float2 uv, float2 res, const int lod, const uint viewId)
 
     float2 nuv = uv * float2(nres);
 
-    nuv = clamp(nuv, 0.5, nres - 0.5);
+    nuv  = clamp(nuv, 0.5, nres - 0.5);
     nuv += float2(xpos, 0);
 
 #ifdef INSTANCED_RENDERING
@@ -134,48 +140,79 @@ float4 SampleLodBlurred(float2 uv, float2 res, const int lod, const uint viewId)
     return result;
 }
 
-float4 mainImage(in float2 fragCoord, const uint viewId)
+float3 increaseSaturation(float3 col, float saturationStrength)
+{
+    float3 HSV = RGBtoHSV(col);
+    HSV.y = saturate(HSV.y * saturationStrength);
+    return saturate(HSVtoRGB(HSV));
+}
+
+float4 mainImage(in float2 fragCoord, const uint viewId, out float4 bloom_out)
 {
     const float2 uv = fragCoord / iResolution.xy;
-    float3 col = 0;
+    float3 bloom = 0;
 
     // Skip 3x3 blur on first 3 mips
-    /*col += SampleLod(uv, iResolution.xy, 0, viewId).rgb;
-    col += SampleLod(uv, iResolution.xy, 1, viewId).rgb;
-    col += SampleLod(uv, iResolution.xy, 2, viewId).rgb;
+    bloom += bloomStr0 * SampleLod(uv, iResolution.xy, 0, viewId).rgb;
+    bloom += bloomStr1 * SampleLod(uv, iResolution.xy, 1, viewId).rgb;
+    bloom += bloomStr2 * SampleLod(uv, iResolution.xy, 2, viewId).rgb;
 
-    col += SampleLodBlurred(uv, iResolution.xy, 3, viewId).rgb;
-    col += SampleLodBlurred(uv, iResolution.xy, 4, viewId).rgb;
-    col += SampleLodBlurred(uv, iResolution.xy, 5, viewId).rgb;*/
+    bloom += bloomStr3 * SampleLodBlurred(uv, iResolution.xy, 3, viewId).rgb;
+    bloom += bloomStr4 * SampleLodBlurred(uv, iResolution.xy, 4, viewId).rgb;
+    bloom += bloomStr5 * SampleLodBlurred(uv, iResolution.xy, 5, viewId).rgb;
 
-    /*col += bloomStr0 * SampleLodBlurred(uv, iResolution.xy, 0, viewId).rgb;
-    col += bloomStr1 * SampleLodBlurred(uv, iResolution.xy, 1, viewId).rgb;
-    col += bloomStr2 * SampleLodBlurred(uv, iResolution.xy, 2, viewId).rgb;
+    /*bloom += bloomStr0 * SampleLodBlurred(uv, iResolution.xy, 0, viewId).rgb;
+    bloom += bloomStr1 * SampleLodBlurred(uv, iResolution.xy, 1, viewId).rgb;
+    bloom += bloomStr2 * SampleLodBlurred(uv, iResolution.xy, 2, viewId).rgb;
 
-    col += bloomStr3 * SampleLodBlurred(uv, iResolution.xy, 3, viewId).rgb;
-    col += bloomStr4 * SampleLodBlurred(uv, iResolution.xy, 4, viewId).rgb;
-    col += bloomStr5 * SampleLodBlurred(uv, iResolution.xy, 5, viewId).rgb;*/
+    bloom += bloomStr3 * SampleLodBlurred(uv, iResolution.xy, 3, viewId).rgb;
+    bloom += bloomStr4 * SampleLodBlurred(uv, iResolution.xy, 4, viewId).rgb;
+    bloom += bloomStr5 * SampleLodBlurred(uv, iResolution.xy, 5, viewId).rgb;*/
 
-    col += pow(abs(SampleLodBlurred(uv, iResolution.xy, 0, viewId).rgb), bloomStr0);
-    col += pow(abs(SampleLodBlurred(uv, iResolution.xy, 1, viewId).rgb), bloomStr1);
-    col += pow(abs(SampleLodBlurred(uv, iResolution.xy, 2, viewId).rgb), bloomStr2);
+    /*bloom += bloomStr0 * SampleLod(uv, iResolution.xy, 0, viewId).rgb;
+    bloom += bloomStr1 * SampleLod(uv, iResolution.xy, 1, viewId).rgb;
+    bloom += bloomStr2 * SampleLod(uv, iResolution.xy, 2, viewId).rgb;
 
-    col += pow(abs(SampleLodBlurred(uv, iResolution.xy, 3, viewId).rgb), bloomStr3);
-    col += pow(abs(SampleLodBlurred(uv, iResolution.xy, 4, viewId).rgb), bloomStr4);
-    col += pow(abs(SampleLodBlurred(uv, iResolution.xy, 5, viewId).rgb), bloomStr5);
+    bloom += bloomStr3 * SampleLod(uv, iResolution.xy, 3, viewId).rgb;
+    bloom += bloomStr4 * SampleLod(uv, iResolution.xy, 4, viewId).rgb;
+    bloom += bloomStr5 * SampleLod(uv, iResolution.xy, 5, viewId).rgb;*/
+
+    /*bloom += pow(abs(SampleLodBlurred(uv, iResolution.xy, 0, viewId).rgb), bloomStr0);
+    bloom += pow(abs(SampleLodBlurred(uv, iResolution.xy, 1, viewId).rgb), bloomStr1);
+    bloom += pow(abs(SampleLodBlurred(uv, iResolution.xy, 2, viewId).rgb), bloomStr2);
+
+    bloom += pow(abs(SampleLodBlurred(uv, iResolution.xy, 3, viewId).rgb), bloomStr3);
+    bloom += pow(abs(SampleLodBlurred(uv, iResolution.xy, 4, viewId).rgb), bloomStr4);
+    bloom += pow(abs(SampleLodBlurred(uv, iResolution.xy, 5, viewId).rgb), bloomStr5);*/
+
+    /*bloom += pow(abs(SampleLod(uv, iResolution.xy, 0, viewId).rgb), bloomStr0);
+    bloom += pow(abs(SampleLod(uv, iResolution.xy, 1, viewId).rgb), bloomStr1);
+    bloom += pow(abs(SampleLod(uv, iResolution.xy, 2, viewId).rgb), bloomStr2);
+
+    bloom += pow(abs(SampleLod(uv, iResolution.xy, 3, viewId).rgb), bloomStr3);
+    bloom += pow(abs(SampleLod(uv, iResolution.xy, 4, viewId).rgb), bloomStr4);
+    bloom += pow(abs(SampleLod(uv, iResolution.xy, 5, viewId).rgb), bloomStr5);*/
 
     //col = max(0, col) / 6.0;
-    col = max(0, col);
+    bloom = max(0, bloom);
+    //bloom_out = float4(bloom, 1);
     //col = 16.0 * max(0, col);
     //col = ReinhardExtLuma(col, 2.5);
     //col = ReinhardExtLuma(col, 5.5);
     //float3 bloom = linearTosRGB(max(0, col)); // This line fixes the black haloes
 
     //float3 bloom = pow(abs(linearTosRGB(col / (col + 1))), b2pExponent);
-    float3 bloom = pow(abs(col / (col + 1)), b2pExponent);
-    float3 HSV = RGBtoHSV(bloom);
-    HSV.y = saturate(lerp(HSV.y, HSV.y * b2pSaturationStr, HSV.z));
-    bloom = saturate(HSVtoRGB(HSV));
+
+    // Apply tone mapping
+    bloom = bloom / (bloom + 1);
+
+    // Increase color saturation
+    bloom = increaseSaturation(bloom, b2pSaturationStr);
+    //bloom = increaseSaturation(bloom, saturationStrength);
+
+    // Gamma correction (approx)
+    //bloom = sqrt(bloom);
+    bloom = pow(bloom, b2pExponent);
 
 #ifdef INSTANCED_RENDERING
     float4 ofsColor = offscreenBuf.Sample(sampler0, float3(uv, viewId));
@@ -185,6 +222,7 @@ float4 mainImage(in float2 fragCoord, const uint viewId)
     // Screen blending mode
     ofsColor.rgb = 1 - (1 - ofsColor.rgb) * (1 - bloom);
 
+    bloom_out = float4(bloom, 1);
     return ofsColor;
 }
 
@@ -197,13 +235,19 @@ struct PixelShaderInput
 #endif
 };
 
-float4 main(PixelShaderInput input) : SV_TARGET
+PixelShaderOutput main(PixelShaderInput input)
 {
+    PixelShaderOutput output;
+
     const float2 fragCoord = input.uv * iResolution.xy;
+    output.color = 0;
+    output.bloom = 0;
 
 #ifdef INSTANCED_RENDERING
-    return mainImage(fragCoord, input.viewId);
+    output.color = mainImage(fragCoord, input.viewId, output.bloom);
 #else
-    return mainImage(fragCoord, 0);
+    output.color = mainImage(fragCoord, 0, output.bloom);
 #endif
+    //output.color = output.bloom;
+    return output;
 }

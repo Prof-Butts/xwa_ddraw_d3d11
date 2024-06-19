@@ -8642,18 +8642,46 @@ void EffectsRenderer::RenderDeferredDrawCalls()
 	_deviceResources->EndAnnotatedEvent();
 }
 
+int g_iMultSelector = 0;
 bool LoadBloomParams();
+
+float& SelectBloomStrength()
+{
+	switch (g_iMultSelector)
+	{
+	case 0:
+		return g_BloomPSCBuffer.bloomStr0;
+	case 1:
+		return g_BloomPSCBuffer.bloomStr1;
+	case 2:
+		return g_BloomPSCBuffer.bloomStr2;
+	case 3:
+		return g_BloomPSCBuffer.bloomStr3;
+	case 4:
+		return g_BloomPSCBuffer.bloomStr4;
+	case 5:
+		return g_BloomPSCBuffer.bloomStr5;
+	}
+	return g_BloomPSCBuffer.bloomStr0;
+};
+
 void ProcessKeyboard()
 {
 	bool AltKey   = (GetAsyncKeyState(VK_MENU)    & 0x8000) == 0x8000;
 	bool CtrlKey  = (GetAsyncKeyState(VK_CONTROL) & 0x8000) == 0x8000;
 	bool ShiftKey = (GetAsyncKeyState(VK_SHIFT)   & 0x8000) == 0x8000;
+
 	bool RKey     = (GetAsyncKeyState(0x52)       & 0x8000) == 0x8000;
 	bool BKey     = (GetAsyncKeyState(0x42)       & 0x8000) == 0x8000;
+
 	bool UpKey    = (GetAsyncKeyState(VK_UP)      & 0x8000) == 0x8000;
 	bool DnKey    = (GetAsyncKeyState(VK_DOWN)    & 0x8000) == 0x8000;
 	bool LtKey    = (GetAsyncKeyState(VK_LEFT)    & 0x8000) == 0x8000;
 	bool RtKey    = (GetAsyncKeyState(VK_RIGHT)   & 0x8000) == 0x8000;
+
+	bool NumKeys[10] = { false };
+	for (int i = 0; i < 10; i++)
+		NumKeys[i] = (GetAsyncKeyState(0x30 + i) & 0x8000) == 0x8000;
 
 	static bool prevRKey  = false;
 	static bool prevBKey  = false;
@@ -8661,6 +8689,7 @@ void ProcessKeyboard()
 	static bool prevDnKey = false;
 	static bool prevLtKey = false;
 	static bool prevRtKey = false;
+	static bool prevNumKeys[10] = { false };
 
 	// Alt Key
 	if (AltKey && !ShiftKey && !CtrlKey)
@@ -8698,6 +8727,20 @@ void ProcessKeyboard()
 			SaveHoloOffsetToIniFile();
 		}
 
+		/*
+		if (UpKey && !prevUpKey)
+		{
+			SelectBloomStrength() += 0.125f;
+			log_debug("[DBG] str[%d] = %0.3f", g_iMultSelector, SelectBloomStrength());
+		}
+
+		if (DnKey && !prevDnKey)
+		{
+			SelectBloomStrength() -= 0.125f;
+			log_debug("[DBG] str[%d] = %0.3f", g_iMultSelector, SelectBloomStrength());
+		}
+		*/
+
 		if (LtKey && !prevLtKey)
 		{
 			g_HologramDisp.y += HOLO_DISP_Y;
@@ -8709,6 +8752,27 @@ void ProcessKeyboard()
 			g_HologramDisp.y -= HOLO_DISP_Y;
 			SaveHoloOffsetToIniFile();
 		}
+
+		/*
+		for (int i = 0; i < 10; i++)
+		{
+			if (i < 6 && NumKeys[i] && !prevNumKeys[i])
+			{
+				g_iMultSelector = i;
+				log_debug("[DBG] g_iMultSelector: %d = %0.3f", g_iMultSelector, SelectBloomStrength());
+			}
+
+			if (i == 9 && NumKeys[i] && !prevNumKeys[i])
+			{
+				int tmp = g_iMultSelector;
+				for (g_iMultSelector = 0; g_iMultSelector < 6; g_iMultSelector++)
+				{
+					log_debug("[DBG] bloom[%d] = %0.3f", g_iMultSelector, SelectBloomStrength());
+				}
+				g_iMultSelector = tmp;
+			}
+		}
+		*/
 	}
 
 	// I don't think Shift+Alt + Left/Right is currently used anywhere. We could
@@ -8721,4 +8785,6 @@ void ProcessKeyboard()
 	prevDnKey = DnKey;
 	prevLtKey = LtKey;
 	prevRtKey = RtKey;
+	for (int i = 0; i < 10; i++)
+		prevNumKeys[i] = NumKeys[i];
 }

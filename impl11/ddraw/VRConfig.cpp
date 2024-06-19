@@ -2046,8 +2046,8 @@ bool LoadBloomParams() {
 	g_BloomPSCBuffer.bloomStr3 = 1.0f;
 	g_BloomPSCBuffer.bloomStr4 = 1.0f;
 	g_BloomPSCBuffer.bloomStr5 = 1.0f;
-	g_BloomPSCBuffer.b2pSaturationStr = 2.5f;
-	g_BloomPSCBuffer.b2pExponent = 1.0f;
+	g_BloomPSCBuffer.b2pSaturationStr = 1.5f;
+	g_BloomPSCBuffer.b2pExponent = 0.7f;
 
 	// TODO: Complete the list of default values...
 	while (fgets(buf, 256, file) != NULL) {
@@ -2241,12 +2241,21 @@ bool LoadBloomParams() {
 	}
 	fclose(file);
 
+#ifdef INVERT_BLOOM_STR
 	g_BloomPSCBuffer.bloomStr0 = 1.0f / g_fBloomLayerMult[0];
 	g_BloomPSCBuffer.bloomStr1 = 1.0f / g_fBloomLayerMult[1];
 	g_BloomPSCBuffer.bloomStr2 = 1.0f / g_fBloomLayerMult[2];
 	g_BloomPSCBuffer.bloomStr3 = 1.0f / g_fBloomLayerMult[3];
 	g_BloomPSCBuffer.bloomStr4 = 1.0f / g_fBloomLayerMult[4];
 	g_BloomPSCBuffer.bloomStr5 = 1.0f / g_fBloomLayerMult[5];
+#else
+	g_BloomPSCBuffer.bloomStr0 = g_fBloomLayerMult[0];
+	g_BloomPSCBuffer.bloomStr1 = g_fBloomLayerMult[1];
+	g_BloomPSCBuffer.bloomStr2 = g_fBloomLayerMult[2];
+	g_BloomPSCBuffer.bloomStr3 = g_fBloomLayerMult[3];
+	g_BloomPSCBuffer.bloomStr4 = g_fBloomLayerMult[4];
+	g_BloomPSCBuffer.bloomStr5 = g_fBloomLayerMult[5];
+#endif
 
 	log_debug("[DBG] Reshade Enabled: %d", g_bReshadeEnabled);
 	log_debug("[DBG] Bloom Enabled: %d", g_bBloomEnabled);

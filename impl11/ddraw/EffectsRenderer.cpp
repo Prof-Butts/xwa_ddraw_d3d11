@@ -8665,6 +8665,67 @@ float& SelectBloomStrength()
 	return g_BloomPSCBuffer.bloomStr0;
 };
 
+constexpr float Epsilon = 1e-10f;
+
+inline float saturate(float x)
+{
+	return min(1.0f, max(0.0f, x));
+}
+
+inline float3 saturate(float3 P)
+{
+	return { min(1.0f, max(0.0f, P.x)),
+		min(1.0f, max(0.0f, P.y)),
+		min(1.0f, max(0.0f, P.z)) };
+}
+
+float3 RGBtoHCV(float3 RGB)
+{
+	// Based on work by Sam Hocevar and Emil Persson
+	float4 P = (RGB.g < RGB.b) ? float4(RGB.b, RGB.g, -1.0f, 2.0f / 3.0f) : float4(RGB.g, RGB.b, 0.0f, -1.0f / 3.0f);
+	float4 Q = (RGB.r < P.x) ? float4(P.x, P.y, P.w, RGB.r) : float4(RGB.r, P.y, P.z, P.x);
+	float C = Q.x - min(Q.w, Q.y);
+	float H = abs((Q.w - Q.y) / (6.0f * C + Epsilon) + Q.z);
+	return float3(H, C, Q.x);
+}
+
+float3 HUEtoRGB(float H)
+{
+	float R = abs(H * 6 - 3) - 1;
+	float G = 2 - abs(H * 6 - 2);
+	float B = 2 - abs(H * 6 - 4);
+	return saturate(float3(R, G, B));
+}
+
+float3 RGBtoHSV(float3 RGB)
+{
+	float3 HCV = RGBtoHCV(RGB);
+	float S = HCV.y / (HCV.z + Epsilon);
+	return float3(HCV.x, S, HCV.z);
+}
+
+float3 HSVtoRGB(float3 HSV)
+{
+	float3 RGB = HUEtoRGB(HSV.x);
+	return ((RGB - 1) * HSV.y + 1) * HSV.z;
+}
+
+float3 ReHue(float3 RGB)
+{
+	float3 HSV = RGBtoHSV(RGB);
+	float h1 = HSV.x - 0.16666f;
+	float h2 = HSV.x - 1.16666f;
+	float ah1 = abs(h1);
+	float ah2 = abs(h2);
+	float h = ah1 < ah2 ? h1 : h2;
+	float s = sign(h);
+	h = abs(h);
+	// Compress
+	h = s * sqrt(h);
+	h = saturate(h + 0.16666f);
+	return HSVtoRGB({ h, HSV.y, HSV.z });
+}
+
 void ProcessKeyboard()
 {
 	bool AltKey   = (GetAsyncKeyState(VK_MENU)    & 0x8000) == 0x8000;
@@ -8715,6 +8776,7 @@ void ProcessKeyboard()
 			LoadBloomParams();
 		}
 
+#ifndef DISABLED
 		if (UpKey && !prevUpKey)
 		{
 			g_HologramDisp.z += HOLO_DISP_Z;
@@ -8726,20 +8788,21 @@ void ProcessKeyboard()
 			g_HologramDisp.z -= HOLO_DISP_Z;
 			SaveHoloOffsetToIniFile();
 		}
-
-		/*
+#else
 		if (UpKey && !prevUpKey)
 		{
-			SelectBloomStrength() += 0.125f;
+			//SelectBloomStrength() += 0.125f;
+			SelectBloomStrength() += 0.2f;
 			log_debug("[DBG] str[%d] = %0.3f", g_iMultSelector, SelectBloomStrength());
 		}
 
 		if (DnKey && !prevDnKey)
 		{
-			SelectBloomStrength() -= 0.125f;
+			//SelectBloomStrength() -= 0.125f;
+			SelectBloomStrength() -= 0.2f;
 			log_debug("[DBG] str[%d] = %0.3f", g_iMultSelector, SelectBloomStrength());
 		}
-		*/
+#endif
 
 		if (LtKey && !prevLtKey)
 		{
@@ -8753,7 +8816,7 @@ void ProcessKeyboard()
 			SaveHoloOffsetToIniFile();
 		}
 
-		/*
+#ifdef DISABLED
 		for (int i = 0; i < 10; i++)
 		{
 			if (i < 6 && NumKeys[i] && !prevNumKeys[i])
@@ -8772,7 +8835,7 @@ void ProcessKeyboard()
 				g_iMultSelector = tmp;
 			}
 		}
-		*/
+#endif
 	}
 
 	// I don't think Shift+Alt + Left/Right is currently used anywhere. We could

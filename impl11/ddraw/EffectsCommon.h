@@ -23,7 +23,20 @@ struct uvfloat4 {
 };
 
 struct float3 {
-	float x, y, z;
+	union {
+		float x;
+		float r;
+	};
+
+	union {
+		float y;
+		float g;
+	};
+
+	union {
+		float z;
+		float b;
+	};
 
 	float3()
 	{
@@ -65,6 +78,11 @@ struct float3 {
 
 	inline float& operator[] (uint32_t index) { return (&x)[index]; }
 
+	inline float3 operator+(const float& rhs)
+	{
+		return float3(this->x + rhs, this->y + rhs, this->z + rhs);
+	}
+
 	inline float3 operator+(const float3& rhs)
 	{
 		return float3(this->x + rhs.x, this->y + rhs.y, this->z + rhs.z);
@@ -73,6 +91,16 @@ struct float3 {
 	inline float3 operator-(const float3& rhs)
 	{
 		return float3(this->x - rhs.x, this->y - rhs.y, this->z - rhs.z);
+	}
+
+	inline float3 operator-(const float& rhs)
+	{
+		return float3(this->x - rhs, this->y - rhs, this->z - rhs);
+	}
+
+	inline float3 operator*(const float& rhs)
+	{
+		return float3(this->x * rhs, this->y * rhs, this->z * rhs);
 	}
 
 	inline float3 operator*(const float3& rhs)

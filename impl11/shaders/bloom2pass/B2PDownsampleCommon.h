@@ -12,6 +12,20 @@ Texture2D      texture0 : register(t0);
 #endif
 SamplerState   sampler0 : register(s0);
 
+// struct BloomPixelShaderCBuffer
+cbuffer ConstantBuffer : register(b2)
+{
+    float pixelSizeX, pixelSizeY, bloomStr0, amplifyFactor;
+    // 16 bytes
+    float bloomStrength, uvStepSize, saturationStrength, bloomStr1;
+    // 32 bytes
+    float bloomStr2, bloomStr3, depth_weight;
+    int debug;
+    // 48 bytes
+    float bloomStr4, bloomStr5, b2pSaturationStr, b2pExponent;
+    // 64 bytes
+};
+
 static const float weight[3] = {0.38774, 0.24477, 0.06136};
 
 float gaussian(float2 i, float sigma) {
@@ -54,11 +68,23 @@ void mainImage(in float2 fragCoord, in uint viewId, out float4 fragColor)
 
 #define BLOOM_BOOST 1.0
 #ifdef INSTANCED_RENDERING
-    float4 bloomInput = BLOOM_BOOST * texture0.SampleLevel(sampler0, float3(uv, viewId), 1.0);
+    float4 bloomInput = BLOOM_BOOST * texture0.SampleLevel(sampler0, float3(uv, viewId), 0.0);
 #else
-    float4 bloomInput = BLOOM_BOOST * texture0.SampleLevel(sampler0, uv, 1.0);
+    float4 bloomInput = BLOOM_BOOST * texture0.SampleLevel(sampler0, uv, 0.0);
 #endif
     bloomInput = max(0, bloomInput);
+
+#ifdef DISABLED
+    for (int curLod = lod; curLod > 0; curLod--)
+    {
+        const float2 uv = fragCoord / iResolution.xy;
+#ifdef INSTANCED_RENDERING
+        bloomInput += max(0, texture0.SampleLevel(sampler0, float3(uv, viewId), float(curLod) - 1.0));
+#else
+        bloomInput += max(0, texture0.SampleLevel(sampler0, uv, float(curLod) - 1.0));
+#endif
+    }
+#endif
 
     // Skip blurring LOD 0 for performance
     if (lod == 0)
@@ -67,20 +93,30 @@ void mainImage(in float2 fragCoord, in uint viewId, out float4 fragColor)
         return;
     }
 
-    //const int rad = DOWNSAMPLE_BLUR_RADIUS;
-    const int rad = 2;
-    //const float sigma = float(rad) * 0.4;
+    //const int rad = 2;
+    const int rad = DOWNSAMPLE_BLUR_RADIUS;
+    const float sigma = float(rad) * 0.4; // Higher numbers do more blur
+    //const float sigma = float(rad) * bloomStr5;
+    //const float sigma = float(rad) * 0.25;
 
     float w = 0.0;
-    for (int y = -rad; y <= rad; y++)
+    //float delta = 1.0 / lod;
+    float delta = 1.0;
+    //float delta = 2.0 * lod;
+    float py = -delta * rad;
+    for (int y = -rad; y <= rad; y++, py += delta)
+    //int y = 0;
     {
-        const float wgY = weight[abs(y)];
-        for (int x = -rad; x <= rad; x++)
+        //const float wgY = weight[abs(y)];
+        float px = -delta * rad;
+        for (int x = -rad; x <= rad; x++, px += delta)
+        //int x = 0;
         {
-            const float wgX = weight[abs(x)];
-            const float2 o = float2(x, y);
-            const float wg = wgX * wgY;
-            //float wg = gaussian(o, sigma);
+            //const float wgX = weight[abs(x)];
+            //const float2 o = float2(x, y);
+            const float2 o = float2(px, py);
+            //const float wg = wgX * wgY;
+            float wg = gaussian(o, sigma);
             float2 p = uv + o / float2(res);
 
             // Clamp to edge

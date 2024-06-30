@@ -34,40 +34,6 @@ struct PixelShaderOutput
     float4 bloom : SV_TARGET1; // This is not needed, it's just for debugging the bloom buffer
 };
 
-// From http://www.chilliant.com/rgb2hsv.html
-static float Epsilon = 1e-10;
-
-float3 RGBtoHCV(in float3 RGB)
-{
-    // Based on work by Sam Hocevar and Emil Persson
-    float4 P = (RGB.g < RGB.b) ? float4(RGB.bg, -1.0, 2.0 / 3.0) : float4(RGB.gb, 0.0, -1.0 / 3.0);
-    float4 Q = (RGB.r < P.x) ? float4(P.xyw, RGB.r) : float4(RGB.r, P.yzx);
-    float C = Q.x - min(Q.w, Q.y);
-    float H = abs((Q.w - Q.y) / (6 * C + Epsilon) + Q.z);
-    return float3(H, C, Q.x);
-}
-
-float3 HUEtoRGB(in float H)
-{
-    float R = abs(H * 6 - 3) - 1;
-    float G = 2 - abs(H * 6 - 2);
-    float B = 2 - abs(H * 6 - 4);
-    return saturate(float3(R, G, B));
-}
-
-float3 RGBtoHSV(in float3 RGB)
-{
-    float3 HCV = RGBtoHCV(RGB);
-    float S = HCV.y / (HCV.z + Epsilon);
-    return float3(HCV.x, S, HCV.z);
-}
-
-float3 HSVtoRGB(in float3 HSV)
-{
-    float3 RGB = HUEtoRGB(HSV.x);
-    return ((RGB - 1) * HSV.y + 1) * HSV.z;
-}
-
 float3 ReHue(float3 RGB)
 {
     float3 HSV = RGBtoHSV(RGB);
@@ -198,14 +164,6 @@ float4 SampleLodBlurred(float2 uv, float2 res, const int lod, const uint viewId)
     return result;
 }
 
-float3 increaseSaturation(float3 col, float saturationStrength /*, float hueDelta */)
-{
-    float3 HSV = RGBtoHSV(col);
-    HSV.y = saturate(HSV.y * saturationStrength);
-    //HSV.x += hueDelta;
-    return saturate(HSVtoRGB(HSV));
-}
-
 float4 mainImage(in float2 fragCoord, const uint viewId, out float4 bloom_out)
 {
     const float2 uv = fragCoord / iResolution.xy;
@@ -216,9 +174,16 @@ float4 mainImage(in float2 fragCoord, const uint viewId, out float4 bloom_out)
     bloom += bloomStr1 * SampleLod(uv, iResolution.xy, 1, viewId).rgb;
     bloom += bloomStr2 * SampleLod(uv, iResolution.xy, 2, viewId).rgb;
 
-    bloom += bloomStr3 * SampleLodBlurred(uv, iResolution.xy, 3, viewId).rgb;
-    bloom += bloomStr4 * SampleLodBlurred(uv, iResolution.xy, 4, viewId).rgb;
-    //bloom += bloomStr5 * SampleLodBlurred(uv, iResolution.xy, 5, viewId).rgb;
+    //bloom += pow(abs(SampleLodBlurred(uv, iResolution.xy, 0, viewId).rgb), bloomStr0);
+    //bloom += pow(abs(SampleLodBlurred(uv, iResolution.xy, 1, viewId).rgb), bloomStr1);
+    //bloom += pow(abs(SampleLod(uv, iResolution.xy, 2, viewId).rgb), bloomStr2);
+    //bloom += bloomStr2 * SampleLod(uv, iResolution.xy, 2, viewId).rgb;
+
+    bloom += bloomStr3 * SampleLod(uv, iResolution.xy, 3, viewId).rgb;
+    bloom += bloomStr4 * SampleLod(uv, iResolution.xy, 4, viewId).rgb;
+    bloom += bloomStr5 * SampleLod(uv, iResolution.xy, 5, viewId).rgb;
+
+    bloom_out = float4(bloom, 1);
 
     //bloom += bloomStr0 * SampleLodBlurred(uv, iResolution.xy, 0, viewId).rgb;
     //bloom += bloomStr1 * SampleLodBlurred(uv, iResolution.xy, 1, viewId).rgb;
@@ -253,7 +218,7 @@ float4 mainImage(in float2 fragCoord, const uint viewId, out float4 bloom_out)
     bloom += pow(abs(SampleLod(uv, iResolution.xy, 5, viewId).rgb), bloomStr5);*/
 
     //col = max(0, col) / 6.0;
-    bloom = max(0, bloom);
+    //bloom = max(0, bloom);
     //bloom_out = float4(bloom, 1);
     //col = 16.0 * max(0, col);
     //col = ReinhardExtLuma(col, 2.5);
@@ -263,21 +228,28 @@ float4 mainImage(in float2 fragCoord, const uint viewId, out float4 bloom_out)
     //float3 bloom = pow(abs(linearTosRGB(col / (col + 1))), b2pExponent);
 
     // Apply tone mapping
-    //bloom = bloom / (bloom + 1);
+    bloom = bloom / (bloom + 1);
     //bloom = ReinhardExtLuma(bloom, 2.5);
     //bloom = ReinhardExt(bloom, 2.5);
-    bloom = ACESFilm(bloom);
+    //bloom = ACESFilm(bloom);
     //bloom = Uncharted2TonemapPartial(bloom);
     //bloom = Uncharted2Tonemap(bloom);
 
     // Increase color saturation
-    bloom = increaseSaturation(bloom, b2pSaturationStr /*, bloomStr5 */);
+    //bloom = increaseSaturation(bloom, b2pSaturationStr);
+    bloom = superSaturate(bloom, b2pSaturationStr);
+
+    //bloom = increaseSaturation(bloom, bloomStr0);
     //bloom = ReHue(increaseSaturation(bloom, b2pSaturationStr, bloomStr5));
     //bloom = increaseSaturation(bloom, saturationStrength);
 
+    /*float3 HSV = RGBtoHSV(bloom);
+    HSV.y = saturate(lerp(HSV.y, HSV.y * saturationStrength, HSV.z));
+    bloom = saturate(HSVtoRGB(HSV));*/
+
     // Gamma correction (approx)
     //bloom = sqrt(bloom);
-    bloom = pow(abs(bloom), b2pExponent);
+    //bloom = pow(abs(bloom), b2pExponent);
 
 #ifdef INSTANCED_RENDERING
     float4 ofsColor = offscreenBuf.Sample(sampler0, float3(uv, viewId));
@@ -287,7 +259,7 @@ float4 mainImage(in float2 fragCoord, const uint viewId, out float4 bloom_out)
     // Screen blending mode
     ofsColor.rgb = 1 - (1 - ofsColor.rgb) * (1 - bloom);
 
-    bloom_out = float4(bloom, 1);
+    //bloom_out = float4(bloom, 1);
     return ofsColor;
 }
 

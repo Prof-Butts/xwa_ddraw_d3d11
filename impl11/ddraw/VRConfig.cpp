@@ -2172,10 +2172,28 @@ bool LoadBloomParams() {
 				g_fBloomLayerMult[9] = fValue;
 			}
 
+			// Bloom strength per pyramid level
+			else if (_stricmp(param, "2pass_bloom_layer_mult_0") == 0) {
+				g_fBloomLayerMult[0] = fValue;
+			}
+			else if (_stricmp(param, "2pass_bloom_layer_mult_1") == 0) {
+				g_fBloomLayerMult[1] = fValue;
+			}
+			else if (_stricmp(param, "2pass_bloom_layer_mult_2") == 0) {
+				g_fBloomLayerMult[2] = fValue;
+			}
+			else if (_stricmp(param, "2pass_bloom_layer_mult_3") == 0) {
+				g_fBloomLayerMult[3] = fValue;
+			}
+			else if (_stricmp(param, "2pass_bloom_layer_mult_4") == 0) {
+				g_fBloomLayerMult[4] = fValue;
+			}
+			else if (_stricmp(param, "2pass_bloom_layer_mult_5") == 0) {
+				g_fBloomLayerMult[5] = fValue;
+			}
 			else if (_stricmp(param, "2pass_bloom_sat_strength") == 0) {
 				g_BloomPSCBuffer.b2pSaturationStr = fValue;
 			}
-
 			else if (_stricmp(param, "2pass_bloom_exponent") == 0) {
 				g_BloomPSCBuffer.b2pExponent = fValue;
 			}

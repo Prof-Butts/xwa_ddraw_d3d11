@@ -68,9 +68,9 @@ void mainImage(in float2 fragCoord, in uint viewId, out float4 fragColor)
 
 #define BLOOM_BOOST 1.0
 #ifdef INSTANCED_RENDERING
-    float4 bloomInput = BLOOM_BOOST * texture0.SampleLevel(sampler0, float3(uv, viewId), 0.0);
+    float4 bloomInput = BLOOM_BOOST * texture0.SampleLevel(sampler0, float3(uv, viewId), 1.0);
 #else
-    float4 bloomInput = BLOOM_BOOST * texture0.SampleLevel(sampler0, uv, 0.0);
+    float4 bloomInput = BLOOM_BOOST * texture0.SampleLevel(sampler0, uv, 1.0);
 #endif
     bloomInput = max(0, bloomInput);
 
@@ -94,10 +94,20 @@ void mainImage(in float2 fragCoord, in uint viewId, out float4 fragColor)
     }
 
     //const int rad = 2;
+    const float lodLinear = lod / (float)(MAX_LOD - 1);
+    //const float exponent = lerp(1.0, 0.6, lodLinear);
     const int rad = DOWNSAMPLE_BLUR_RADIUS;
-    const float sigma = float(rad) * 0.4; // Higher numbers do more blur
+    //const int rad = 3;
+    //const int rad = max(2, ceil(DOWNSAMPLE_BLUR_RADIUS * bloomStr0 * lodLinear));
+    //const int rad = 2 * lod;
+    //const float sigma = float(rad); // Higher numbers do more blur
+    //const float sigma = float(rad) * 0.4; // Higher numbers do more blur
+    //const float sigma = float(rad) * (lod * 0.5); // Higher numbers do more blur
     //const float sigma = float(rad) * bloomStr5;
-    //const float sigma = float(rad) * 0.25;
+    const float sigma = float(rad) * 0.5;
+    //const float bloomBoost = max(1.0, 0.4 * lod);
+    //const float bloomBoost = 1.0;
+    const float bloomBoost = max(1.0, 1.0 + lodLinear * 2.0);
 
     float w = 0.0;
     //float delta = 1.0 / lod;
@@ -120,16 +130,16 @@ void mainImage(in float2 fragCoord, in uint viewId, out float4 fragColor)
             float2 p = uv + o / float2(res);
 
             // Clamp to edge
-            p = clamp(p, 0.5 / res, (res - 0.5) / res);
+            //p = clamp(p, 0.5 / res, (res - 0.5) / res);
 
             // Clamp to border
-            //const float2 q = clamp(p, 0.5 / res, (res - 0.5) / res);
-            //if (p.x == q.x && p.y == q.y)
+            const float2 q = clamp(p, 0.5 / res, (res - 0.5) / res);
+            if (p.x == q.x && p.y == q.y)
             {
 #ifdef INSTANCED_RENDERING
-                bloomInput = BLOOM_BOOST * max(0, texture0.SampleLevel(sampler0, float3(p, viewId), float(lod)));
+                bloomInput = bloomBoost * max(0, texture0.SampleLevel(sampler0, float3(p, viewId), float(lod)));
 #else
-                bloomInput = BLOOM_BOOST * max(0, texture0.SampleLevel(sampler0, p, float(lod)));
+                bloomInput = bloomBoost * max(0, texture0.SampleLevel(sampler0, p, float(lod)));
 #endif
                 fragColor += wg * bloomInput;
             }

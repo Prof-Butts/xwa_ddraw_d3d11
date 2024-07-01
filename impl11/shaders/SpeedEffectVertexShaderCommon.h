@@ -8,10 +8,10 @@
 
 struct VertexShaderInput
 {
-    float4 pos : POSITION;
-    float4 color : COLOR0;
+    float4 pos      : POSITION;
+    float4 color    : COLOR0;
     float4 specular : COLOR1;
-    float2 tex : TEXCOORD;
+    float2 tex      : TEXCOORD;
 #ifdef INSTANCED_RENDERING
 	uint   instId   : SV_InstanceID;
 #endif
@@ -19,9 +19,10 @@ struct VertexShaderInput
 
 struct PixelShaderInput
 {
-    float4 pos : SV_POSITION;
-    float4 color : COLOR0;
-    float2 tex : TEXCOORD;
+    float4 pos    : SV_POSITION;
+    float4 color  : COLOR0;
+    float2 tex    : TEXCOORD;
+	float3 pos3D  : TEXCOORD1;
 #ifdef INSTANCED_RENDERING
 	uint   viewId : SV_RenderTargetArrayIndex;
 #endif
@@ -31,6 +32,7 @@ PixelShaderInput main(VertexShaderInput input)
 {
     PixelShaderInput output;
     float fadeout = 1.0; // Used in VR mode to fade out the particles near the edges of the screen
+	output.pos3D = input.pos.xyw;
 
 	// SBS/SteamVR:
 	//output.pos = mul(projEyeMatrix, input.pos);
@@ -101,8 +103,8 @@ PixelShaderInput main(VertexShaderInput input)
 	}
 #endif
 
-    output.color = fadeout * input.color.zyxw;
-    output.tex = input.tex;
+    output.color  = fadeout * input.color.zyxw;
+    output.tex    = input.tex;
 #ifdef INSTANCED_RENDERING
 	// Pass forward the instance ID to choose the right RTV for each eye
 	output.viewId = input.instId;

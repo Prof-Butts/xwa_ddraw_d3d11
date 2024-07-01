@@ -6006,15 +6006,6 @@ inline void ProjectSpeedPoint(const Matrix4 &ViewMatrix, D3DTLVERTEX *particles,
 	particles[idx].sy = FOVFactor * (P.y / P.z) + y_center;
 	particles[idx].sz = 0.0f; // We need to do this or the point will be clipped by DX. Setting it to 2.0 will clip it
 	particles[idx].rhw = P.z; // Only used in VR to back-project (Ignored in non-VR mode)
-	/*}
-	else {
-		// In VR, we leave the point in 3D, and we change the coordinates to match SteamVR's coord sys
-		// This code won't work well until I figure out how to apply FOVscale and y_center in VR mode.
-		particles[idx].sx =  P.x;
-		particles[idx].sy =  P.y;
-		particles[idx].sz = -P.z;
-	}
-	*/
 }
 
 inline void PrimarySurface::AddSpeedPoint(const Matrix4 &ViewMatrix, D3DTLVERTEX *particles,
@@ -6308,7 +6299,7 @@ void PrimarySurface::RenderSpeedEffect()
 	// input: None
 	// output: renderTargetViewPost
 	{
-		if (g_bEnableVR) 
+		if (g_bEnableVR)
 		{
 			// This should be the same viewport used in the Execute() function
 			// Set the new viewport (a full quad covering the full screen)
@@ -6325,7 +6316,16 @@ void PrimarySurface::RenderSpeedEffect()
 			resources->InitViewport(&viewport);
 		}
 		else
-			resources->InitViewport(&g_nonVRViewport);
+		{
+			viewport.Width    = g_fCurScreenWidth;
+			viewport.Height   = g_fCurScreenHeight;
+			viewport.TopLeftX = 0.0f;
+			viewport.TopLeftY = 0.0f;
+			viewport.MinDepth = D3D11_MIN_DEPTH;
+			viewport.MaxDepth = D3D11_MAX_DEPTH;
+			resources->InitViewport(&viewport);
+			//resources->InitViewport(&g_nonVRViewport);
+		}
 
 		// We don't need to clear the current vertex and pixel constant buffers.
 		// Since we've just finished rendering 3D, they should contain values that
@@ -6338,13 +6338,13 @@ void PrimarySurface::RenderSpeedEffect()
 		g_VSCBuffer.bPreventTransform	=  0.0f;
 		if (g_bEnableVR)
 		{
-			g_VSCBuffer.bFullTransform = 1.0f; // Setting bFullTransform tells the VS to use VR projection matrices
+			g_VSCBuffer.bFullTransform   = 1.0f; // Setting bFullTransform tells the VS to use VR projection matrices
 			g_VSCBuffer.viewportScale[0] = 1.0f / resources->_displayWidth;
 			g_VSCBuffer.viewportScale[1] = 1.0f / resources->_displayHeight;
 		}
 		else
 		{
-			g_VSCBuffer.bFullTransform = 0.0f; // Setting bFullTransform tells the VS to use VR projection matrices
+			g_VSCBuffer.bFullTransform   =  0.0f; // Setting bFullTransform tells the VS to use VR projection matrices
 			g_VSCBuffer.viewportScale[0] =  2.0f / resources->_displayWidth;
 			g_VSCBuffer.viewportScale[1] = -2.0f / resources->_displayHeight;
 		}
@@ -6355,12 +6355,19 @@ void PrimarySurface::RenderSpeedEffect()
 		resources->InitVSConstantBuffer3D(resources->_VSConstantBuffer.GetAddressOf(), &g_VSCBuffer);
 		resources->InitVSConstantBufferMatrix(resources->_VSMatrixBuffer.GetAddressOf(), &g_VSMatrixCB);
 
-		context->ClearRenderTargetView(resources->_renderTargetViewPost, bgColor);
+		//context->ClearRenderTargetView(resources->_renderTargetViewPost, bgColor);
 		// Set the RTV:
 		ID3D11RenderTargetView *rtvs[1] = {
-			resources->_renderTargetViewPost.Get(), // Render to offscreenBufferPost instead of offscreenBuffer
+			//resources->_renderTargetViewPost.Get(), // Render to offscreenBufferPost instead of offscreenBuffer
+			resources->_renderTargetView.Get(), // Render directly to the offscreenBuffer
 		};
 		context->OMSetRenderTargets(1, rtvs, NULL);
+
+		ID3D11ShaderResourceView *SRVs[1] = {
+			resources->_depthBufSRV.Get(), // 4: Depth buffer
+		};
+		context->PSSetShaderResources(4, 1, SRVs);
+
 		if (g_bUseSteamVR)
 			context->DrawInstanced(NumParticleVertices, 2, 0, 0); // if (g_bUseSteamVR)
 		else
@@ -6385,6 +6392,7 @@ void PrimarySurface::RenderSpeedEffect()
 	}
 
 	// Second render: compose the cockpit over the previous effect
+	if (false)
 	{
 		// Reset the viewport for non-VR mode, post-proc viewport (cover the whole screen)
 		viewport.TopLeftX = 0.0f;
@@ -6470,7 +6478,7 @@ void PrimarySurface::RenderSpeedEffect()
 	}
 
 	// Copy the result (_offscreenBufferPost) to the _offscreenBuffer so that it gets displayed
-	context->CopyResource(resources->_offscreenBuffer, resources->_offscreenBufferPost);
+	//context->CopyResource(resources->_offscreenBuffer, resources->_offscreenBufferPost);
 
 	// Restore previous rendertarget, etc
 	resources->InitInputLayout(resources->_inputLayout); // Not sure this is really needed
@@ -10851,11 +10859,11 @@ HRESULT PrimarySurface::Flip(
 				desc.StencilEnable = FALSE;
 				resources->InitDepthStencilState(depthState, &desc);
 
-				context->ResolveSubresource(resources->_offscreenBufferAsInput, 0, resources->_offscreenBuffer, 0, BACKBUFFER_FORMAT);
+				/*context->ResolveSubresource(resources->_offscreenBufferAsInput, 0, resources->_offscreenBuffer, 0, BACKBUFFER_FORMAT);
 				if (g_bUseSteamVR)
 					context->ResolveSubresource(
 						resources->_offscreenBufferAsInput, D3D11CalcSubresource(0, 1, 1),
-						resources->_offscreenBuffer, D3D11CalcSubresource(0, 1, 1), BACKBUFFER_FORMAT);
+						resources->_offscreenBuffer, D3D11CalcSubresource(0, 1, 1), BACKBUFFER_FORMAT);*/
 				RenderSpeedEffect();
 			}
 

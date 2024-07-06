@@ -11021,13 +11021,13 @@ HRESULT PrimarySurface::Flip(
 					context->CopySubresourceRegion(resources->_offscreenBufferAsInputBloomMaskMipMaps,
 						D3D11CalcSubresource(0, 0, MAX_BLOOM_MIP_LEVELS), 0, 0, 0,
 						resources->_offscreenBufferAsInputBloomMask,
-						D3D11CalcSubresource(0, 0, MAX_BLOOM_MIP_LEVELS), NULL);
+						D3D11CalcSubresource(0, 0, 1), NULL);
 					if (g_bUseSteamVR)
 					{
 						context->CopySubresourceRegion(resources->_offscreenBufferAsInputBloomMaskMipMaps,
 							D3D11CalcSubresource(0, 1, MAX_BLOOM_MIP_LEVELS), 0, 0, 0,
 							resources->_offscreenBufferAsInputBloomMask,
-							D3D11CalcSubresource(0, 1, MAX_BLOOM_MIP_LEVELS), NULL);
+							D3D11CalcSubresource(0, 1, 1), NULL);
 					}
 					context->GenerateMips(resources->_offscreenAsInputBloomMaskMipMapsSRV);
 

@@ -2,7 +2,6 @@
 #define B2P_COMMON_H
 
 #define DOWNSAMPLE_BLUR_RADIUS 5
-#define MAX_LOD 6
 
 // From http://www.chilliant.com/rgb2hsv.html
 static float Epsilon = 1e-10;

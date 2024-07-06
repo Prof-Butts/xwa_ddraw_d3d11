@@ -2630,11 +2630,6 @@ HRESULT DeviceResources::OnSizeChanged(HWND hWnd, DWORD dwWidth, DWORD dwHeight)
 				CD3D11_TEXTURE2D_DESC tmp = desc;
 				desc.Format = BLOOM_BUFFER_FORMAT;
 
-				desc.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET;
-				desc.MiscFlags = D3D11_RESOURCE_MISC_GENERATE_MIPS;
-				desc.MipLevels = 0; // MAX_MIP_LEVELS
-				desc.CPUAccessFlags = 0;
-
 				step = "_offscreenBufferAsInputBloomMask";
 				hr = this->_d3dDevice->CreateTexture2D(&desc, nullptr, &this->_offscreenBufferAsInputBloomMask);
 				if (FAILED(hr)) {
@@ -2643,6 +2638,10 @@ HRESULT DeviceResources::OnSizeChanged(HWND hWnd, DWORD dwWidth, DWORD dwHeight)
 					goto out;
 				}
 
+				desc.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET;
+				desc.MiscFlags = D3D11_RESOURCE_MISC_GENERATE_MIPS;
+				desc.MipLevels = MAX_BLOOM_MIP_LEVELS;
+				desc.CPUAccessFlags = 0;
 				step = "_offscreenBufferAsInputBloomMaskMipMaps";
 				hr = this->_d3dDevice->CreateTexture2D(&desc, nullptr, &this->_offscreenBufferAsInputBloomMaskMipMaps);
 				if (FAILED(hr)) {

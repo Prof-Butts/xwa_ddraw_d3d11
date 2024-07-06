@@ -89,6 +89,8 @@ OPTMeshTransformCBuffer       : register(b8)
 // that seems to work without specifying the maximum mip levels.
 #define MAX_MIP_LEVELS 9
 
+#define MAX_BLOOM_MIP_LEVELS 6
+
 // Labels defined at the C++ preprocessor level are not seen in shaders. Therefore,
 // we have to define them here so that both C++ files and HLSL files can see these
 // definitions.

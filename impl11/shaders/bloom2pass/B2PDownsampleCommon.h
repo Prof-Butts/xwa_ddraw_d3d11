@@ -48,7 +48,7 @@ void mainImage(in float2 fragCoord, in uint viewId, out float4 fragColor)
 
     float xpos = 0.0;
     int lod = 0;
-    for (; lod < MAX_LOD; lod++)
+    for (; lod < MAX_BLOOM_MIP_LEVELS; lod++)
     {
         xpos += res.x;
 
@@ -94,7 +94,7 @@ void mainImage(in float2 fragCoord, in uint viewId, out float4 fragColor)
     }
 
     //const int rad = 2;
-    const float lodLinear = lod / (float)(MAX_LOD - 1);
+    const float lodLinear = lod / (float)(MAX_BLOOM_MIP_LEVELS - 1);
     //const float exponent = lerp(1.0, 0.6, lodLinear);
     const int rad = DOWNSAMPLE_BLUR_RADIUS;
     //const int rad = 3;

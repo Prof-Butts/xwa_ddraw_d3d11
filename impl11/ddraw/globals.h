@@ -12,7 +12,7 @@
 // METRIC RECONSTRUCTION:
 extern bool g_bYCenterHasBeenFixed;
 
-extern bool g_bDisableBarrelEffect, g_bEnableVR, g_bResetHeadCenter, g_bBloomEnabled, g_bAOEnabled, g_bCustomFOVApplied;
+extern bool g_bDisableBarrelEffect, g_bEnableVR, g_bResetHeadCenter, g_bBloomEnabled, g_bBloom2PassEnabled, g_bAOEnabled, g_bCustomFOVApplied;
 extern bool g_b3DVisionEnabled, g_b3DVisionForceFullScreen;
 extern bool g_bEnableSSAOInShader, g_bEnableIndirectSSDO, g_bResetDC, g_bProceduralSuns, g_bEnableHeadLights;
 extern bool g_bShowSSAODebug, g_bShowNormBufDebug, g_bFNEnable, g_bGlobalSpecToggle, g_bToggleSkipDC, g_bFadeLights, g_bDisplayGlowMarks;

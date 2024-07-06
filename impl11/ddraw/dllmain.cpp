@@ -715,8 +715,10 @@ LRESULT CALLBACK MyWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam
 				return 0;
 
 			case 'B':
-				g_bDisableBarrelEffect = !g_bDisableBarrelEffect;
-				SaveVRParams();
+				//g_bDisableBarrelEffect = !g_bDisableBarrelEffect;
+				//SaveVRParams();
+				g_bBloom2PassEnabled = !g_bBloom2PassEnabled;
+				DisplayTimedMessage(3, 0, g_bBloom2PassEnabled ? "2-Pass Bloom" : "Regular Bloom");
 				return 0;
 			case 'R':
 				ResetVRParams();

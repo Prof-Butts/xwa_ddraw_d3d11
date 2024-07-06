@@ -39,8 +39,6 @@ extern float g_f0x080ACF8, g_f0x07B33C0, g_f0x064D1AC;
 // Set to true when rendering the default starfield during Flip()
 bool g_bUseExternalCameraState = false;
 
-extern bool g_bBloom2PassEnabled;
-
 // Text Rendering
 TimedMessage g_TimedMessages[MAX_TIMED_MESSAGES];
 
@@ -1567,7 +1565,7 @@ void PrimarySurface::BloomBasicPass(int pass, float fZoomFactor) {
 		context->DrawInstanced(6, 2, 0, 0); // if (g_bUseSteamVR)
 	else
 		context->Draw(6, 0);
-\
+
 	// Restore previous rendertarget, etc
 	// TODO: Is this really needed?
 	viewport.Width  = screen_res_x;
@@ -1589,6 +1587,7 @@ void PrimarySurface::BloomBasicPass(int pass, float fZoomFactor) {
  *		_offscreenBufferAsInputReshadeMask, _offscreenBufferAsInputReshadeMaskR (blurred and downsampled from this pass)
  */
 void PrimarySurface::BloomPyramidLevelPass(int PyramidLevel, int AdditionalPasses, float fZoomFactor, bool debug=false) {
+#undef BLOOM_DEBUG
 	this->_deviceResources->BeginAnnotatedEvent(L"BloomPyramidLevelPass");
 
 	auto &resources = this->_deviceResources;
@@ -1607,16 +1606,15 @@ void PrimarySurface::BloomPyramidLevelPass(int PyramidLevel, int AdditionalPasse
 	g_BloomPSCBuffer.bloomStrength		= g_fBloomLayerMult[PyramidLevel];
 	g_BloomPSCBuffer.saturationStrength = g_BloomConfig.fSaturationStrength;
 	g_BloomPSCBuffer.uvStepSize			= g_BloomConfig.uvStepSize1;
-	//g_BloomPSCBuffer.uvStepSize			= 1.5f;
 	resources->InitPSConstantBufferBloom(resources->_bloomConstantBuffer.GetAddressOf(), &g_BloomPSCBuffer);
 
-	// DEBUG
-	/*if (g_bDumpSSAOBuffers) {
+#ifdef BLOOM_DEBUG
+	if (g_bDumpSSAOBuffers) {
 		wchar_t filename[80];
 		swprintf_s(filename, 80, L"c:\\temp\\_offscreenInputBloomMask-%d.dds", PyramidLevel);
 		DirectX::SaveDDSTextureToFile(context, resources->_offscreenBufferAsInputBloomMask, filename);
-	}*/
-	// DEBUG
+	}
+#endif
 
 	// Initial Horizontal Gaussian Blur from Masked Buffer. input: reshade mask, output: bloom1
 	// This pass will downsample the image according to fViewportDivider:
@@ -1665,16 +1663,14 @@ void PrimarySurface::BloomPyramidLevelPass(int PyramidLevel, int AdditionalPasse
 	// The blur output will *always* be in bloom2, let's copy it to the bloom masks to reuse it for the
 	// next pass:
 	context->CopyResource(resources->_offscreenBufferAsInputBloomMask, resources->_bloomOutput2);
-	//if (g_bUseSteamVR)
-	//	context->CopyResource(resources->_offscreenBufferAsInputBloomMaskR, resources->_bloomOutput2R);
 
-	// DEBUG
-	/*if (g_bDumpSSAOBuffers) {
+#ifdef BLOOM_DEBUG
+	if (g_bDumpSSAOBuffers) {
 		wchar_t filename[80];
 		swprintf_s(filename, 80, L"c:\\temp\\_bloomInput-Level-%d.dds", PyramidLevel);
 		DirectX::SaveDDSTextureToFile(context, resources->_offscreenBufferAsInputBloomMask, filename);
-	}*/
-	// DEBUG
+	}
+#endif
 
 	g_BloomPSCBuffer.amplifyFactor = 1.0f / fZoomFactor;
 	resources->InitPSConstantBufferBloom(resources->_bloomConstantBuffer.GetAddressOf(), &g_BloomPSCBuffer);
@@ -1690,19 +1686,13 @@ void PrimarySurface::BloomPyramidLevelPass(int PyramidLevel, int AdditionalPasse
 	//if (g_bUseSteamVR)
 	//	context->CopyResource(resources->_bloomOutputSumR, resources->_bloomOutput1R);
 	this->_deviceResources->EndAnnotatedEvent();
-	// DEBUG
-	/*if (g_bDumpSSAOBuffers) {
+#ifdef BLOOM_DEBUG
+	if (g_bDumpSSAOBuffers) {
 		wchar_t filename[80];
 		swprintf_s(filename, 80, L"c:\\temp\\_bloomOutputSum-Level-%d.dds", PyramidLevel);
 		DirectX::SaveDDSTextureToFile(context, resources->_bloomOutputSum, filename);
-	}*/
-	// DEBUG
-
-	// To make this step compatible with the rest of the code, we need to copy the results
-	// to offscreenBuffer and offscreenBufferR (in SteamVR mode).
-	/*context->CopyResource(resources->_offscreenBuffer, resources->_bloomOutput1);
-	if (g_bUseSteamVR)
-		context->CopyResource(resources->_offscreenBufferR, resources->_bloomOutput1R);*/
+	}
+#endif
 
 	this->_deviceResources->EndAnnotatedEvent();
 }
@@ -11020,14 +11010,25 @@ HRESULT PrimarySurface::Flip(
 				// Initialize the accummulator buffer
 				float bgColor[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
 				context->ClearRenderTargetView(resources->_renderTargetViewBloomSum, bgColor);
-				if (g_bUseSteamVR)
-					context->ClearRenderTargetView(resources->_renderTargetViewBloomSumR, bgColor);
+				/*if (g_bUseSteamVR)
+					context->ClearRenderTargetView(resources->_renderTargetViewBloomSumR, bgColor);*/
 
 				if (g_bBloom2PassEnabled)
 				{
 					// Generate the mipmaps for the bloom buffer
-					context->CopyResource(resources->_offscreenBufferAsInputBloomMaskMipMaps,
-						resources->_offscreenBufferAsInputBloomMask);
+					/*context->CopyResource(resources->_offscreenBufferAsInputBloomMaskMipMaps,
+						resources->_offscreenBufferAsInputBloomMask);*/
+					context->CopySubresourceRegion(resources->_offscreenBufferAsInputBloomMaskMipMaps,
+						D3D11CalcSubresource(0, 0, MAX_BLOOM_MIP_LEVELS), 0, 0, 0,
+						resources->_offscreenBufferAsInputBloomMask,
+						D3D11CalcSubresource(0, 0, MAX_BLOOM_MIP_LEVELS), NULL);
+					if (g_bUseSteamVR)
+					{
+						context->CopySubresourceRegion(resources->_offscreenBufferAsInputBloomMaskMipMaps,
+							D3D11CalcSubresource(0, 1, MAX_BLOOM_MIP_LEVELS), 0, 0, 0,
+							resources->_offscreenBufferAsInputBloomMask,
+							D3D11CalcSubresource(0, 1, MAX_BLOOM_MIP_LEVELS), NULL);
+					}
 					context->GenerateMips(resources->_offscreenAsInputBloomMaskMipMapsSRV);
 
 					RenderBloom2Pass();
@@ -11055,7 +11056,6 @@ HRESULT PrimarySurface::Flip(
 					// Output: _offscreenBuffer
 					BloomBasicPass(5, 1.0f);
 				}
-				context->ClearRenderTargetView(resources->_renderTargetViewBloomSum, bgColor);
 
 				// DEBUG
 				/*if (g_iPresentCounter == 100 || g_bDumpBloomBuffers) {

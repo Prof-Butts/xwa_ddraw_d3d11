@@ -2172,6 +2172,9 @@ bool LoadBloomParams() {
 				g_fBloomLayerMult[9] = fValue;
 			}
 
+			else if (_stricmp(param, "2pass_bloom_enabled") == 0) {
+				g_bBloom2PassEnabled = (bool)fValue;
+			}
 			// Bloom strength per pyramid level
 			else if (_stricmp(param, "2pass_bloom_layer_mult_0") == 0) {
 				g_fBloomLayerMult[0] = fValue;

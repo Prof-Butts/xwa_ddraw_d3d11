@@ -164,25 +164,59 @@ float4 SampleLodBlurred(float2 uv, float2 res, const int lod, const uint viewId)
     return result;
 }
 
+inline float3 accumColors(float3 A, float3 B)
+{
+    //return 0.5 * (A + B);
+    //return A + B;
+    return 1 - (1 - A) * (1 - B); // screen blending mode
+}
+
 float4 mainImage(in float2 fragCoord, const uint viewId, out float4 bloom_out)
 {
     const float2 uv = fragCoord / iResolution.xy;
     float3 bloom = 0;
+    float3 tmp;
 
+    /*
     // Skip 3x3 blur on first 3 mips
-    bloom += bloomStr0 * SampleLod(uv, iResolution.xy, 0, viewId).rgb;
-    bloom += bloomStr1 * SampleLod(uv, iResolution.xy, 1, viewId).rgb;
-    bloom += bloomStr2 * SampleLod(uv, iResolution.xy, 2, viewId).rgb;
+    tmp = bloomStr0 * SampleLod(uv, iResolution.xy, 0, viewId).rgb;
+    bloom = accumColors(bloom, superSaturate(tmp / (tmp + 1), b2pSaturationStr));
+
+    tmp = superSaturate(bloom / (bloom + 1), b2pSaturationStr);
+    bloom = accumColors(bloom, superSaturate(tmp / (tmp + 1), b2pSaturationStr));
+    */
+
 
     //bloom += pow(abs(SampleLodBlurred(uv, iResolution.xy, 0, viewId).rgb), bloomStr0);
     //bloom += pow(abs(SampleLodBlurred(uv, iResolution.xy, 1, viewId).rgb), bloomStr1);
     //bloom += pow(abs(SampleLod(uv, iResolution.xy, 2, viewId).rgb), bloomStr2);
     //bloom += bloomStr2 * SampleLod(uv, iResolution.xy, 2, viewId).rgb;
 
-    bloom += bloomStr3 * SampleLod(uv, iResolution.xy, 3, viewId).rgb;
-    bloom += bloomStr4 * SampleLod(uv, iResolution.xy, 4, viewId).rgb;
-    bloom += bloomStr5 * SampleLod(uv, iResolution.xy, 5, viewId).rgb;
+    tmp = bloomStr5 * SampleLodBlurred(uv, iResolution.xy, 5, viewId).rgb;
+    bloom = accumColors(bloom, superSaturate(tmp / (tmp + 1), b2pSaturationStr));
 
+    tmp = bloomStr4 * SampleLodBlurred(uv, iResolution.xy, 4, viewId).rgb;
+    bloom = accumColors(bloom, superSaturate(tmp / (tmp + 1), b2pSaturationStr));
+
+    tmp = bloomStr3 * SampleLodBlurred(uv, iResolution.xy, 3, viewId).rgb;
+    bloom = accumColors(bloom, superSaturate(tmp / (tmp + 1), b2pSaturationStr));
+
+    tmp = bloomStr2 * SampleLod(uv, iResolution.xy, 2, viewId).rgb;
+    bloom = accumColors(bloom, superSaturate(tmp / (tmp + 1), b2pSaturationStr));
+    //bloom = accumColors(bloom, pow(abs(tmp / (tmp + 1)), b2pExponent));
+
+    tmp = bloomStr1 * SampleLod(uv, iResolution.xy, 1, viewId).rgb;
+    //bloom = pow(abs(accumColors(bloom, superSaturate(tmp / (tmp + 1), b2pSaturationStr))), b2pExponent);
+    bloom = accumColors(bloom, superSaturate(tmp / (tmp + 1), b2pSaturationStr));
+    //bloom = accumColors(bloom, pow(abs(tmp / (tmp + 1)), b2pExponent));
+
+    tmp = bloomStr0 * SampleLod(uv, iResolution.xy, 0, viewId).rgb;
+    //bloom = pow(abs(accumColors(bloom, superSaturate(tmp / (tmp + 1), b2pSaturationStr))), b2pExponent);
+    bloom = accumColors(bloom, superSaturate(tmp / (tmp + 1), b2pSaturationStr));
+    //bloom = accumColors(bloom, pow(abs(tmp / (tmp + 1)), b2pExponent));
+
+
+    //bloom /= 6.0;
     bloom_out = float4(bloom, 1);
 
     //bloom += bloomStr0 * SampleLodBlurred(uv, iResolution.xy, 0, viewId).rgb;
@@ -228,7 +262,8 @@ float4 mainImage(in float2 fragCoord, const uint viewId, out float4 bloom_out)
     //float3 bloom = pow(abs(linearTosRGB(col / (col + 1))), b2pExponent);
 
     // Apply tone mapping
-    bloom = bloom / (bloom + 1);
+    //bloom = bloom / (bloom + 1);
+
     //bloom = ReinhardExtLuma(bloom, 2.5);
     //bloom = ReinhardExt(bloom, 2.5);
     //bloom = ACESFilm(bloom);
@@ -236,8 +271,7 @@ float4 mainImage(in float2 fragCoord, const uint viewId, out float4 bloom_out)
     //bloom = Uncharted2Tonemap(bloom);
 
     // Increase color saturation
-    //bloom = increaseSaturation(bloom, b2pSaturationStr);
-    bloom = superSaturate(bloom, b2pSaturationStr);
+    //bloom = superSaturate(bloom, b2pSaturationStr);
 
     //bloom = increaseSaturation(bloom, bloomStr0);
     //bloom = ReHue(increaseSaturation(bloom, b2pSaturationStr, bloomStr5));

@@ -98,7 +98,7 @@ void mainImage(in float2 fragCoord, in uint viewId, out float4 fragColor)
     //const float exponent = lerp(1.0, 0.6, lodLinear);
     const int rad = DOWNSAMPLE_BLUR_RADIUS;
     //const int rad = 3;
-    //const int rad = max(2, ceil(DOWNSAMPLE_BLUR_RADIUS * bloomStr0 * lodLinear));
+    //const int rad = max(3, ceil(3.0 * DOWNSAMPLE_BLUR_RADIUS * (1.0 - lodLinear)));
     //const int rad = 2 * lod;
     //const float sigma = float(rad); // Higher numbers do more blur
     //const float sigma = float(rad) * 0.4; // Higher numbers do more blur

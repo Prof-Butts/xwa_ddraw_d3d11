@@ -185,6 +185,7 @@ float g_fBloomLayerMult[MAX_BLOOM_PASSES + 1] = {
 	1.070f, // 6
 	1.100f, // 7
 };
+
 float g_fBloomSpread[MAX_BLOOM_PASSES + 1] = {
 	2.0f, // 0
 	3.0f, // 1
@@ -195,6 +196,7 @@ float g_fBloomSpread[MAX_BLOOM_PASSES + 1] = {
 	4.0f, // 6
 	4.0f, // 7
 };
+
 int g_iBloomPasses[MAX_BLOOM_PASSES + 1] = {
 	1, 1, 1, 1, 1, 1, 1, 1
 };
@@ -2177,22 +2179,22 @@ bool LoadBloomParams() {
 			}
 			// Bloom strength per pyramid level
 			else if (_stricmp(param, "2pass_bloom_layer_mult_0") == 0) {
-				g_fBloomLayerMult[0] = fValue;
+				g_BloomPSCBuffer.bloomStr0 = fValue;
 			}
 			else if (_stricmp(param, "2pass_bloom_layer_mult_1") == 0) {
-				g_fBloomLayerMult[1] = fValue;
+				g_BloomPSCBuffer.bloomStr1 = fValue;
 			}
 			else if (_stricmp(param, "2pass_bloom_layer_mult_2") == 0) {
-				g_fBloomLayerMult[2] = fValue;
+				g_BloomPSCBuffer.bloomStr2 = fValue;
 			}
 			else if (_stricmp(param, "2pass_bloom_layer_mult_3") == 0) {
-				g_fBloomLayerMult[3] = fValue;
+				g_BloomPSCBuffer.bloomStr3 = fValue;
 			}
 			else if (_stricmp(param, "2pass_bloom_layer_mult_4") == 0) {
-				g_fBloomLayerMult[4] = fValue;
+				g_BloomPSCBuffer.bloomStr4 = fValue;
 			}
 			else if (_stricmp(param, "2pass_bloom_layer_mult_5") == 0) {
-				g_fBloomLayerMult[5] = fValue;
+				g_BloomPSCBuffer.bloomStr5 = fValue;
 			}
 			else if (_stricmp(param, "2pass_bloom_sat_strength") == 0) {
 				g_BloomPSCBuffer.b2pSaturationStr = fValue;
@@ -2269,13 +2271,6 @@ bool LoadBloomParams() {
 	g_BloomPSCBuffer.bloomStr3 = 1.0f / g_fBloomLayerMult[3];
 	g_BloomPSCBuffer.bloomStr4 = 1.0f / g_fBloomLayerMult[4];
 	g_BloomPSCBuffer.bloomStr5 = 1.0f / g_fBloomLayerMult[5];
-#else
-	g_BloomPSCBuffer.bloomStr0 = g_fBloomLayerMult[0];
-	g_BloomPSCBuffer.bloomStr1 = g_fBloomLayerMult[1];
-	g_BloomPSCBuffer.bloomStr2 = g_fBloomLayerMult[2];
-	g_BloomPSCBuffer.bloomStr3 = g_fBloomLayerMult[3];
-	g_BloomPSCBuffer.bloomStr4 = g_fBloomLayerMult[4];
-	g_BloomPSCBuffer.bloomStr5 = g_fBloomLayerMult[5];
 #endif
 
 	log_debug("[DBG] Reshade Enabled: %d", g_bReshadeEnabled);

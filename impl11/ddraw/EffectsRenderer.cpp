@@ -2342,6 +2342,7 @@ void EffectsRenderer::SceneBegin(DeviceResources* deviceResources)
 		bool bGunnerTurret = PlayerDataTable[*g_playerIndex].gunnerTurretActive;
 		int hyperspacePhase = PlayerDataTable[*g_playerIndex].hyperspacePhase;
 		CraftInstance* craftInstance = GetPlayerCraftInstanceSafe();
+		_currentTargetObjectId = CurrentTargetToObjectId();
 
 		// Set either the Cockpit or Gunner Turret POV Offsets into the proper shared memory slots
 		// THIS SHOULD BE THE ONLY SPOT WHERE WE WRITE TO g_pSharedDataCockpitLook->POVOffsetX/Y/Z
@@ -5021,6 +5022,56 @@ void EffectsRenderer::ApplyRTShadowsTechRoom(const SceneCompData* scene)
 	context->PSSetShaderResources(14, 2, srvs);
 }
 
+bool GetCurrentTargetStats(int* shields, int* hull, int* system)
+{
+	if (g_iPresentCounter <= PLAYERDATATABLE_MIN_SAFE_FRAME) return false;
+	if (objects == NULL || *objects == NULL) return false;
+	if (g_playerIndex == NULL) return false;
+	if (g_playerInHangar == NULL || *g_playerInHangar) return false;
+	const int currentTargetIndex = PlayerDataTable[*g_playerIndex].currentTargetIndex;
+	if (currentTargetIndex < 0) return false;
+
+	ObjectEntry *object = &((*objects)[currentTargetIndex]);
+	MobileObjectEntry *mobileObject = object->MobileObjectPtr;
+	CraftInstance *craftInstance = mobileObject->craftInstancePtr;
+
+	*hull = max(0, (int)(100.0f * (1.0f - (float)craftInstance->HullDamageReceived / (float)craftInstance->HullStrength)));
+	*shields = craftInstance->ShieldPointsBack + craftInstance->ShieldPointsFront;
+	*system = craftInstance->SystemStrength;
+
+	return true;
+}
+
+int EffectsRenderer::CurrentTargetToObjectId()
+{
+	if (g_iPresentCounter <= PLAYERDATATABLE_MIN_SAFE_FRAME) return -1;
+	if (objects == NULL || *objects == NULL) return -1;
+	if (g_playerIndex == NULL) return -1;
+	if (g_playerInHangar == NULL || *g_playerInHangar) return -1;
+	const int currentTargetIndex = PlayerDataTable[*g_playerIndex].currentTargetIndex;
+	if (currentTargetIndex < 0) return -1;
+
+	ObjectEntry *object = &((*objects)[currentTargetIndex]);
+	MobileObjectEntry *mobileObject = object->MobileObjectPtr;
+	CraftInstance *craftInstance = mobileObject->craftInstancePtr;
+
+	int hull = max(0, (int)(100.0f * (1.0f - (float)craftInstance->HullDamageReceived / (float)craftInstance->HullStrength)));
+	int shields = craftInstance->ShieldPointsBack + craftInstance->ShieldPointsFront;
+	int system = craftInstance->SystemStrength;
+
+	/*
+	log_debug_vr("SHD: %d, HULL: %d, SYS: %d",
+		shields, hull, system);
+	log_debug_vr("InitSubs: %d, Subs: %d",
+		craftInstance->InitialSubsystems, craftInstance->SubsystemStatus);
+	log_debug_vr("field_106: %d, field_10A: %d",
+		craftInstance->field_106, craftInstance->field_10A);
+	*/
+
+	//return (*objects)[currentTargetIndex].objectID;
+	return object->objectID;
+}
+
 /*
  * Returns the CraftInstance associated to an objectId. Uses g_objectIdToIndex
  * to check if objectId has been cached. If it isn't, then *objects is searched
@@ -5673,6 +5724,27 @@ void EffectsRenderer::MainSceneHook(const SceneCompData* scene)
 	_bModifiedPixelShader = false;
 	_bModifiedBlendState = false;
 	_bModifiedSamplerState = false;
+
+	const bool g_bRenderEnhancedHUD = false;
+	if (g_bRenderEnhancedHUD)
+	{
+		if (_currentTargetObjectId == objectId)
+		{
+			_bModifiedPixelShader = true;
+			if (scene->pMeshDescriptor->MeshType == MeshType::RotaryWing)
+			{
+				g_PSCBuffer.rand2 = 100.0f;
+				/*log_debug_vr("[DBG] MeshType: %d, Mesh: 0x%x",
+					scene->pMeshDescriptor->MeshType,
+					scene->pMeshDescriptor);*/
+			}
+		}
+		else
+		{
+			_bModifiedPixelShader = true;
+			g_PSCBuffer.rand2 = 0.0f;
+		}
+	}
 
 	// Apply specific material properties for the current texture
 	ApplyMaterialProperties();

@@ -77,6 +77,8 @@ void EmulMouseWithVRControllers();
 
 int MakeKeyFromGroupIdImageId(int groupId, int imageId);
 
+bool GetCurrentTargetStats(int* shields, int* hull, int* system);
+
 void SetPresentCounter(int val, int bResetReticle) {
 	g_iPresentCounter = val;
 	if (g_pSharedDataCockpitLook != nullptr && g_SharedMemCockpitLook.IsDataReady() && bResetReticle) {
@@ -12533,6 +12535,7 @@ void PrimarySurface::RenderText()
 		float x = (float)s_left + (float)xwaText.positionX * s_scaleX;
 		float y = (float)s_top + (float)xwaText.positionY * s_scaleY;
 
+		//textLayout->SetFontStretch(DWRITE_FONT_STRETCH_ULTRA_EXPANDED, { 0, 256 });
 		this->_deviceResources->_d2d1RenderTarget->DrawTextLayout(
 			D2D1_POINT_2F{ x, y },
 			textLayout,
@@ -12702,6 +12705,7 @@ out:
 		float x = (float)s_left + (float)xwaText.positionX * s_scaleX;
 		float y = (float)s_top + (float)xwaText.positionY * s_scaleY;
 
+		//textLayout->SetFontStretch(DWRITE_FONT_STRETCH_ULTRA_EXPANDED, { 0, 256 });
 		this->_deviceResources->_d2d1RenderTarget->DrawTextLayout(
 			D2D1_POINT_2F{ x, y },
 			textLayout,
@@ -12940,6 +12944,17 @@ void PrimarySurface::RenderBracket()
 
 			esi = (eax << 3) | (ecx << 5) | (edx << 8);
 		}
+		const uint8_t R = 0xFF & (esi >> 16);
+		const uint8_t G = 0xFF & (esi >> 8);
+		const uint8_t B = 0xFF & esi;
+
+		// Subsystems brackets are green:
+		const bool subSysBracket = (R < 128 && G > 220 && B < 128);
+		// Target brackets are either red or yellow:
+		const bool curTargetBracket = (R > 200 && B < 128);
+
+		log_debug_vr("subSys: %d, curTarg: %d, [%d, %d, %d], idx: %d",
+			subSysBracket, curTargetBracket, R, G, B, xwaBracket.colorIndex);
 
 		if (esi != brushColor)
 		{
@@ -12954,7 +12969,25 @@ void PrimarySurface::RenderBracket()
 		float posH = (float)xwaBracket.height * s_scaleY;
 		float posSide = 0.125;
 
-		float strokeWidth = 2.0f * min(s_scaleX, s_scaleY);
+		float centerX = posX + posW * 0.5f;
+		float centerY = posY + posH * 0.5f;
+
+		const bool g_bEnableEnhancedBrackets = true;
+		static float variableScale = 0.0f;
+
+		// Original version:
+		//float strokeWidth = 2.0f * min(s_scaleX, s_scaleY);
+		float extraScale = 2.0f;
+		if (g_bEnableEnhancedBrackets && subSysBracket)
+		{
+			extraScale += variableScale;
+			posSide += 0.03f * variableScale;
+		}
+		float strokeWidth = extraScale * min(s_scaleX, s_scaleY);
+
+		// Update variableScale:
+		variableScale += 3.0f * g_HiResTimer.elapsed_s;
+		if (variableScale > 5.0f) variableScale = 0.0f;
 
 		bool fill = xwaBracket.width <= 4 || xwaBracket.height <= 4;
 		// Select the DC RTV if this bracket was classified as belonging to
@@ -12983,6 +13016,13 @@ void PrimarySurface::RenderBracket()
 			// bottom right
 			rtv->DrawLine(D2D1::Point2F(posX + posW - posW * posSide, posY + posH), D2D1::Point2F(posX + posW, posY + posH), s_brush, strokeWidth);
 			rtv->DrawLine(D2D1::Point2F(posX + posW, posY + posH - posH * posSide), D2D1::Point2F(posX + posW, posY + posH), s_brush, strokeWidth);
+
+			if (curTargetBracket)
+			{
+				rtv->DrawLine(D2D1::Point2F(posX, posY), D2D1::Point2F(posX + posW, posY + posH), s_brush, strokeWidth);
+				rtv->DrawLine(D2D1::Point2F(posX + posW, posY), D2D1::Point2F(posX, posY + posH), s_brush, strokeWidth);
+				//rtv->DrawTextLayout(D2D1_POINT_2F{ centerX, centerY }, textLayout, s_brush);
+			}
 		}
 	}
 

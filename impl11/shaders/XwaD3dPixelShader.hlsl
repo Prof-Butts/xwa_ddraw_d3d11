@@ -134,6 +134,13 @@ PixelShaderOutput main(PixelShaderInput input)
 		// that adds bloom to the OPT part of the missile
 	}
 
+	/*
+	if (rand2 > 50.0)
+	{
+		output.color = float4(1, 0, 0, 1);
+	}
+	*/
+
 	// In the D3dRendererHook, lightmaps and regular textures are rendered on the same draw call.
 	// Here's the case where a lightmap has been provided:
 	if (renderTypeIllum == 1)

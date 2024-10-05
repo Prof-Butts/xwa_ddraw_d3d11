@@ -471,6 +471,43 @@ struct XwaObject3D
 
 static_assert(sizeof(XwaObject3D) == 24, "size of XwaObject3D must be 24");
 
+// Copied from JeremyAnsel.Xwa.Opt
+enum MeshType
+{
+	Default = 0,
+	MainHull,
+	Wing,
+	Fuselage,
+	GunTurret,
+	SmallGun,
+	Engine,
+	Bridge,
+	ShieldGenerator,
+	EnergyGenerator,
+	Launcher,
+	CommunicationSystem,
+	BeamSystem,
+	CommandSystem,
+	DockingPlatform,
+	LandingPlatform,
+	Hangar,
+	CargoPod,
+	MiscHull,
+	Antenna,
+	RotaryWing,
+	RotaryGunTurret,
+	RotaryLauncher,
+	RotaryCommunicationSystem,
+	RotaryBeamSystem,
+	RotaryCommandSystem,
+	Hatch,
+	Custom,
+	WeaponSystem1,
+	WeaponSystem2,
+	PowerRegenerator,
+	Reactor
+};
+
 // See JeremyAnsel.Xwa.Opt for more details
 struct MeshDescriptor {
 	DWORD MeshType;		 // MainHull, Engine, Wing, etc

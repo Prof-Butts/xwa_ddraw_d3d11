@@ -1532,6 +1532,15 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
 
 		if (IsXwaExe())
 		{
+			{
+				// The instruction at location 0x40157C is a call to TargetBox.
+				// This call is inside a case that draws a subcomponent bracket
+				// Here we make sure the instruction is a call (0xE8):
+				*(unsigned char*)(0x0040157C + 0x00) = 0xE8;
+				// Now we replace the destination of the call with our hook:
+				*(int*)(0x0040157C + 0x01) = (int)TargetBoxHook - (0x0040157C + 0x05);
+			}
+
 			if (g_config.Text2DRendererEnabled) 
 			{
 				// RenderCharHook

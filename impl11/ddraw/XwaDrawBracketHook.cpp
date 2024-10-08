@@ -9,6 +9,26 @@ std::vector<XwaBracket> g_xwa_bracket;
 
 Vector2 g_SubCMDBracket;
 
+int TargetBoxHook(int targetIndex, int subComponent, int colorIndex)
+{
+	//log_debug("[DBG] TargetBoxHook: %d, %d, %d", targetIndex, subComponent, colorIndex);
+	// subComponent is 0xFFFF when the bracket encloses a craft
+	// otherwise this is a sub-component bracket
+	if (subComponent != 0xFFFF)
+	{
+		//colorIndex = 0x2F; // MainPal_White;
+		colorIndex = 0x32; // Blue
+	}
+
+	void (*TargetBox)(int, int, int) = (void(*)(
+		int targetIndex,
+		int subComponent,
+		int colorIndex)) 0x503A30;
+
+	TargetBox(targetIndex, subComponent, colorIndex);
+	return 0;
+}
+
 void DrawBracketInFlightHook(int A4, int A8, int AC, int A10, unsigned char A14, int A18)
 {
 	XwaBracket bracket;

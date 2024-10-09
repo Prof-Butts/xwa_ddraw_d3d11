@@ -122,6 +122,13 @@ float g_fTurnRateScale = 1.0f;
 // do a smooth interpolation between the desired ypr rate and the current ypr rate.
 float CurPlayerYawRateDeg = 0, CurPlayerPitchRateDeg = 0, CurPlayerRollRateDeg = 0;
 
+/// <summary>
+/// Holds the ObjectId for the craft that is currently targeted.
+/// It's -1 if there's no targeted craft of if the player is in the hangar.
+/// Refreshed at the beginning of each frame.
+/// </summary>
+int g_currentTargetObjectId = -1;
+
 //float g_HMDYaw = 0, g_HMDPitch = 0, g_HMDRoll = 0;
 constexpr float HOLO_DISP_X = METERS_TO_OPT * 0.01f;
 constexpr float HOLO_DISP_Y = METERS_TO_OPT * 0.01f;
@@ -2342,7 +2349,7 @@ void EffectsRenderer::SceneBegin(DeviceResources* deviceResources)
 		bool bGunnerTurret = PlayerDataTable[*g_playerIndex].gunnerTurretActive;
 		int hyperspacePhase = PlayerDataTable[*g_playerIndex].hyperspacePhase;
 		CraftInstance* craftInstance = GetPlayerCraftInstanceSafe();
-		_currentTargetObjectId = CurrentTargetToObjectId();
+		g_currentTargetObjectId = CurrentTargetToObjectId();
 
 		// Set either the Cockpit or Gunner Turret POV Offsets into the proper shared memory slots
 		// THIS SHOULD BE THE ONLY SPOT WHERE WE WRITE TO g_pSharedDataCockpitLook->POVOffsetX/Y/Z
@@ -5042,6 +5049,14 @@ bool GetCurrentTargetStats(int* shields, int* hull, int* system)
 	return true;
 }
 
+int GetCurrentTargetIndex()
+{
+	if (g_iPresentCounter <= PLAYERDATATABLE_MIN_SAFE_FRAME) return -1;
+	if (g_playerIndex == NULL) return -1;
+	if (g_playerInHangar == NULL || *g_playerInHangar) return -1;
+	return PlayerDataTable[*g_playerIndex].currentTargetIndex;
+}
+
 int EffectsRenderer::CurrentTargetToObjectId()
 {
 	if (g_iPresentCounter <= PLAYERDATATABLE_MIN_SAFE_FRAME) return -1;
@@ -5725,18 +5740,15 @@ void EffectsRenderer::MainSceneHook(const SceneCompData* scene)
 	_bModifiedBlendState = false;
 	_bModifiedSamplerState = false;
 
-	const bool g_bRenderEnhancedHUD = false;
+	/*
 	if (g_bRenderEnhancedHUD)
 	{
-		if (_currentTargetObjectId == objectId)
+		if (g_currentTargetObjectId == objectId)
 		{
 			_bModifiedPixelShader = true;
 			if (scene->pMeshDescriptor->MeshType == MeshType::RotaryWing)
 			{
 				g_PSCBuffer.rand2 = 100.0f;
-				/*log_debug_vr("[DBG] MeshType: %d, Mesh: 0x%x",
-					scene->pMeshDescriptor->MeshType,
-					scene->pMeshDescriptor);*/
 			}
 		}
 		else
@@ -5745,6 +5757,7 @@ void EffectsRenderer::MainSceneHook(const SceneCompData* scene)
 			g_PSCBuffer.rand2 = 0.0f;
 		}
 	}
+	*/
 
 	// Apply specific material properties for the current texture
 	ApplyMaterialProperties();

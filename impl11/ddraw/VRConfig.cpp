@@ -2391,6 +2391,10 @@ bool LoadSSAOParams() {
 				g_bKeepMouseInsideWindow = (bool)fValue;
 			}
 
+			if (_stricmp(param, "enable_enhanced_hud") == 0) {
+				g_bRenderEnhancedHUD = (bool)fValue;
+			}
+
 			if (_stricmp(param, "bias") == 0) {
 				g_SSAO_PSCBuffer.bias = fValue;
 			}

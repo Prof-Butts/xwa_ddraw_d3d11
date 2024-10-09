@@ -11,9 +11,12 @@ struct XwaBracket
 	unsigned char colorIndex;
 	int depth;
 	bool DC;
+	bool isCurrentTarget;
+	bool isSubComponent;
 };
 
 extern std::vector<XwaBracket> g_xwa_bracket;
+extern int g_currentTargetObjectId;
 
 int TargetBoxHook(int targetIndex, int subComponent, int colorIndex);
 

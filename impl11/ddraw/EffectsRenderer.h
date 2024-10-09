@@ -180,13 +180,6 @@ public:
 	D3dConstants _frameConstants;
 	VertexShaderCBuffer _frameVSCBuffer;
 
-	/// <summary>
-	/// Holds the ObjectId for the craft that is currently targeted.
-	/// It's -1 if there's no targeted craft of if the player is in the hangar.
-	/// Refreshed at the beginning of each frame.
-	/// </summary>
-	int _currentTargetObjectId;
-
 	EffectsRenderer();
 	virtual void CreateShaders();
 	virtual void SceneBegin(DeviceResources* deviceResources);

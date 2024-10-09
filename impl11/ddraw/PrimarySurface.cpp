@@ -12944,17 +12944,6 @@ void PrimarySurface::RenderBracket()
 
 			esi = (eax << 3) | (ecx << 5) | (edx << 8);
 		}
-		const uint8_t R = 0xFF & (esi >> 16);
-		const uint8_t G = 0xFF & (esi >> 8);
-		const uint8_t B = 0xFF & esi;
-
-		// Subsystems brackets are green:
-		const bool subSysBracket = (R < 128 && G > 220 && B < 128);
-		// Target brackets are either red or yellow:
-		const bool curTargetBracket = (R > 200 && B < 128);
-
-		log_debug_vr("subSys: %d, curTarg: %d, [%d, %d, %d], idx: %d",
-			subSysBracket, curTargetBracket, R, G, B, xwaBracket.colorIndex);
 
 		if (esi != brushColor)
 		{
@@ -12978,12 +12967,16 @@ void PrimarySurface::RenderBracket()
 		// Original version:
 		//float strokeWidth = 2.0f * min(s_scaleX, s_scaleY);
 		float extraScale = 2.0f;
-		if (g_bEnableEnhancedBrackets && subSysBracket)
+		if (g_bEnableEnhancedBrackets && xwaBracket.isSubComponent)
 		{
 			extraScale += variableScale;
 			posSide += 0.03f * variableScale;
 		}
 		float strokeWidth = extraScale * min(s_scaleX, s_scaleY);
+		// There's more we can do with brackets around the current target, for now
+		// let's just enhance it slightly:
+		if (xwaBracket.isCurrentTarget)
+			strokeWidth += 4;
 
 		// Update variableScale:
 		variableScale += 3.0f * g_HiResTimer.elapsed_s;
@@ -13017,12 +13010,14 @@ void PrimarySurface::RenderBracket()
 			rtv->DrawLine(D2D1::Point2F(posX + posW - posW * posSide, posY + posH), D2D1::Point2F(posX + posW, posY + posH), s_brush, strokeWidth);
 			rtv->DrawLine(D2D1::Point2F(posX + posW, posY + posH - posH * posSide), D2D1::Point2F(posX + posW, posY + posH), s_brush, strokeWidth);
 
-			if (curTargetBracket)
+			/*
+			if (xwaBracket.isCurrentTarget)
 			{
 				rtv->DrawLine(D2D1::Point2F(posX, posY), D2D1::Point2F(posX + posW, posY + posH), s_brush, strokeWidth);
 				rtv->DrawLine(D2D1::Point2F(posX + posW, posY), D2D1::Point2F(posX, posY + posH), s_brush, strokeWidth);
 				//rtv->DrawTextLayout(D2D1_POINT_2F{ centerX, centerY }, textLayout, s_brush);
 			}
+			*/
 		}
 	}
 

@@ -8,7 +8,7 @@
 std::vector<XwaBracket> g_xwa_bracket;
 
 Vector2 g_SubCMDBracket;
-bool g_bRenderEnhancedHUD = true;
+bool g_bEnableEnhancedHUD = true;
 bool g_bracketIsCurrentTarget = false;
 bool g_bracketIsSubComponent = false;
 

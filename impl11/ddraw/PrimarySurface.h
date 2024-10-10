@@ -219,7 +219,7 @@ public:
 
 	STDMETHOD(UpdateOverlayZOrder)(THIS_ DWORD, LPDIRECTDRAWSURFACE);
 
-	void RenderText();
+	void RenderText(bool earlyExit=false);
 
 	void RenderRadar();
 

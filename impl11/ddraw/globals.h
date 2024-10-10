@@ -326,7 +326,7 @@ struct BracketVR
 extern std::vector<BracketVR> g_bracketsVR;
 
 // Enhanced HUD
-extern bool g_bRenderEnhancedHUD;
+extern bool g_bEnableEnhancedHUD;
 
 // *****************************************************
 // Global functions

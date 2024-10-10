@@ -2392,7 +2392,7 @@ bool LoadSSAOParams() {
 			}
 
 			if (_stricmp(param, "enable_enhanced_hud") == 0) {
-				g_bRenderEnhancedHUD = (bool)fValue;
+				g_bEnableEnhancedHUD = (bool)fValue;
 			}
 
 			if (_stricmp(param, "bias") == 0) {

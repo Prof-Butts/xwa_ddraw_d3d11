@@ -1532,7 +1532,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
 
 		if (IsXwaExe())
 		{
-			if (g_bRenderEnhancedHUD)
+			if (g_bEnableEnhancedHUD)
 			{
 				uint32_t addr;
 

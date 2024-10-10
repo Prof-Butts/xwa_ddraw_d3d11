@@ -321,6 +321,66 @@ struct MainVertex
 	}
 };
 
+struct CachedString
+{
+	std::string msg;
+	int x, y;
+	uint32_t color;
+};
+static std::vector<CachedString> g_cachedStrings;
+
+void RenderCachedText()
+{
+	for (const auto& cachedStr : g_cachedStrings)
+	{
+		DisplayText((char*)cachedStr.msg.c_str(), FONT_LARGE_IDX, cachedStr.x, cachedStr.y, cachedStr.color);
+	}
+	g_cachedStrings.clear();
+}
+
+void CacheString(char *msg, int x, int y, uint32_t color)
+{
+	g_cachedStrings.push_back({ std::string(msg), x, y, color });
+}
+
+void RenderEnhancedHUDText()
+{
+	if (g_bMapMode)
+		return;
+
+	for (const auto& xwaBracket : g_xwa_bracket)
+	{
+		if (!xwaBracket.isCurrentTarget)
+			continue;
+
+		const int textX = xwaBracket.positionX + xwaBracket.width / 2;
+		const int textY = xwaBracket.positionY + xwaBracket.height / 2;
+
+		unsigned short si = ((unsigned short*)0x08D9420)[xwaBracket.colorIndex];
+		unsigned int esi;
+
+		if (((bool(*)())0x0050DC50)() != 0)
+		{
+			unsigned short eax = si & 0x001F;
+			unsigned short ecx = si & 0x7C00;
+			unsigned short edx = si & 0x03E0;
+
+			esi = (eax << 3) | (edx << 6) | (ecx << 9);
+		}
+		else
+		{
+			unsigned short eax = si & 0x001F;
+			unsigned short edx = si & 0xF800;
+			unsigned short ecx = si & 0x07E0;
+
+			esi = (eax << 3) | (ecx << 5) | (edx << 8);
+		}
+
+		DisplayText("Target", FONT_LARGE_IDX, textX, textY, esi);
+		break;
+	}
+}
+
 // void capture()
 //#ifdef DBR_VR
 void PrimarySurface::capture(int time_delay, ComPtr<ID3D11Texture2D> buffer, const wchar_t *filename)
@@ -10487,6 +10547,10 @@ HRESULT PrimarySurface::Flip(
 				//AddCenteredText("Hello World", FONT_LARGE_IDX, 260, 0x5555FF);
 				// The following text gets captured as part of the missile count DC element:
 				//AddCenteredText("XXXXXXXXXXXXXXXXXXXXXXXX", FONT_LARGE_IDX, 17, 0x5555FF);
+#if USE_CACHED_HUD_TEXT == 1
+				if (g_bEnableEnhancedHUD)
+					RenderEnhancedHUDText();
+#endif
 				this->RenderText();
 			}
 
@@ -10863,7 +10927,16 @@ HRESULT PrimarySurface::Flip(
 			if (g_config.Radar2DRendererEnabled)
 			{
 				if (!g_bEnableVR || (g_bUseSteamVR && g_bMapMode))
+				{
+#if USE_CACHED_HUD_TEXT == 0
+					if (g_bEnableEnhancedHUD && !g_bMapMode)
+					{
+						RenderEnhancedHUDText();
+						this->RenderText(true);
+					}
+#endif
 					this->RenderBracket();
+				}
 				else
 					this->CacheBracketsVR();
 			}
@@ -12322,7 +12395,7 @@ void DisplayTimedMessage(uint32_t seconds, int row, char* msg) {
 	g_TimedMessages[row].SetMsg(msg, seconds, y_pos, FONT_LARGE_IDX, FONT_BLUE_COLOR);
 }
 
-void PrimarySurface::RenderText()
+void PrimarySurface::RenderText(bool earlyExit)
 {
 	static ID2D1RenderTarget* s_d2d1RenderTarget = nullptr;
 	static DWORD s_displayWidth = 0;
@@ -12436,8 +12509,14 @@ void PrimarySurface::RenderText()
 		this->_deviceResources->_d2d1RenderTarget->CreateSolidColorBrush(D2D1::ColorF(0x0, 1.0f), &s_black_brush);
 	}
 
-	this->_deviceResources->_d2d1RenderTarget->SaveDrawingState(this->_deviceResources->_d2d1DrawingStateBlock);
-	this->_deviceResources->_d2d1RenderTarget->BeginDraw();
+	// When rendering the enhanced HUD text, we can use _d2d1RenderTarget, but
+	// that introduces a 1-frame delay because this buffer is used for DC and the text
+	// will get captured and displayed in the DC elements. We don't want that.
+	// If we render directly to _d2d1OffscreenRenderTarget, that avoids the delay and the
+	// text displays properly everywhere but it only works for non-VR.
+	ID2D1RenderTarget* rtv = earlyExit ? this->_deviceResources->_d2d1OffscreenRenderTarget : this->_deviceResources->_d2d1RenderTarget;
+	rtv->SaveDrawingState(this->_deviceResources->_d2d1DrawingStateBlock);
+	rtv->BeginDraw();
 
 	unsigned int brushColor = 0;
 	s_brush->SetColor(D2D1::ColorF(brushColor));
@@ -12536,11 +12615,14 @@ void PrimarySurface::RenderText()
 		float y = (float)s_top + (float)xwaText.positionY * s_scaleY;
 
 		//textLayout->SetFontStretch(DWRITE_FONT_STRETCH_ULTRA_EXPANDED, { 0, 256 });
-		this->_deviceResources->_d2d1RenderTarget->DrawTextLayout(
+		//this->_deviceResources->_d2d1RenderTarget->DrawTextLayout(
+		rtv->DrawTextLayout(
 			D2D1_POINT_2F{ x, y },
 			textLayout,
 			s_brush);
 	}
+
+	if (earlyExit) goto early_out;
 
 	// Clear the text. We'll add extra text now and render it.
 	g_xwa_text.clear();
@@ -12712,8 +12794,9 @@ out:
 			s_brush);
 	}
 
-	this->_deviceResources->_d2d1RenderTarget->EndDraw();
-	this->_deviceResources->_d2d1RenderTarget->RestoreDrawingState(this->_deviceResources->_d2d1DrawingStateBlock);
+early_out:
+	rtv->EndDraw();
+	rtv->RestoreDrawingState(this->_deviceResources->_d2d1DrawingStateBlock);
 
 	g_xwa_text.clear();
 	g_xwa_text.reserve(4096);
@@ -12952,22 +13035,34 @@ void PrimarySurface::RenderBracket()
 			s_brushDC->SetColor(D2D1::ColorF(brushColor));
 		}
 
+		static float variableScale = 0.0f;
+
 		float posX = s_left + (float)xwaBracket.positionX * s_scaleX;
 		float posY = s_top + (float)xwaBracket.positionY * s_scaleY;
 		float posW = (float)xwaBracket.width * s_scaleX;
 		float posH = (float)xwaBracket.height * s_scaleY;
 		float posSide = 0.125;
 
+		if (xwaBracket.isSubComponent)
+		{
+			const float centerX = posX + 0.5f * posW;
+			const float centerY = posY + 0.5f * posH;
+			// variableScale goes from 0 to 5. Here we normalize it to a different range:
+			const float bracketScale = 0.7f + 0.3f * (variableScale / 5.0f);
+			posH *= bracketScale;
+			posW *= bracketScale;
+
+			posX = centerX - 0.5f * posW;
+			posY = centerY - 0.5f * posH;
+		}
+
 		float centerX = posX + posW * 0.5f;
 		float centerY = posY + posH * 0.5f;
-
-		const bool g_bEnableEnhancedBrackets = true;
-		static float variableScale = 0.0f;
 
 		// Original version:
 		//float strokeWidth = 2.0f * min(s_scaleX, s_scaleY);
 		float extraScale = 2.0f;
-		if (g_bEnableEnhancedBrackets && xwaBracket.isSubComponent)
+		if (g_bEnableEnhancedHUD && xwaBracket.isSubComponent)
 		{
 			extraScale += variableScale;
 			posSide += 0.03f * variableScale;
@@ -12975,12 +13070,17 @@ void PrimarySurface::RenderBracket()
 		float strokeWidth = extraScale * min(s_scaleX, s_scaleY);
 		// There's more we can do with brackets around the current target, for now
 		// let's just enhance it slightly:
+		/*
 		if (xwaBracket.isCurrentTarget)
 			strokeWidth += 4;
+		*/
 
 		// Update variableScale:
-		variableScale += 3.0f * g_HiResTimer.elapsed_s;
-		if (variableScale > 5.0f) variableScale = 0.0f;
+		if (g_bEnableEnhancedHUD && xwaBracket.isSubComponent)
+		{
+			variableScale += 5.0f * g_HiResTimer.elapsed_s;
+			if (variableScale > 5.0f) variableScale = 0.0f;
+		}
 
 		bool fill = xwaBracket.width <= 4 || xwaBracket.height <= 4;
 		// Select the DC RTV if this bracket was classified as belonging to
@@ -13011,11 +13111,15 @@ void PrimarySurface::RenderBracket()
 			rtv->DrawLine(D2D1::Point2F(posX + posW, posY + posH - posH * posSide), D2D1::Point2F(posX + posW, posY + posH), s_brush, strokeWidth);
 
 			/*
-			if (xwaBracket.isCurrentTarget)
+			if (xwaBracket.isCurrentTarget && !g_bMapMode)
 			{
-				rtv->DrawLine(D2D1::Point2F(posX, posY), D2D1::Point2F(posX + posW, posY + posH), s_brush, strokeWidth);
-				rtv->DrawLine(D2D1::Point2F(posX + posW, posY), D2D1::Point2F(posX, posY + posH), s_brush, strokeWidth);
+				//rtv->DrawLine(D2D1::Point2F(posX, posY), D2D1::Point2F(posX + posW, posY + posH), s_brush, strokeWidth);
+				//rtv->DrawLine(D2D1::Point2F(posX + posW, posY), D2D1::Point2F(posX, posY + posH), s_brush, strokeWidth);
 				//rtv->DrawTextLayout(D2D1_POINT_2F{ centerX, centerY }, textLayout, s_brush);
+				const int textX = xwaBracket.positionX + xwaBracket.width / 2;
+				const int textY = xwaBracket.positionY + xwaBracket.height / 2;
+				//DisplayText("Target", FONT_LARGE_IDX, centerX, centerY, xwaBracket.colorIndex);
+				CacheString("Target", textX, textY, brushColor);
 			}
 			*/
 		}

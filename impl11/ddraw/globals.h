@@ -327,6 +327,8 @@ struct BracketVR
 	bool renderText;
 };
 extern std::vector<BracketVR> g_bracketsVR;
+extern BracketVR g_curTargetBracketVR;
+extern bool g_curTargetBracketVRCaptured;
 
 // Enhanced HUD
 constexpr int VR_ENHANCED_HUD_BUFFER_SIZE = 1024;

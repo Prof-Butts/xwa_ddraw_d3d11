@@ -11080,6 +11080,10 @@ HRESULT PrimarySurface::Flip(
 					}
 
 					this->CacheBracketsVR();
+					// The VR bracket needs to be rendered right here or there will be a one-frame delay
+					// that is noticeable as a shaky bracket
+					if (g_EnhancedHUDData.Enabled)
+						((EffectsRenderer*)g_current_renderer)->RenderVREnhancedHUD();
 				}
 			}
 
@@ -13325,6 +13329,7 @@ void PrimarySurface::CacheBracketsVR()
 	// This is the width of the stroke in OPT coordinates at the given depth
 	const float strokeWidthOPT = fabs(C.x - U.x);
 
+	g_curTargetBracketVRCaptured = false;
 	for (const auto& xwaBracket : g_xwa_bracket)
 	{
 		unsigned short si = ((unsigned short*)0x08D9420)[xwaBracket.colorIndex];
@@ -13387,28 +13392,38 @@ void PrimarySurface::CacheBracketsVR()
 		g_bracketsVR.push_back(bracketVR);
 
 		// Temporarily disable the enhanced HUD in VR
-		/*
-		if (g_bEnableEnhancedHUD && xwaBracket.isCurrentTarget)
+		if (g_EnhancedHUDData.Enabled && xwaBracket.isCurrentTarget)
 		{
 			// For the enhanced HUD, we'll add a special bracket just to render
 			// the text.
 			//float HALF_BRACKET_SIZE_PX = (float)xwaBracket.width / 2.0f;
-			float HALF_BRACKET_SIZE_PX = (float)xwaBracket.width;
+			const float HALF_BRACKET_SIZE_PX = (float)xwaBracket.width;
+			const float Z200 = Zfar / (200.0f * METERS_TO_OPT + Zfar);
+
+			X = (float)(xwaBracket.positionX + xwaBracket.width  / 2.0f);
+			Y = (float)(xwaBracket.positionY + xwaBracket.height / 2.0f);
+			float3 V = InverseTransformProjectionScreen({ X, Y, Z200, Z200 }); // CacheBracketsVR
+			V.y = -V.y;
+			V.z = -V.z;
 
 			X = screenCenter.x + HALF_BRACKET_SIZE_PX;
 			Y = screenCenter.y + HALF_BRACKET_SIZE_PX;
-			float3 W = InverseTransformProjectionScreen({ X, Y, Z, Z }); // CacheBracketsVR
+			float3 W = InverseTransformProjectionScreen({ X, Y, Z200, Z200 }); // CacheBracketsVR
 			W.y = -W.y;
 			W.z = -W.z;
 
+			bracketVR.posOPT.x = V.x;
+			bracketVR.posOPT.y = V.z;
+			bracketVR.posOPT.z = V.y;
 			bracketVR.halfWidthOPT = fabs(W.x - C.x);
 			bracketVR.renderText  = true;
 			bracketVR.color.x = 1.0f;
 			bracketVR.color.y = 0.1f;
 			bracketVR.color.z = 0.1f;
-			g_bracketsVR.push_back(bracketVR);
+			g_curTargetBracketVR = bracketVR;
+			g_curTargetBracketVRCaptured = true;
+			//g_bracketsVR.push_back(bracketVR);
 		}
-		*/
 	}
 	g_xwa_bracket.clear();
 

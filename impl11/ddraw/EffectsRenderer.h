@@ -201,8 +201,9 @@ public:
 	void ApplyMeshTransform();
 	void ApplyActiveCockpit(const SceneCompData* scene);
 	void DCCaptureMiniature();
+	void GetUVsForCurrentTexture(const SceneCompData* scene);
 	// Returns true if the current draw call needs to be skipped
-	bool DCReplaceTextures();
+	bool DCReplaceTextures(const SceneCompData* scene);
 	virtual void ExtraPreprocessing();
 	void AddLaserLights(const SceneCompData* scene);
 	void ApplyProceduralLava();

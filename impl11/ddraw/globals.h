@@ -356,6 +356,7 @@ struct EnhancedHUDData
 	uint32_t nameColor, statsColor, subCmpColor;
 	int   tgtShds, tgtHull, tgtSys;
 	float tgtDist;
+	int   primMsls[2];
 	uint32_t shieldsCol = 0xFF2080FF;
 	uint32_t overShdCol = 0xFF7DF9FF; // Electric blue
 	uint32_t sysCol     = 0xFFCCC0FF; // Periwinkle!
@@ -375,7 +376,7 @@ struct EnhancedHUDData
 	Box    subCmpBox;
 	Box    barsBox;
 
-	std::string sShieldsFwd, sShieldsBck, sShipName;
+	std::string sShieldsFwd, sShieldsBck, sShipName, sMissiles;
 	//std::string sThrottle, sSpeed;
 	DCChar shdFwdChars[MAX_DC_SHIELDS_CHARS];
 	DCChar shdBckChars[MAX_DC_SHIELDS_CHARS];

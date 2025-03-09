@@ -21,6 +21,9 @@ constexpr float BACKGROUND_CUBE_HALFSIZE_METERS = BACKGROUND_CUBE_SIZE_METERS / 
 constexpr float BACKGROUND_CYL_RATIO = 1.09f; // 1.053f ? 1.375f ?
 static constexpr int s_numCylTriangles = 12;
 
+// Dynamic Cockpit
+extern Box g_DCExtractedBox;
+
 // Raytracing
 extern bool g_bEnableQBVHwSAH;
 //BVHBuilderType g_BVHBuilderType = BVHBuilderType_BVH2;
@@ -4229,6 +4232,7 @@ void EffectsRenderer::ApplyActiveCockpit(const SceneCompData* scene)
 			// See BuildMultipleBLASFromCurrentBLASMap() too
 			for (int edge = 2; edge < edgesCount; edge++)
 			{
+				// vertexIndex is not used! This loop is unnecessary!
 				for (int vertexIndex = 0; vertexIndex < edgesCount; vertexIndex++)
 				{
 					D3dTriangle t;
@@ -6088,7 +6092,7 @@ void EffectsRenderer::MainSceneHook(const SceneCompData* scene)
 		goto out;
 
 	// Dynamic Cockpit: Replace textures at run-time. Returns true if we need to skip the current draw call
-	if (DCReplaceTextures())
+	if (DCReplaceTextures(scene))
 		goto out;
 
 	// TODO: Update the Hyperspace FSM -- but only update it exactly once per frame.
@@ -6513,7 +6517,74 @@ void EffectsRenderer::DCCaptureMiniature()
 	}
 }
 
-bool EffectsRenderer::DCReplaceTextures()
+#if 0
+void EffectsRenderer::GetUVsForCurrentTexture(const SceneCompData* scene)
+{
+	// Adapted from ApplyActiveCockpit()
+	XwaVector3* MeshVertices = scene->MeshVertices;
+	int MeshVerticesCount = *(int*)((int)scene->MeshVertices - 8);
+	XwaTextureVertex* MeshTextureVertices = scene->MeshTextureVertices;
+	int MeshTextureVerticesCount = *(int*)((int)scene->MeshTextureVertices - 8);
+	XwaTextureVertex UV0, UV1, UV2;
+
+	Box box = { FLT_MAX, FLT_MAX, -FLT_MAX, -FLT_MAX };
+	for (int faceIndex = 0; faceIndex < scene->FacesCount; faceIndex++)
+	{
+		OptFaceDataNode_01_Data_Indices& faceData = scene->FaceIndices[faceIndex];
+		int edgesCount = faceData.Edge[3] == -1 ? 3 : 4;
+
+		// See BuildMultipleBLASFromCurrentBLASMap() too
+		for (int edge = 2; edge < edgesCount; edge++)
+		{
+			D3dTriangle t;
+			t.v1 = 0;
+			t.v2 = edge - 1;
+			t.v3 = edge;
+
+			UV0 = scene->MeshTextureVertices[faceData.TextureVertex[t.v1]];
+			UV1 = scene->MeshTextureVertices[faceData.TextureVertex[t.v2]];
+			UV2 = scene->MeshTextureVertices[faceData.TextureVertex[t.v3]];
+			auto expand = [](Box& box, const XwaTextureVertex& U)
+				{
+					box.x0 = min(box.x0, U.u);
+					box.y0 = min(box.y0, U.v);
+
+					box.x1 = max(box.x1, U.u);
+					box.y1 = max(box.y1, U.v);
+				};
+			expand(box, UV0);
+			expand(box, UV1);
+			expand(box, UV2);
+
+			/*log_debug("[DBG] fi: %d, fc:%d, e:%d, ec:%d, (%0.3f, %0.3f), (%0.3f, %0.3f), (%0.3f, %0.3f)",
+				faceIndex, scene->FacesCount, edge, edgesCount,
+				UV0.u, UV0.v,  UV1.u, UV1.v,  UV2.u, UV2.v);
+			log_debug("[DBG] fi: %d, fc:%d, e:%d, ec:%d, [%d - %d - %d]",
+				faceIndex, scene->FacesCount, edge, edgesCount,
+				faceData.TextureVertex[t.v1],
+				faceData.TextureVertex[t.v2],
+				faceData.TextureVertex[t.v3]);*/
+		}
+	}
+	//log_debug("[DBG] ----------------");
+
+	// Flip the y uv coords (probably because textures are stored upside down in the OPT?)
+	box.y0 = 1.0f - box.y0;
+	box.y1 = 1.0f - box.y1;
+	const float w = (g_DCCurSrcRegion.x1 - g_DCCurSrcRegion.x0) + 1;
+	const float h = (g_DCCurSrcRegion.y1 - g_DCCurSrcRegion.y0) + 1;
+	g_DCSubBoxFromOPT.x0 = g_DCCurSrcRegion.x0 + w * box.x0;
+	g_DCSubBoxFromOPT.y0 = g_DCCurSrcRegion.y0 + h * box.y0;
+
+	g_DCSubBoxFromOPT.x1 = g_DCCurSrcRegion.x0 + w * box.x1;
+	g_DCSubBoxFromOPT.y1 = g_DCCurSrcRegion.y0 + h * box.y1;
+
+	/*log_debug("[DBG] box: (%0.3f, %0.3f)-(%0.3f, %0.3f)",
+		box.x0, box.y0,  box.x1, box.y1);*/
+}
+#endif
+
+bool EffectsRenderer::DCReplaceTextures(const SceneCompData* scene)
 {
 	bool bSkip = false;
 	auto &resources = _deviceResources;
@@ -6563,6 +6634,17 @@ bool EffectsRenderer::DCReplaceTextures()
 				uvfloat4 uv_src;
 				uv_src.x0 = src_box->coords.x0; uv_src.y0 = src_box->coords.y0;
 				uv_src.x1 = src_box->coords.x1; uv_src.y1 = src_box->coords.y1;
+
+				const bool bReplaceUVs = (src_slot == MISSILES_DC_ELEM_SRC_IDX && dc_element->coords.numCoords == 1);
+				if (bReplaceUVs)
+				{
+					// Use this when a single texture is used for missles-L:
+					uv_src.x0 = g_DCExtractedBox.x0 / g_fCurScreenWidth;
+					uv_src.y0 = g_DCExtractedBox.y0 / g_fCurScreenHeight;
+					uv_src.x1 = g_DCExtractedBox.x1 / g_fCurScreenWidth;
+					uv_src.y1 = g_DCExtractedBox.y1 / g_fCurScreenHeight;
+				}
+
 				g_DCPSCBuffer.src[numCoords] = uv_src;
 				g_DCPSCBuffer.dst[numCoords] = dc_element->coords.dst[i];
 				g_DCPSCBuffer.noisy_holo = _bIsNoisyHolo;

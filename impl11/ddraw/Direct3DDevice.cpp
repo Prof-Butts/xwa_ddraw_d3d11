@@ -4392,6 +4392,12 @@ HRESULT Direct3DDevice::Execute(
 								uv_minmax, box, dcElemSrcBox->uv_coords);
 							dcElemSrcBox->bComputed = true;
 
+							// This is how we transform from UV coords [0..1] to screen coords:
+							//g_DCCurSrcRegion.x0 = g_fCurScreenWidth  * dcElemSrcBox->coords.x0;
+							//g_DCCurSrcRegion.y0 = g_fCurScreenHeight * dcElemSrcBox->coords.y0;
+							//g_DCCurSrcRegion.x1 = g_fCurScreenWidth  * dcElemSrcBox->coords.x1;
+							//g_DCCurSrcRegion.y1 = g_fCurScreenHeight * dcElemSrcBox->coords.y1;
+
 							// Get the limits for the CMD text
 							dcElemSrcBox = &g_DCElemSrcBoxes.src_boxes[KW_TEXT_CMD_DC_ELEM_SRC_IDX];
 							dcElemSrcBox->coords = ComputeCoordsFromUV(left, top, width, height,

@@ -10748,6 +10748,7 @@ HRESULT PrimarySurface::Flip(
 					// not only for the Enhanced HUD, but also for Telemetry. So it's a good idea
 					// to call it even if the Enhanced HUD is disabled.
 					this->ExtractDCText();
+					log_debug_vr("sMIssiles: %s", g_EnhancedHUDData.sMissiles.c_str());
 					//float width = g_EnhancedHUDData.bgTextBox.x1 - g_EnhancedHUDData.bgTextBox.x0;
 					/*log_debug_vr("[DBG] tmp: [%s], name: [%s]",
 						g_EnhancedHUDData.sTmp.c_str(), g_EnhancedHUDData.sName.c_str());*/
@@ -12669,9 +12670,9 @@ uint32_t EnhanceTextColor(uint32_t col)
 	return col;
 }
 
-#define DEBUG_DC_BOX 0
+#define DEBUG_DC_BOX 1
 #if DEBUG_DC_BOX == 1
-Box g_DCTestBox = {};
+Box g_DCExtractedBox = { 0 };
 #endif
 
 /// <summary>
@@ -12697,11 +12698,14 @@ void PrimarySurface::ExtractDCText()
 	g_EnhancedHUDData.sShieldsFwd = "";
 	g_EnhancedHUDData.sShieldsBck = "";
 	g_EnhancedHUDData.sShipName   = "";
+	g_EnhancedHUDData.sMissiles   = "";
 
 	g_EnhancedHUDData.tgtShds = -1;
 	g_EnhancedHUDData.tgtHull = -1;
 	g_EnhancedHUDData.tgtSys  = -1;
 	g_EnhancedHUDData.tgtDist = -1.0f;
+	g_EnhancedHUDData.primMsls[0] = -1;
+	g_EnhancedHUDData.primMsls[1] = -1;
 
 	uint32_t nameColors[4] = { 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF };
 	int      nameColorIdx  = -1, nameColorPosY = -1;
@@ -12721,15 +12725,19 @@ void PrimarySurface::ExtractDCText()
 	constexpr int SHD_FWD_IDX   = 7;
 	constexpr int SHD_BCK_IDX   = 8;
 	constexpr int SHIP_NAME_IDX = 9;
+	constexpr int MISSILES_IDX  = 10;
 
-	constexpr int MAX_IDX = 10;
+	constexpr int MAX_IDX = 11;
 
+	int mslsFSM = 0;
+	static Box  s_mslsBox = { FLT_MAX, FLT_MAX, -FLT_MAX, -FLT_MAX };
 	static Box  s_boxes[MAX_IDX] = {};
 	static bool s_boxesComputed[MAX_IDX] = {
 		false, false, false,
 		false, false, false,
 		false,
 		false, false, false,
+		false,
 	};
 	static int s_numComputedBoxes    = 0;
 	const  int dcSrcRegions[MAX_IDX] = {
@@ -12737,14 +12745,16 @@ void PrimarySurface::ExtractDCText()
 		TARGETED_OBJ_SYS_SRC_IDX, TARGETED_OBJ_DIST_SRC_IDX, TARGETED_OBJ_SUBCMP_SRC_IDX,
 		TARGETED_OBJ_CARGO_SRC_IDX,
 		SHIELDS_FRONT_DC_ELEM_SRC_IDX, SHIELDS_BACK_DC_ELEM_SRC_IDX, NAME_TIME_DC_ELEM_SRC_IDX,
+		MISSILES_DC_ELEM_SRC_IDX,
 	};
 	std::string *strings[] = {
 		&g_EnhancedHUDData.sTmp, &g_EnhancedHUDData.sTgtShds, &g_EnhancedHUDData.sTgtHull,
 		&g_EnhancedHUDData.sTgtSys, &g_EnhancedHUDData.sTgtDist, &g_EnhancedHUDData.sSubCmp,
 		&g_EnhancedHUDData.sCargo,
-		&g_EnhancedHUDData.sShieldsFwd, &g_EnhancedHUDData.sShieldsBck, &g_EnhancedHUDData.sShipName
+		&g_EnhancedHUDData.sShieldsFwd, &g_EnhancedHUDData.sShieldsBck, &g_EnhancedHUDData.sShipName,
+		&g_EnhancedHUDData.sMissiles
 	};
-	int rows[MAX_IDX] = { -1, -1, -1,   -1, -1, -1,   -1,   -1, -1, -1 };
+	int rows[MAX_IDX] = { -1, -1, -1,   -1, -1, -1,   -1,   -1, -1, -1, -1 };
 
 	// Detect when the in-game screen resolution has changed so that we can recompute the
 	// DC boxes.
@@ -12793,10 +12803,10 @@ void PrimarySurface::ExtractDCText()
 				UseDCSubRegion(DC_SUB_SHIP_NAME_IDX);
 
 				// DEBUG: Store the coords of a DC box to be displayed later
-#if DEBUG_DC_BOX == 1
-				g_DCTestBox.x0 = x0; g_DCTestBox.y0 = y0;
-				g_DCTestBox.x1 = x1; g_DCTestBox.y1 = y1;
-#endif
+//#if DEBUG_DC_BOX == 1
+//				g_DCTestBox.x0 = x0; g_DCTestBox.y0 = y0;
+//				g_DCTestBox.x1 = x1; g_DCTestBox.y1 = y1;
+//#endif
 			}
 
 			ScreenCoordsToInGame(x0, y0, &box_x0, &box_y0);
@@ -12893,7 +12903,37 @@ void PrimarySurface::ExtractDCText()
 				}
 
 				// Accumulate the current char to form a string:
-				*strings[dcCurRegion] += xwaText.textChar;
+				const bool ignoreSpaces = (dcCurRegion == MISSILES_IDX);
+				if (dcCurRegion == MISSILES_IDX)
+				{
+					// The text for missiles has whitespaces in it. We don't want that:
+					if (xwaText.textChar != ' ')
+					{
+						if (xwaText.textChar == ':')
+							mslsFSM = 1;
+
+						/*
+						if (mslsFSM == 0)
+						{
+							*strings[dcCurRegion] += xwaText.textChar;
+							s_mslsBox.x0 = min(s_mslsBox.x0, x0);
+							s_mslsBox.y0 = min(s_mslsBox.y0, y0);
+
+							s_mslsBox.x1 = max(s_mslsBox.x1, x1);
+							s_mslsBox.y1 = max(s_mslsBox.y1, y1);
+						}
+						*/
+					}
+					s_mslsBox.x0 = min(s_mslsBox.x0, x0);
+					s_mslsBox.y0 = min(s_mslsBox.y0, y0);
+
+					s_mslsBox.x1 = max(s_mslsBox.x1, x1);
+					s_mslsBox.y1 = max(s_mslsBox.y1, y1);
+				}
+				else
+				{
+					*strings[dcCurRegion] += xwaText.textChar;
+				}
 
 				// Sometimes letters are rendered twice with a horizontal offset of 1
 				// pixel (I think this is probably how the game renders *bold*). Here
@@ -12942,6 +12982,11 @@ void PrimarySurface::ExtractDCText()
 		}
 	}
 
+#if DEBUG_DC_BOX == 1
+	InGameToScreenCoords(s_mslsBox.x0, s_mslsBox.y0, &g_DCExtractedBox.x0, &g_DCExtractedBox.y0);
+	InGameToScreenCoords(s_mslsBox.x1, s_mslsBox.y1, &g_DCExtractedBox.x1, &g_DCExtractedBox.y1);
+#endif
+
 	if (!bNameCaptured)
 	{
 		// Sometimes the name field is only one row. In that case, we need to capture
@@ -12968,6 +13013,14 @@ void PrimarySurface::ExtractDCText()
 		g_EnhancedHUDData.tgtSys = atoi(g_EnhancedHUDData.sTgtSys.c_str());
 	if (g_EnhancedHUDData.sTgtDist.size() > 0)
 		g_EnhancedHUDData.tgtDist = (float)atof(g_EnhancedHUDData.sTgtDist.c_str());
+	if (g_EnhancedHUDData.sMissiles.size() > 0)
+	{
+		size_t idx = g_EnhancedHUDData.sMissiles.find(':');
+		//log_debug_vr("idx: %d", (int)idx);
+		std::string sLeft  = g_EnhancedHUDData.sMissiles.substr(0, idx);
+		std::string sRight = g_EnhancedHUDData.sMissiles.substr(idx + 1);
+		log_debug_vr("[%s]-[%s]", sLeft.c_str(), sRight.c_str());
+	}
 
 	if (g_pSharedDataTelemetry != nullptr)
 	{
@@ -13163,8 +13216,8 @@ void PrimarySurface::RenderText(bool earlyExit)
 	// DEBUG: Display the coords of one of the DC boxes:
 #if DEBUG_DC_BOX == 1
 	{
-		s_brush->SetColor(D2D1::ColorF(0xFFFFFF));
-		rtv->DrawRectangle(D2D1::RectF(g_DCTestBox.x0, g_DCTestBox.y0, g_DCTestBox.x1, g_DCTestBox.y1), s_brush, 3.0f);
+		//s_brush->SetColor(D2D1::ColorF(0xFF3030));
+		//rtv->DrawRectangle(D2D1::RectF(g_DCExtractedBox.x0, g_DCExtractedBox.y0, g_DCExtractedBox.x1, g_DCExtractedBox.y1), s_brush, 9.0f);
 	}
 #endif
 

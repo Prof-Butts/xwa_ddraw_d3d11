@@ -80,6 +80,7 @@ Config::Config()
 	this->CullBackFaces = false;
 	this->FlipDATImages = false;
 
+	this->D3dRendererTexturesHookEnabled = true;
 	this->HDConcourseEnabled = false;
 
 	this->ProjectionParameterA = 32.0f;
@@ -277,6 +278,10 @@ Config::Config()
 			{
 				this->FlipDATImages = stoi(value) != 0;
 			}
+			else if (name == "D3dRendererTexturesHookEnabled")
+			{
+				this->D3dRendererTexturesHookEnabled = stoi(value) != 0;
+			}
 			else if (name == "HDConcourseEnabled")
 			{
 				this->HDConcourseEnabled = stoi(value) != 0;
@@ -316,6 +321,12 @@ Config::Config()
 		this->D3dRendererHookEnabled = false;
 
 		MessageBox(nullptr, "You must set [hook_d3d] IsHookD3DEnabled = 0 in Hooks.ini to use the D3d renderer hook.\nThe D3d renderer hook will be disabled.", "X-Wing Alliance DDraw", MB_ICONWARNING);
+	}
+
+
+	if (!this->D3dRendererHookEnabled)
+	{
+		this->D3dRendererTexturesHookEnabled = false;
 	}
 
 	//if (this->JoystickEmul != 0 && isXWA)

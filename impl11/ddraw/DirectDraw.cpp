@@ -258,7 +258,9 @@ HRESULT DirectDraw::CreateSurface(
 	}
 
 	bool bTexNameAvailable = false;
-	char *texName = (char *)lpDDSurfaceDesc->dwReserved;
+	// TODO: When the D3dRendererTexturesHook is enabled, we need to get
+	//       the texName from... somewhere, instead of setting it to nullptr
+	char *texName = (g_config.D3dRendererTexturesHookEnabled) ? nullptr : (char *)lpDDSurfaceDesc->dwReserved;
 	if (texName != NULL && texName[0] != 0)
 		bTexNameAvailable = true;
 

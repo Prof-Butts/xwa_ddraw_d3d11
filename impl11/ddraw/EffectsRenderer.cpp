@@ -3468,16 +3468,34 @@ void EffectsRenderer::UpdateTextures(const SceneCompData* scene)
 
 	XwaD3dTextureCacheUpdateOrAdd(surface);
 
-	if (surface2 != nullptr)
+	if (scene->D3DInfo != nullptr && scene->D3DInfo->MipMapsCount < 0)
 	{
-		XwaD3dTextureCacheUpdateOrAdd(surface2);
-	}
+		ID3D11ShaderResourceView* colorMap = (ID3D11ShaderResourceView*)scene->D3DInfo->ColorMap[0];
+		ID3D11ShaderResourceView* lightMap = (ID3D11ShaderResourceView*)scene->D3DInfo->LightMap[0];
 
-	Direct3DTexture* texture = (Direct3DTexture*)surface->D3dTexture.D3DTextureHandle;
-	Direct3DTexture* texture2 = surface2 == nullptr ? nullptr : (Direct3DTexture*)surface2->D3dTexture.D3DTextureHandle;
-	_deviceResources->InitPSShaderResourceView(texture->_textureView, texture2 == nullptr ? nullptr : texture2->_textureView.Get());
-	_lastTextureSelected = texture;
-	_lastLightmapSelected = texture2;
+		_deviceResources->InitPSShaderResourceView(colorMap, lightMap);
+		_lastTextureSelected = nullptr;
+		_lastLightmapSelected = nullptr;
+		// We can probably use an std::map here to map texName ptrs to Direct3DTexture entries. That way
+		// we could populate _lastTextureSelected.
+		//const char* texName = (char*)scene->D3DInfo->TextureDescription.Palettes;
+		//log_debug("[DBG] tag: %s", texName);
+	}
+	else
+	{
+		XwaD3dTextureCacheUpdateOrAdd(surface);
+
+		if (surface2 != nullptr)
+		{
+			XwaD3dTextureCacheUpdateOrAdd(surface2);
+		}
+
+		Direct3DTexture* texture = (Direct3DTexture*)surface->D3dTexture.D3DTextureHandle;
+		Direct3DTexture* texture2 = surface2 == nullptr ? nullptr : (Direct3DTexture*)surface2->D3dTexture.D3DTextureHandle;
+		_deviceResources->InitPSShaderResourceView(texture->_textureView, texture2 == nullptr ? nullptr : texture2->_textureView.Get());
+		_lastTextureSelected = texture;
+		_lastLightmapSelected = texture2;
+	}
 }
 
 void EffectsRenderer::DoStateManagement(const SceneCompData* scene)
@@ -5857,8 +5875,8 @@ void EffectsRenderer::MainSceneHook(const SceneCompData* scene)
 	int objectId = -1;
 	if (scene != nullptr && scene->pObject != nullptr)
 		objectId = scene->pObject->ObjectId;
-	const bool bInstanceEvent = _lastTextureSelected->material.bInstanceMaterial && objectId != -1;
-	const int materialId = _lastTextureSelected->material.Id;
+	const bool bInstanceEvent = _bLastTextureSelectedNotNULL && _lastTextureSelected->material.bInstanceMaterial && objectId != -1;
+	const int materialId = _bLastTextureSelectedNotNULL ? _lastTextureSelected->material.Id : -1;
 	float bloomOverride = -1.0f;
 	FixedInstanceData* fixedInstanceData = nullptr;
 
@@ -6071,7 +6089,7 @@ void EffectsRenderer::MainSceneHook(const SceneCompData* scene)
 
 	// Maintain the k-closest lasers to the camera (but ignore the miniature lasers)
 	if ((g_bEnableLaserLights && _bIsLaser && _bHasMaterial && !g_bStartedGUI) ||
-		_lastTextureSelected->material.IsLightEmitter)
+		(_bLastTextureSelectedNotNULL && _lastTextureSelected->material.IsLightEmitter))
 		AddLaserLights(scene);
 
 	// Apply BLOOM flags and 32-bit mode enhancements
@@ -6403,7 +6421,7 @@ void EffectsRenderer::DCCaptureMiniature()
 	// The viewport for the miniature is not properly set at the moment. So lasers and
 	// projectiles (?) and maybe other objects show outside the CMD. We need to avoid
 	// capturing them.
-	if (_bIsLaser || _lastTextureSelected->is_Missile) return;
+	if (_bIsLaser || (_bLastTextureSelectedNotNULL && _lastTextureSelected->is_Missile)) return;
 
 	// Remember the current scissor rect before modifying it
 	UINT NumRects = 1;

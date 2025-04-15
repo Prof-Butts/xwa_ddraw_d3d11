@@ -58,6 +58,7 @@ public:
 	bool CullBackFaces;
 	bool FlipDATImages;
 
+	bool D3dRendererTexturesHookEnabled;
 	bool HDConcourseEnabled;
 
 	float ProjectionParameterA;

@@ -65,8 +65,10 @@ struct D3dTriangle
 
 #pragma pack(pop)
 
+class XwaTextureData;
+
 struct DrawCommand {
-	Direct3DTexture *colortex, *lighttex;
+	XwaTextureData *colortex, *lighttex;
 	ID3D11ShaderResourceView *vertexSRV, *normalsSRV, *texturesSRV, *tangentsSRV;
 	ID3D11Buffer *vertexBuffer, *indexBuffer;
 	int trianglesCount;

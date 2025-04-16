@@ -6,7 +6,7 @@
 #include "EffectsCommon.h"
 
 class BackbufferSurface;
-class Direct3DTexture;
+class XwaTextureData;
 
 void InitHeadingMatrix();
 Matrix4 GetCurrentHeadingMatrix(Vector4 &Rs, Vector4 &Us, Vector4 &Fs, bool invert, bool debug);
@@ -126,7 +126,7 @@ public:
 	//void GetCraftViewMatrix(Matrix4 *result);
 
 	void RenderHyperspaceEffect(D3D11_VIEWPORT *lastViewport,
-		ID3D11PixelShader *lastPixelShader, Direct3DTexture *lastTextureSelected,
+		ID3D11PixelShader *lastPixelShader, XwaTextureData* lastTextureSelected,
 		ID3D11Buffer *lastVertexBuffer, UINT *lastVertexBufStride, UINT *lastVertexBufOffset);
 
 	void RenderFXAA();
@@ -167,7 +167,7 @@ public:
 
 	void OPTVertexToSteamVRPostProcCoords(Vector4 P, Vector4 pos2D[2]);
 
-	void RenderLaserPointer(D3D11_VIEWPORT * lastViewport, ID3D11PixelShader * lastPixelShader, Direct3DTexture * lastTextureSelected, ID3D11Buffer * lastVertexBuffer, UINT * lastVertexBufStride, UINT * lastVertexBufOffset);
+	void RenderLaserPointer(D3D11_VIEWPORT * lastViewport, ID3D11PixelShader * lastPixelShader, XwaTextureData* lastTextureSelected, ID3D11Buffer * lastVertexBuffer, UINT * lastVertexBufStride, UINT * lastVertexBufOffset);
 
 	void Add3DVisionSignature();
 

@@ -142,10 +142,10 @@
     <ClCompile Include="XwaD3dRendererHook.cpp">
       <Filter>Fichiers sources</Filter>
     </ClCompile>
-	<ClCompile Include="XwaConcourseHook.cpp">
+    <ClCompile Include="XwaConcourseHook.cpp">
       <Filter>Fichiers sources</Filter>
     </ClCompile>
-	<ClCompile Include="bc7decomp.cpp">
+    <ClCompile Include="bc7decomp.cpp">
       <Filter>Fichiers sources</Filter>
     </ClCompile>
     <ClCompile Include="bc7_main.cpp">
@@ -161,7 +161,10 @@
       <Filter>Fichiers sources</Filter>
     </ClCompile>
     <ClCompile Include="LBVH.cpp">
-	  <Filter>Fichiers sources</Filter>
+      <Filter>Fichiers sources</Filter>
+    </ClCompile>
+    <ClCompile Include="XwaTextureData.cpp">
+      <Filter>Fichiers sources</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
@@ -376,6 +379,9 @@
       <Filter>Fichiers d%27en-tête</Filter>
     </ClInclude>
     <ClInclude Include="bc7_main.h">
+      <Filter>Fichiers d%27en-tête</Filter>
+    </ClInclude>
+    <ClInclude Include="XwaTextureData.h">
       <Filter>Fichiers d%27en-tête</Filter>
     </ClInclude>
   </ItemGroup>

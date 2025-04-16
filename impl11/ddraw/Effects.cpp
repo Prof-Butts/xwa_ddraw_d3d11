@@ -22,7 +22,8 @@ ExternalCameraState     g_externalCameraState;
  * textures with materials can be placed here so that material properties can be
  * applied while flying.
  */
-std::vector<Direct3DTexture*> g_AuxTextureVector;
+class XwaTextureData;
+std::vector<XwaTextureData*> g_AuxTextureVector;
 
 std::vector<char*> Text_ResNames = {
 	"dat,16000,"
@@ -314,15 +315,15 @@ bool isInVector(uint32_t crc, std::vector<uint32_t>& vector) {
 	return false;
 }
 
-bool isInVector(char* name, std::vector<char*>& vector) {
+bool isInVector(const char* name, std::vector<char*>& vector) {
 	for (char* x : vector)
 		if (stristr(name, x) != NULL)
 			return true;
 	return false;
 }
 
-bool isInVector(char* OPTname, std::vector<OPTNameType>& vector) {
-	for (OPTNameType x : vector)
+bool isInVector(const char* OPTname, std::vector<OPTNameType>& vector) {
+	for (const OPTNameType& x : vector)
 		if (_stricmp(OPTname, x.name) == 0) // We need to avoid substrings because OPTs can be "Awing", "AwingExterior", "AwingCockpit"
 			return true;
 	return false;

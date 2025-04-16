@@ -366,4 +366,4 @@ bool LoadDCInternalCoordinates();
 float SetCurrentShipFOV(float FOV, bool OverwriteCurrentShipFOV, bool bCompensateFOVfor1920x1080);
 bool LoadDCUVCoords(char* buf, float width, float height, uv_src_dst_coords* coords);
 int ReadNameFromLine(char* buf, char* name);
-int isInVector(char* name, dc_element* dc_elements, int num_elems);
+int isInVector(const char* name, dc_element* dc_elements, int num_elems);

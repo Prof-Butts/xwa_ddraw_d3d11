@@ -1003,7 +1003,7 @@ void OPTNameToMATParamsFile(char* OPTName, char* sFileName, int iFileNameSize);
 void DATNameToMATParamsFile(char *DATName, char *sFileName, char *sFileNameShort, int iFileNameSize);
 bool LoadIndividualMATParams(char *OPTname, char *sFileName, bool verbose = true);
 void ReadMaterialLine(char* buf, Material* curMaterial, char *OPTname);
-bool GetGroupIdImageIdFromDATName(char* DATName, int* GroupId, int* ImageId);
+bool GetGroupIdImageIdFromDATName(const char* DATName, int* GroupId, int* ImageId);
 void InitOPTnames();
 void ClearOPTnames();
 void InitCraftMaterials();

@@ -310,7 +310,8 @@ PSConstantBufferType g_LastPSConstantBufferSet = PS_CONSTANT_BUFFER_NONE;
 
 FILE *g_DebugFile = NULL;
 
-extern std::vector<Direct3DTexture *> g_AuxTextureVector;
+class XwaTextureData;
+extern std::vector<XwaTextureData*> g_AuxTextureVector;
 
 inline float lerp(float x, float y, float s) {
 	return x + s * (y - x);
@@ -389,6 +390,8 @@ struct MainVertex
 	}
 };
 
+DeviceResources* g_deviceResources = nullptr;
+
 DeviceResources::DeviceResources()
 {
 	this->_primarySurface = nullptr;
@@ -448,6 +451,8 @@ DeviceResources::DeviceResources()
 	_extraTextures.clear();
 
 	this->_currentPixelShader = nullptr;
+
+	g_deviceResources = this;
 }
 
 DeviceResources::~DeviceResources()

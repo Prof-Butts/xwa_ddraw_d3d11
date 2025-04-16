@@ -258,7 +258,7 @@ void DumpInstructionStateRender(std::ostringstream& str, LPD3DINSTRUCTION instru
 
 			if (texture != nullptr)
 			{
-				str << " Name: " << texture->_name;
+				str << " Name: " << texture->_textureData._name;
 			}
 
 			break;

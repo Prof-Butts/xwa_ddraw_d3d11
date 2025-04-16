@@ -59,6 +59,7 @@ Config::Config()
 	this->EnhanceLasers = false;
 	this->EnhanceIllumination = false;
 	this->EnhanceEngineGlow = false;
+	this->EnhanceExplosions = false;
 
 	this->SwapJoystickXZAxes = false;
 	this->FXAAEnabled = false;
@@ -73,6 +74,7 @@ Config::Config()
 	this->MusicSyncFix = false;
 
 	this->D3dRendererHookEnabled = true;
+	this->D3dRendererTexturesHookEnabled = true;
 	this->HangarShadowsEnabled = true;
 	this->EnableSoftHangarShadows = true;
 	this->OnlyGrayscale = false;
@@ -253,6 +255,10 @@ Config::Config()
 			{
 				this->D3dRendererHookEnabled = stoi(value) != 0;
 			}
+			else if (name == "D3dRendererTexturesHookEnabled")
+			{
+				this->D3dRendererTexturesHookEnabled = stoi(value) != 0;
+			}
 			else if (name == "HangarShadowsEnabled")
 			{
 				this->HangarShadowsEnabled = stoi(value) != 0;
@@ -316,6 +322,11 @@ Config::Config()
 		this->D3dRendererHookEnabled = false;
 
 		MessageBox(nullptr, "You must set [hook_d3d] IsHookD3DEnabled = 0 in Hooks.ini to use the D3d renderer hook.\nThe D3d renderer hook will be disabled.", "X-Wing Alliance DDraw", MB_ICONWARNING);
+	}
+
+	if (!this->D3dRendererHookEnabled)
+	{
+		this->D3dRendererTexturesHookEnabled = false;
 	}
 
 	//if (this->JoystickEmul != 0 && isXWA)

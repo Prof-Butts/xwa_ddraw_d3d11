@@ -47,6 +47,7 @@ public:
 	bool Text2DRendererEnabled;
 	bool Radar2DRendererEnabled;
 	bool D3dRendererHookEnabled;
+	bool D3dRendererTexturesHookEnabled;
 	bool Text2DAntiAlias;
 	bool Geometry2DAntiAlias;
 

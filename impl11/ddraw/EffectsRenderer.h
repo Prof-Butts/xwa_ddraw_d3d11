@@ -55,6 +55,8 @@ bool IsInsideTriangle(Vector2 P, Vector2 A, Vector2 B, Vector2 C, float *u, floa
 Matrix4 ComputeLightViewMatrix(int idx, Matrix4 &Heading, bool invert);
 void RenderSkyBox();
 
+class XwaTextureData;
+
 class EffectsRenderer : public D3dRenderer
 {
 protected:
@@ -66,8 +68,8 @@ protected:
 	bool _bShadowsRenderedInCurrentFrame, _bJoystickTransformReady;
 	bool _bHangarShadowsRenderedInCurrentFrame;
 
-	Direct3DTexture *_lastTextureSelected = nullptr;
-	Direct3DTexture *_lastLightmapSelected = nullptr;
+	XwaTextureData*_lastTextureSelected = nullptr;
+	XwaTextureData*_lastLightmapSelected = nullptr;
 	std::vector<DrawCommand> _LaserDrawCommands;
 	std::vector<DrawCommand> _TransparentDrawCommands;
 	std::vector<DrawCommand> _ShadowMapDrawCommands;

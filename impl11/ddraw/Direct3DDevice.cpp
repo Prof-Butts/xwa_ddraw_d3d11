@@ -460,6 +460,7 @@ float s_XwaHudScale = 1.0f;
 #include "Direct3DDevice.h"
 #include "Direct3DExecuteBuffer.h"
 #include "Direct3DTexture.h"
+#include "XwaTextureData.h"
 #include "BackbufferSurface.h"
 #include "FrontbufferSurface.h"
 #include "OffscreenSurface.h"
@@ -2140,7 +2141,7 @@ FILE *g_DumpOBJFile = NULL, *g_DumpLaserFile = NULL;
 int g_iOBJFileIdx = 0;
 int g_iDumpOBJIdx = 1, g_iDumpLaserOBJIdx = 1, g_iDumpFaceIdx = 1;
 
-void DumpVerticesToOBJ(FILE *file, LPD3DINSTRUCTION instruction, UINT curIndex, int &OBJIdx, char *name=nullptr, bool invertZ=false)
+void DumpVerticesToOBJ(FILE *file, LPD3DINSTRUCTION instruction, UINT curIndex, int &OBJIdx, const char *name=nullptr, bool invertZ=false)
 {
 	LPD3DTRIANGLE triangle = (LPD3DTRIANGLE)(instruction + 1);
 	uint32_t index;
@@ -2398,7 +2399,7 @@ void Direct3DDevice::AddLaserLights(LPD3DINSTRUCTION instruction, UINT curIndex,
 	uint32_t index;
 	UINT idx = curIndex;
 	Vector3 tempv0, tempv1, tempv2, P;
-	Vector2 UV0, UV1, UV2, UV = texture->material.LightUVCoordPos;
+	Vector2 UV0, UV1, UV2, UV = texture->_textureData.material.LightUVCoordPos;
 
 	// XWA batch renders all lasers that share the same texture, so we may see several
 	// lasers when parsing this instruction. To detect each individual laser, we need
@@ -2426,14 +2427,14 @@ void Direct3DDevice::AddLaserLights(LPD3DINSTRUCTION instruction, UINT curIndex,
 		float u, v;
 		if (IsInsideTriangle(UV, UV0, UV1, UV2, &u, &v)) {
 			P = tempv0 + u * (tempv2 - tempv0) + v * (tempv1 - tempv0);
-			g_LaserList.insert(P, texture->material.Light);
+			g_LaserList.insert(P, texture->_textureData.material.Light);
 		}
 
 		if (!g_config.D3dHookExists) triangle++;
 	}
 }
 
-void Direct3DDevice::AddExplosionLights(LPD3DINSTRUCTION instruction, UINT curIndex, Direct3DTexture *texture)
+void Direct3DDevice::AddExplosionLights(LPD3DINSTRUCTION instruction, UINT curIndex, XwaTextureData *texture)
 {
 	LPD3DTRIANGLE triangle = (LPD3DTRIANGLE)(instruction + 1);
 	uint32_t index;
@@ -2646,7 +2647,7 @@ inline void UpdateDCHologramState() {
 	g_bDCHologramsVisiblePrev = g_bDCHologramsVisible;
 }
 
-uint32_t Direct3DDevice::GetWarningLightColor(LPD3DINSTRUCTION instruction, UINT curIndex, Direct3DTexture *texture)
+uint32_t Direct3DDevice::GetWarningLightColor(LPD3DINSTRUCTION instruction, UINT curIndex, XwaTextureData *texture)
 {
 	LPD3DTRIANGLE triangle = (LPD3DTRIANGLE)(instruction + 1);
 	uint32_t index, color = 0;
@@ -3129,7 +3130,7 @@ HRESULT Direct3DDevice::Execute(
 		char* pData = executeBuffer->_buffer + executeBuffer->_executeData.dwInstructionOffset;
 		char* pDataEnd = pData + executeBuffer->_executeData.dwInstructionLength;
 		// lastTextureSelected is used to predict what is going to be rendered next
-		Direct3DTexture* lastTextureSelected = NULL;
+		XwaTextureData* lastTextureSelected = NULL;
 
 		UINT currentIndexLocation = 0;
 
@@ -3172,12 +3173,12 @@ HRESULT Direct3DDevice::Execute(
 						else
 						{
 							texture->_refCount++;
-							this->_deviceResources->InitPSShaderResourceView(texture->_textureView.Get());
+							this->_deviceResources->InitPSShaderResourceView(texture->_textureData._textureView.Get());
 							texture->_refCount--;
 
 							pixelShader = resources->_pixelShaderTexture;
 							// Keep the last texture selected and tag it (classify it) if necessary
-							lastTextureSelected = texture;
+							lastTextureSelected = &texture->_textureData;
 							if (!lastTextureSelected->is_Tagged)
 								lastTextureSelected->TagTexture();
 						}
@@ -4778,7 +4779,7 @@ HRESULT Direct3DDevice::Execute(
 						if (!lastTextureSelected->material.DATGroupImageIdParsed) {
 							// TODO: Maybe I can extract the group Id and image Id from the DAT's name during tagging and
 							// get rid of the DATGroupImageIdParsed field in the material property.
-							GetGroupIdImageIdFromDATName(lastTextureSelected->_surface->_cname, &GroupId, &ImageId);
+							GetGroupIdImageIdFromDATName(lastTextureSelected->_name.c_str(), &GroupId, &ImageId);
 							lastTextureSelected->material.GroupId = GroupId;
 							lastTextureSelected->material.ImageId = ImageId;
 							lastTextureSelected->material.DATGroupImageIdParsed = true;
@@ -5006,7 +5007,7 @@ HRESULT Direct3DDevice::Execute(
 						g_PSCBuffer.fPosNormalAlpha = 0.0f;
 					} 
 					else if (lastTextureSelected->is_Debris || lastTextureSelected->is_Trail ||
-						lastTextureSelected->is_CockpitSpark || lastTextureSelected->is_Spark || 
+						lastTextureSelected->is_CockpitSpark || lastTextureSelected->is_Spark ||
 						lastTextureSelected->is_Chaff)
 					{
 						bModifiedShaders = true;
@@ -5391,14 +5392,14 @@ HRESULT Direct3DDevice::Execute(
 				}
 				*/
 				if (g_bDumpSSAOBuffers && g_bDumpOBJEnabled && (bIsEngineGlow || bIsMapIcon)) {
-					log_debug("[DBG] Dumping OBJ (bIsEngineGlow|bIsMapIcon): obj_%d, %s", g_iDumpOBJIdx, lastTextureSelected->_surface->_cname);
+					log_debug("[DBG] Dumping OBJ (bIsEngineGlow|bIsMapIcon): obj_%d, %s", g_iDumpOBJIdx, lastTextureSelected->_name);
 					DumpVerticesToOBJ(g_DumpOBJFile, instruction, currentIndexLocation,
-						g_iDumpOBJIdx, lastTextureSelected->_surface->_cname, bIsMapIcon);
+						g_iDumpOBJIdx, lastTextureSelected->_name.c_str(), bIsMapIcon);
 				}
 				if (g_bDumpSSAOBuffers && g_bDumpOBJEnabled && bIsExplosion) {
-					log_debug("[DBG] Dumping OBJ (bIsExplosion): obj_%d, %s", g_iDumpLaserOBJIdx, lastTextureSelected->_surface->_cname);
+					log_debug("[DBG] Dumping OBJ (bIsExplosion): obj_%d, %s", g_iDumpLaserOBJIdx, lastTextureSelected->_name);
 					DumpVerticesToOBJ(g_DumpLaserFile, instruction, currentIndexLocation,
-						g_iDumpLaserOBJIdx, lastTextureSelected->_surface->_cname);
+						g_iDumpLaserOBJIdx, lastTextureSelected->_name.c_str());
 				}
 
 				// Tech Room Hologram control (this is only used for the engine glows)

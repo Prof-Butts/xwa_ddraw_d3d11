@@ -13,6 +13,7 @@
 #include "FreePIE.h"
 #include "Matrices.h"
 #include "Direct3DTexture.h"
+#include "XwaTextureData.h"
 #include "XWAFramework.h"
 #include "XwaDrawTextHook.h"
 #include "XwaDrawRadarHook.h"
@@ -4809,7 +4810,7 @@ void ComputeHeadingDifference(const Matrix4 &H, Vector4 Fs, Vector4 Us, float fC
  * Hyperzoom is computed first when needed.
  */
 void PrimarySurface::RenderHyperspaceEffect(D3D11_VIEWPORT *lastViewport,
-	ID3D11PixelShader *lastPixelShader, Direct3DTexture *lastTextureSelected,
+	ID3D11PixelShader *lastPixelShader, XwaTextureData *lastTextureSelected,
 	ID3D11Buffer *lastVertexBuffer, UINT *lastVertexBufStride, UINT *lastVertexBufOffset)
 {
 	/*
@@ -5415,9 +5416,9 @@ void PrimarySurface::RenderHyperspaceEffect(D3D11_VIEWPORT *lastViewport,
 	//       any difference. The fix is to use a proper InitXXX() above to update the internal state
 	//	     of these functions.
 	if (lastTextureSelected != NULL) {
-		lastTextureSelected->_refCount++;
+		//lastTextureSelected->_refCount++;
 		context->PSSetShaderResources(0, 1, lastTextureSelected->_textureView.GetAddressOf());
-		lastTextureSelected->_refCount--;
+		//lastTextureSelected->_refCount--;
 	}
 	resources->InitInputLayout(resources->_inputLayout);
 	if (g_bEnableVR)
@@ -7756,7 +7757,7 @@ void PrimarySurface::TagXWABackdrops()
 								Direct3DTexture* tex = (Direct3DTexture*)it->second;
 								if (g_bBackdropsReset)
 									log_debug("[DBG] [CUBE]        Corresponding Texture Found: 0x%x, 0x%x",
-										tex, tex->_textureView.Get());
+										tex, tex->_textureData._textureView.Get());
 								g_iBackdropsTagged++;
 								// Classify this starfield and store it
 								if (fabs(S.z - 1.0f) < 0.01f)
@@ -8931,7 +8932,7 @@ void PrimarySurface::OPTVertexToSteamVRPostProcCoords(Vector4 pos3D, Vector4 pos
  * Output: offscreenBufferPost
  */
 void PrimarySurface::RenderLaserPointer(D3D11_VIEWPORT *lastViewport,
-	ID3D11PixelShader *lastPixelShader, Direct3DTexture *lastTextureSelected,
+	ID3D11PixelShader *lastPixelShader, XwaTextureData *lastTextureSelected,
 	ID3D11Buffer *lastVertexBuffer, UINT *lastVertexBufStride, UINT *lastVertexBufOffset)
 {
 	EffectsRenderer* renderer = (EffectsRenderer*)g_current_renderer;

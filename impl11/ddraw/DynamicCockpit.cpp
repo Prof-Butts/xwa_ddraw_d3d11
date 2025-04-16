@@ -1074,7 +1074,7 @@ int ReadNameFromLine(char* buf, char* name)
 	return len;
 }
 
-int isInVector(char* name, dc_element* dc_elements, int num_elems) {
+int isInVector(const char* name, dc_element* dc_elements, int num_elems) {
 	for (int i = 0; i < num_elems; i++) {
 		if (stristr(name, dc_elements[i].name) != NULL)
 			return i;

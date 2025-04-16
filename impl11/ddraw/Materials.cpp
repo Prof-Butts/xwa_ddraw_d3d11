@@ -2122,11 +2122,11 @@ bool LoadIndividualMATParams(char *OPTname, char *sFileName, bool verbose) {
 	return true;
 }
 
-bool GetGroupIdImageIdFromDATName(char* DATName, int* GroupId, int* ImageId) {
+bool GetGroupIdImageIdFromDATName(const char* DATName, int* GroupId, int* ImageId) {
 	// Extract the Group Id and Image Id from the dat name:
 	// Sample dat name:
 	// [dat,9002,1200,0,0]
-	char* idx = strstr(DATName, "dat,");
+	const char* idx = strstr(DATName, "dat,");
 	if (idx == NULL) {
 		log_debug("[DBG] [MAT] Could not find 'dat,' substring in [%s]", DATName);
 		return false;

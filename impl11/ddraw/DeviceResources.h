@@ -641,3 +641,5 @@ public:
 
 	void (*_surfaceDcCallback)();
 };
+
+extern DeviceResources* g_deviceResources;

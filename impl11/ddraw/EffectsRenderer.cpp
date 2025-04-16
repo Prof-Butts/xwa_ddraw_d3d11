@@ -1,6 +1,7 @@
 #include "common.h"
 #include "EffectsRenderer.h"
 #include "XwaDrawBracketHook.h"
+#include "XwaTextureData.h"
 #include <algorithm>
 
 void ProcessKeyboard();
@@ -3466,18 +3467,33 @@ void EffectsRenderer::UpdateTextures(const SceneCompData* scene)
 		surface = (XwaTextureSurface*)esi->pData;
 	}
 
-	XwaD3dTextureCacheUpdateOrAdd(surface);
-
-	if (surface2 != nullptr)
+	if (scene->D3DInfo != nullptr && scene->D3DInfo->MipMapsCount < 0)
 	{
-		XwaD3dTextureCacheUpdateOrAdd(surface2);
-	}
+		XwaTextureData* colorMap = (XwaTextureData*)scene->D3DInfo->ColorMap[0];
+		XwaTextureData* lightMap = (XwaTextureData*)scene->D3DInfo->LightMap[0];
 
-	Direct3DTexture* texture = (Direct3DTexture*)surface->D3dTexture.D3DTextureHandle;
-	Direct3DTexture* texture2 = surface2 == nullptr ? nullptr : (Direct3DTexture*)surface2->D3dTexture.D3DTextureHandle;
-	_deviceResources->InitPSShaderResourceView(texture->_textureView, texture2 == nullptr ? nullptr : texture2->_textureView.Get());
-	_lastTextureSelected = texture;
-	_lastLightmapSelected = texture2;
+		_deviceResources->InitPSShaderResourceView(
+			colorMap ? colorMap->_textureView.Get() : nullptr,
+			lightMap ? lightMap->_textureView.Get() : nullptr);
+
+		_lastTextureSelected = colorMap;
+		_lastLightmapSelected = lightMap;
+	}
+	else
+	{
+		XwaD3dTextureCacheUpdateOrAdd(surface);
+
+		if (surface2 != nullptr)
+		{
+			XwaD3dTextureCacheUpdateOrAdd(surface2);
+		}
+
+		Direct3DTexture* texture = (Direct3DTexture*)surface->D3dTexture.D3DTextureHandle;
+		Direct3DTexture* texture2 = surface2 == nullptr ? nullptr : (Direct3DTexture*)surface2->D3dTexture.D3DTextureHandle;
+		_deviceResources->InitPSShaderResourceView(texture->_textureData._textureView.Get(), texture2 == nullptr ? nullptr : texture2->_textureData._textureView.Get());
+		_lastTextureSelected = texture ? &texture->_textureData : nullptr;
+		_lastLightmapSelected = texture2 ? &texture2->_textureData : nullptr;
+	}
 }
 
 void EffectsRenderer::DoStateManagement(const SceneCompData* scene)
@@ -3546,11 +3562,11 @@ void EffectsRenderer::DoStateManagement(const SceneCompData* scene)
 		_bIsCockpit = _lastTextureSelected->is_CockpitTex;
 		_bIsGunner = _lastTextureSelected->is_GunnerTex;
 		_bIsExterior = _lastTextureSelected->is_Exterior;
-		//bIsDAT = lastTextureSelected->is_DAT;
+		//bIsDAT = lastTextureSelected->_textureData.is_DAT;
 		_bIsActiveCockpit = _lastTextureSelected->ActiveCockpitIdx > -1;
 		_bIsBlastMark = _lastTextureSelected->is_BlastMark;
-		//bIsDS2CoreExplosion = lastTextureSelected->is_DS2_Reactor_Explosion;
-		//bIsElectricity = lastTextureSelected->is_Electricity;
+		//bIsDS2CoreExplosion = lastTextureSelected->_textureData.is_DS2_Reactor_Explosion;
+		//bIsElectricity = lastTextureSelected->_textureData.is_Electricity;
 		_bHasMaterial = _lastTextureSelected->bHasMaterial;
 		_bIsExplosion = _lastTextureSelected->is_Explosion;
 		//if (_bHasMaterial) _bForceShaded = _lastTextureSelected->material.ForceShaded;
@@ -4555,15 +4571,15 @@ void EffectsRenderer::ApplyProceduralLava()
 	g_ShadertoyBuffer.SunColor[0].z = _lastTextureSelected->material.LavaColor.z;
 	/*
 	// SunColor[1] --> LavaNormalMult
-	g_ShadertoyBuffer.SunColor[1].x = lastTextureSelected->material.LavaNormalMult.x;
-	g_ShadertoyBuffer.SunColor[1].y = lastTextureSelected->material.LavaNormalMult.y;
-	g_ShadertoyBuffer.SunColor[1].z = lastTextureSelected->material.LavaNormalMult.z;
+	g_ShadertoyBuffer.SunColor[1].x = lastTextureSelected->_textureData.material.LavaNormalMult.x;
+	g_ShadertoyBuffer.SunColor[1].y = lastTextureSelected->_textureData.material.LavaNormalMult.y;
+	g_ShadertoyBuffer.SunColor[1].z = lastTextureSelected->_textureData.material.LavaNormalMult.z;
 	// SunColor[2] --> LavaPosMult
-	g_ShadertoyBuffer.SunColor[2].x = lastTextureSelected->material.LavaPosMult.x;
-	g_ShadertoyBuffer.SunColor[2].y = lastTextureSelected->material.LavaPosMult.y;
-	g_ShadertoyBuffer.SunColor[2].z = lastTextureSelected->material.LavaPosMult.z;
+	g_ShadertoyBuffer.SunColor[2].x = lastTextureSelected->_textureData.material.LavaPosMult.x;
+	g_ShadertoyBuffer.SunColor[2].y = lastTextureSelected->_textureData.material.LavaPosMult.y;
+	g_ShadertoyBuffer.SunColor[2].z = lastTextureSelected->_textureData.material.LavaPosMult.z;
 
-	g_ShadertoyBuffer.bDisneyStyle = lastTextureSelected->material.LavaTranspose;
+	g_ShadertoyBuffer.bDisneyStyle = lastTextureSelected->_textureData.material.LavaTranspose;
 	*/
 
 	_deviceResources->InitPixelShader(_deviceResources->_lavaPS);
@@ -6876,7 +6892,7 @@ void EffectsRenderer::RenderLasers()
 	UINT vertexBufferStride = sizeof(D3dVertex);
 	UINT vertexBufferOffset = 0;
 	// Run the deferred commands
-	for (DrawCommand command : _LaserDrawCommands) {
+	for (DrawCommand& command : _LaserDrawCommands) {
 		// Set the textures
 		_deviceResources->InitPSShaderResourceView(command.colortex->_textureView.Get(),
 			command.lighttex == nullptr ? nullptr : command.lighttex->_textureView.Get());
@@ -6943,7 +6959,7 @@ void EffectsRenderer::RenderTransparency()
 	UINT vertexBufferOffset = 0;
 
 	// Run the deferred commands
-	for (DrawCommand command : _TransparentDrawCommands) {
+	for (DrawCommand& command : _TransparentDrawCommands) {
 		g_PSCBuffer = command.PSCBuffer;
 		g_DCPSCBuffer = command.DCPSCBuffer;
 
@@ -8072,7 +8088,7 @@ void EffectsRenderer::RenderSkyCylinder()
 	{
 		ID3D11ShaderResourceView* srvs[] = {
 			g_StarfieldSRVs[STARFIELD_TYPE::TOP] != nullptr ?
-				g_StarfieldSRVs[STARFIELD_TYPE::TOP]->_textureView.Get() : nullptr
+				g_StarfieldSRVs[STARFIELD_TYPE::TOP]->_textureData._textureView.Get() : nullptr
 		};
 		context->PSSetShaderResources(0, 1, srvs);
 
@@ -8094,7 +8110,7 @@ void EffectsRenderer::RenderSkyCylinder()
 	{
 		ID3D11ShaderResourceView* srvs[] = {
 			g_StarfieldSRVs[STARFIELD_TYPE::BOTTOM] != nullptr ?
-			g_StarfieldSRVs[STARFIELD_TYPE::BOTTOM]->_textureView.Get() : nullptr
+			g_StarfieldSRVs[STARFIELD_TYPE::BOTTOM]->_textureData._textureView.Get() : nullptr
 		};
 		context->PSSetShaderResources(0, 1, srvs);
 
@@ -8155,7 +8171,7 @@ void EffectsRenderer::RenderSkyCylinder()
 	{
 		ID3D11ShaderResourceView* srvs[] = {
 			g_StarfieldSRVs[STARFIELD_TYPE::FRONT] != nullptr ?
-			g_StarfieldSRVs[STARFIELD_TYPE::FRONT]->_textureView.Get() : nullptr
+			g_StarfieldSRVs[STARFIELD_TYPE::FRONT]->_textureData._textureView.Get() : nullptr
 		};
 		context->PSSetShaderResources(0, 1, srvs);
 		Matrix4 DotTransform = swapScale * g_VRGeometryCBuffer.viewMat;
@@ -8174,7 +8190,7 @@ void EffectsRenderer::RenderSkyCylinder()
 	{
 		ID3D11ShaderResourceView* srvs[] = {
 			g_StarfieldSRVs[STARFIELD_TYPE::LEFT] != nullptr ?
-			g_StarfieldSRVs[STARFIELD_TYPE::LEFT]->_textureView.Get() : nullptr
+			g_StarfieldSRVs[STARFIELD_TYPE::LEFT]->_textureData._textureView.Get() : nullptr
 		};
 		context->PSSetShaderResources(0, 1, srvs);
 		Matrix4 DotTransform = swapScale * g_VRGeometryCBuffer.viewMat * Matrix4().rotateZ(90.0f);
@@ -8193,7 +8209,7 @@ void EffectsRenderer::RenderSkyCylinder()
 	{
 		ID3D11ShaderResourceView* srvs[] = {
 			g_StarfieldSRVs[STARFIELD_TYPE::BACK] != nullptr ?
-			g_StarfieldSRVs[STARFIELD_TYPE::BACK]->_textureView.Get() : nullptr
+			g_StarfieldSRVs[STARFIELD_TYPE::BACK]->_textureData._textureView.Get() : nullptr
 		};
 		context->PSSetShaderResources(0, 1, srvs);
 		Matrix4 DotTransform = swapScale * g_VRGeometryCBuffer.viewMat * Matrix4().rotateZ(180.0f);
@@ -8212,7 +8228,7 @@ void EffectsRenderer::RenderSkyCylinder()
 	{
 		ID3D11ShaderResourceView* srvs[] = {
 			g_StarfieldSRVs[STARFIELD_TYPE::RIGHT] != nullptr ?
-			g_StarfieldSRVs[STARFIELD_TYPE::RIGHT]->_textureView.Get() : nullptr
+			g_StarfieldSRVs[STARFIELD_TYPE::RIGHT]->_textureData._textureView.Get() : nullptr
 		};
 		context->PSSetShaderResources(0, 1, srvs);
 		Matrix4 DotTransform = swapScale * g_VRGeometryCBuffer.viewMat * Matrix4().rotateZ(270.0f);
@@ -9061,7 +9077,7 @@ void EffectsRenderer::RenderHangarShadowMap()
 	S1.scale(OPT_TO_METERS, -OPT_TO_METERS, OPT_TO_METERS);
 	S2.scale(METERS_TO_OPT, -METERS_TO_OPT, METERS_TO_OPT);
 
-	for (DrawCommand command : _ShadowMapDrawCommands) {
+	for (DrawCommand& command : _ShadowMapDrawCommands) {
 		// Set the mesh buffers
 		ID3D11ShaderResourceView* vsSSRV[1] = { command.vertexSRV };
 		context->VSSetShaderResources(0, 1, vsSSRV);

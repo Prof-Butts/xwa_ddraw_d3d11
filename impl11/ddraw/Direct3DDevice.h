@@ -7,6 +7,7 @@
 class RenderStates;
 
 class Direct3DTexture;
+class XwaTextureData;
 
 class Direct3DDevice : IDirect3DDevice
 {
@@ -48,7 +49,7 @@ public:
 
 	void AddLaserLights(LPD3DINSTRUCTION instruction, UINT curIndex, Direct3DTexture *texture);
 
-	void AddExplosionLights(LPD3DINSTRUCTION instruction, UINT curIndex, Direct3DTexture * texture);
+	void AddExplosionLights(LPD3DINSTRUCTION instruction, UINT curIndex, XwaTextureData * texture);
 
 	//void ClearBox(Box box, D3D11_VIEWPORT *viewport, bool fullScreen, float scale, D3DCOLOR clearColor);
 
@@ -58,7 +59,7 @@ public:
 
 	void EnableHoloTransparency();
 
-	uint32_t GetWarningLightColor(LPD3DINSTRUCTION instruction, UINT currentIndexLocation, Direct3DTexture * lastTextureSelected);
+	uint32_t GetWarningLightColor(LPD3DINSTRUCTION instruction, UINT currentIndexLocation, XwaTextureData * lastTextureSelected);
 
 	void UpdateReconstructionConstants();
 

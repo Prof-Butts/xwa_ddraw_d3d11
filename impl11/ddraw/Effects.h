@@ -128,8 +128,8 @@ extern Vector3 g_GunnerTurretPOVOffset;
 extern Vector3 g_HologramDisp;
 
 bool isInVector(uint32_t crc, std::vector<uint32_t>& vector);
-bool isInVector(char* name, std::vector<char*>& vector);
-bool isInVector(char* OPTname, std::vector<OPTNameType>& vector);
+bool isInVector(const char* name, std::vector<char*>& vector);
+bool isInVector(const char* OPTname, std::vector<OPTNameType>& vector);
 void DisplayCoords(LPD3DINSTRUCTION instruction, UINT curIndex);
 void InGameToScreenCoords(UINT left, UINT top, UINT width, UINT height, float x, float y, float* x_out, float* y_out);
 void InGameToScreenCoords(float x, float y, float* x_out, float* y_out);

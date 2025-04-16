@@ -141,6 +141,6 @@ bool LoadACAction(int lineNum, char* buf, float width, float height, ac_uv_coord
 void CockpitNameToACParamsFile(char* CockpitName, char* sFileName, int iFileNameSize);
 bool TranslateACAction(int lineNum, WORD* scanCodes, char* action, bool* bIsVRKeybActivator);
 void DisplayACAction(WORD* scanCodes);
-int isInVector(char* name, ac_element* ac_elements, int num_elems);
+int isInVector(const char* name, ac_element* ac_elements, int num_elems);
 void ACRunAction(WORD* action, const uvfloat4& coords, int ACSlot, int contIdx, struct joyinfoex_tag* pji = nullptr);
 bool IsContinousAction(WORD* action);

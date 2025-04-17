@@ -45,6 +45,7 @@ int MakeKeyFromGroupIdImageId(int groupId, int imageId);
 
 XwaTextureData::XwaTextureData()
 {
+	this->_name = "";
 	this->_width = 0;
 	this->_height = 0;
 	this->_deviceResources = nullptr;

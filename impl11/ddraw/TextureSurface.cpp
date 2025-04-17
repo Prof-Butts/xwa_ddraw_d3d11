@@ -19,7 +19,7 @@ TextureSurface::TextureSurface(DeviceResources* deviceResources, bool allocOnLoa
 
 	if (name != nullptr)
 	{
-		this->_name = name;
+		this->_name = std::string(name);
 	}
 
 	if (this->_allocOnLoad)

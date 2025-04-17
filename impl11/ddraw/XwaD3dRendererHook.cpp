@@ -2515,6 +2515,8 @@ HRESULT D3dOptCreateTextureColorLight(XwaD3DInfo* d3dInfo, OptNode* textureNode,
 		}
 	}
 
+	d3dInfo->AlphaMask = optHasAlpha;
+
 	return hr;
 }
 

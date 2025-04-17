@@ -2196,7 +2196,7 @@ void D3dReleaseD3DINFO(XwaD3DInfo* d3dInfo)
 void D3dOptSetSceneTextureTag(XwaD3DInfo* d3dInfo, OptNode* textureNode)
 {
 	const char* XwaIOFileName = (const char*)0x0080DA60;
-	std::string textureTag = std::string("opt,") + XwaIOFileName + "," + textureNode->Name;
+	std::string textureTag = std::string("opt,") + XwaIOFileName + "," + textureNode->Name + std::string(",0");
 	d3dInfo->TextureDescription.Palettes = (unsigned short*)new char[textureTag.size() + 1];
 	strcpy_s((char*)d3dInfo->TextureDescription.Palettes, textureTag.size() + 1, textureTag.c_str());
 }

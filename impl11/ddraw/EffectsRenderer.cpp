@@ -5795,20 +5795,6 @@ void EffectsRenderer::MainSceneHook(const SceneCompData* scene)
 	_deviceResources->InitRasterizerState(g_isInRenderLasers ? _rasterizerState : _rasterizerStateCull);
 	_deviceResources->InitRasterizerState(_rasterizerState);
 	_deviceResources->InitSamplerState(_samplerState.GetAddressOf(), nullptr);
-
-	if (scene->TextureAlphaMask == 0)
-	{
-		_deviceResources->InitBlendState(_solidBlendState, nullptr);
-		_deviceResources->InitDepthStencilState(_solidDepthState, nullptr);
-		_bIsTransparentCall = false;
-	}
-	else
-	{
-		_deviceResources->InitBlendState(_transparentBlendState, nullptr);
-		_deviceResources->InitDepthStencilState(_transparentDepthState, nullptr);
-		_bIsTransparentCall = true;
-	}
-
 	_deviceResources->InitViewport(&_viewport);
 	_deviceResources->InitTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 	_deviceResources->InitInputLayout(_inputLayout);
@@ -5824,6 +5810,23 @@ void EffectsRenderer::MainSceneHook(const SceneCompData* scene)
 	// Effects Management starts here.
 	// Do the state management
 	DoStateManagement(scene);
+
+	// When D3dRendererTexturesHookEnabled is enabled, scene->TextureAlphaMask is now always 0.
+	// So, instead, to detect transparent calls, we need to check the is_Transparent field in
+	// the current texture, and that needs to happen after UpdateTextures() and DoStateManagement()
+	const bool hasAlphaChannel = (_bLastTextureSelectedNotNULL && _lastTextureSelected->is_Transparent);
+	if (scene->TextureAlphaMask != 0 || hasAlphaChannel)
+	{
+		_deviceResources->InitBlendState(_transparentBlendState, nullptr);
+		_deviceResources->InitDepthStencilState(_transparentDepthState, nullptr);
+		_bIsTransparentCall = true;
+	}
+	else
+	{
+		_deviceResources->InitBlendState(_solidBlendState, nullptr);
+		_deviceResources->InitDepthStencilState(_solidDepthState, nullptr);
+		_bIsTransparentCall = false;
+	}
 
 	// DEBUG
 	// The scene pointer seems to be the same for every draw call, but the contents change.
@@ -5868,7 +5871,7 @@ void EffectsRenderer::MainSceneHook(const SceneCompData* scene)
 		  stristr(_lastTextureSelected->_name.c_str(), "TEX00032") != 0))
 	   )
 	*/
-	
+
 	// Cache the current object's ID
 	int objectId = -1;
 	if (scene != nullptr && scene->pObject != nullptr)

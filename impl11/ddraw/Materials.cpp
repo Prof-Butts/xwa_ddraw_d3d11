@@ -1310,7 +1310,7 @@ void ReadMaterialLine(char* buf, Material* curMaterial, char *OPTname) {
 	bool bIsCockpitOPT(stristr(OPTname, "Cockpit") != NULL);
 	// OPTname doesn't have the extension of the file, but materials for DAT
 	// files begin with dat-GroupId
-	bool bIsDATFile(stristr(OPTname, "dat") != NULL);
+	bool bIsDATFile(stristr(OPTname, ".dat") != NULL);
 	bool bIsGlobalOPT = bIsExteriorOPT || bIsCockpitOPT || bIsDATFile;
 	
 	// Skip comments and blank lines

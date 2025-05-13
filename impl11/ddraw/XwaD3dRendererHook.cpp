@@ -304,6 +304,7 @@ void D3dRenderer::SceneBegin(DeviceResources* deviceResources)
 	// Update g_bInTechGlobe
 	InTechGlobe();
 	InBriefingRoom();
+	InSkirmishShipScreen();
 
 #if LOGGER_DUMP
 	DumpFrame();

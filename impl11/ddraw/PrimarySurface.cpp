@@ -1370,7 +1370,7 @@ void PrimarySurface::resizeForSteamVR(int iteration, bool is_2D) {
 	// bugs when displaying stuff. On the other hand, I don't want to touch this since it
 	// looks like it works (?) anyway...
 	const bool bIsInConcourseHD = resources->IsInConcourseHd();
-	const bool bInHdTechRoom = bIsInConcourseHD && g_bInTechRoom;
+	const bool bInHdTechRoom = bIsInConcourseHD && (g_bInTechRoom || InSkirmishShipScreen());
 
 	// Set the vertex buffer
 	UINT stride = sizeof(MainVertex);
@@ -10458,6 +10458,16 @@ HRESULT PrimarySurface::Flip(
 				if (g_iNaturalConcourseAnimations > 1)
 					interval = g_iNaturalConcourseAnimations;
 
+				static bool prevFrameInSkirmishShipScreen = false;
+				/*if (!prevFrameInSkirmishShipScreen && g_bInSkirmishShipScreen)
+				{
+					// _offscreenBuffer contains the skirmish ship in VR:
+					DirectX::SaveDDSTextureToFile(context, resources->_offscreenBuffer, L"C:\\Temp\\_SKRMoffscreenBuffer.dds");
+					DirectX::SaveDDSTextureToFile(context, resources->_offscreenBufferPost, L"C:\\Temp\\_SKRMoffscreenBufferPost.dds");
+					DirectX::SaveDDSTextureToFile(context, resources->_offscreenBufferHd, L"C:\\Temp\\_SKRMoffscreenBufferHd.dds");
+					log_debug("[DBG] Skirmish screens dumped");
+				}*/
+
 				for (UINT i = 0; i < interval; i++)
 				{
 					// In the original code the offscreenBuffer is simply resolved into the backBuffer.
@@ -10631,6 +10641,7 @@ HRESULT PrimarySurface::Flip(
 				}
 
 				// Clear the RTVs for the next frame
+				if (!InSkirmishShipScreen())
 				{
 					// We're about to switch from 3D to 2D rendering.
 					// Let's clear the render target for the next iteration or we'll get multiple images during
@@ -10644,6 +10655,7 @@ HRESULT PrimarySurface::Flip(
 					}
 				}
 
+				prevFrameInSkirmishShipScreen = g_bInSkirmishShipScreen;
 			}
 			else
 			{

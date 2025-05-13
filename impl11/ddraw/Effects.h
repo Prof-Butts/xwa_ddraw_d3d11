@@ -298,3 +298,4 @@ CraftInstance* GetCraftInstanceForCurrentTargetSafe();
 // Also updates g_bInTechGlobe when called.
 bool InTechGlobe();
 bool InBriefingRoom();
+bool InSkirmishShipScreen();

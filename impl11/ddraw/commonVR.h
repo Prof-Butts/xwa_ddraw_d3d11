@@ -29,6 +29,7 @@ extern float g_fIPD;
 extern float g_fHalfIPD;
 extern bool g_bInTechRoom; // Set to true in PrimarySurface Present 2D (Flip)
 extern bool g_bInBriefingRoom;
+extern bool g_bInSkirmishShipScreen;
 
 extern float g_fPitchMultiplier, g_fYawMultiplier, g_fRollMultiplier;
 extern float g_fYawOffset, g_fPitchOffset;

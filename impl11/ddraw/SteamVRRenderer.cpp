@@ -118,7 +118,7 @@ void SteamVRRenderer::RenderScene(bool bBindTranspLyr1)
 	*/
 
 	//_deviceResources->InitScissorRect(&scissor);
-	if (!g_bInTechRoom)
+	if (!g_bInTechRoom && !g_bInSkirmishShipScreen)
 		// Regular VR path
 		resources->InitVertexShader(_vertexShaderVR);
 	else

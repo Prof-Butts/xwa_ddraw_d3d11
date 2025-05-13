@@ -206,6 +206,7 @@ bool g_bRendering3D = false; // Set to true when the system is about to render i
 bool g_bPrevPlayerInHangar = false;
 bool g_bInTechRoom = false; // Set to true in PrimarySurface Present 2D (Flip)
 bool g_bInBriefingRoom = false;
+bool g_bInSkirmishShipScreen = false;
 
 D3DTLVERTEX g_SpeedParticles2D[MAX_SPEED_PARTICLES * 12];
 
@@ -1267,4 +1268,11 @@ bool InBriefingRoom()
 	const int XwaMissionBriefingGameStateUpdate = 0x00564E90;
 	g_bInBriefingRoom = (updateCallback == XwaMissionBriefingGameStateUpdate);
 	return g_bInBriefingRoom;
+}
+
+// Yup, Jeremy again :)
+bool InSkirmishShipScreen()
+{
+	g_bInSkirmishShipScreen = (*(int*)0x007838A0 != 0);
+	return g_bInSkirmishShipScreen;
 }

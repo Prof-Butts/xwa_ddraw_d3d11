@@ -6288,7 +6288,8 @@ void EffectsRenderer::MainSceneHook(const SceneCompData* scene)
 	// behind other geometry. We need to store those draw calls and render them later, near the end
 	// of the frame.
 	// TODO: Instead of storing draw calls, use a deferred context to record the calls and then execute it later
-	if (_bIsTransparentCall) {
+	if (_bIsTransparentCall && !g_bInSkirmishShipScreen)
+	{
 		DrawCommand command;
 		// Save the current draw command and skip. We'll render the transparency later
 

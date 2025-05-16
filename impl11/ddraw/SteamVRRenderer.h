@@ -7,6 +7,7 @@ public:
 	SteamVRRenderer();
 	virtual void SceneBegin(DeviceResources* deviceResources);
 	virtual void SceneEnd();
+	void RenderSkirmishOPT();
 	virtual void RenderScene(bool bBindTranspLyr1);
 	virtual void CreateShaders();
 

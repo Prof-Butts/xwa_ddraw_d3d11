@@ -55,6 +55,49 @@ void SteamVRRenderer::SceneEnd()
 	EffectsRenderer::SceneEnd();
 }
 
+/// <summary>
+/// When the HD Concourse is enabled and D3dRendererTexturesHookEnabled is enabled too,
+/// hook_concourse.dll will make a quick render in the Skirmish OPT selection screen.
+/// However, this quick render is done into _offscreenBuffer in pancake mode and that won't
+/// work in VR mode because we use array textures to enable instanced rendering. Instead, we
+/// need to use a different path in VR that won't use any array textures and render to
+/// _offscreenBufferHd instead. This method takes care of that:
+/// </summary>
+void SteamVRRenderer::RenderSkirmishOPT()
+{
+	auto &resources = _deviceResources;
+	auto &context = resources->_d3dDeviceContext;
+
+	resources->InitVertexShader(_vertexShader);
+
+	D3D11_VIEWPORT viewport;
+	viewport.Width    = (float)HD_CONCOURSE_WIDTH;
+	viewport.Height   = (float)HD_CONCOURSE_HEIGHT;
+	viewport.TopLeftX = 0.0f;
+	viewport.TopLeftY = 0.0f;
+	viewport.MinDepth = D3D11_MIN_DEPTH;
+	viewport.MaxDepth = D3D11_MAX_DEPTH;
+	resources->InitViewport(&viewport);
+
+	// Ensure that we're not overriding regular depth in this path
+	g_VSCBuffer.z_override = -1.0f;
+	g_VSCBuffer.sz_override = -1.0f;
+	g_VSCBuffer.mult_z_override = -1.0f;
+	// Add extra depth to Floating GUI elements
+	if (g_bIsFloating3DObject) {
+		_bModifiedShaders = true;
+		g_VSCBuffer.z_override += g_fFloatingGUIObjDepth;
+	}
+	resources->InitVSConstantBuffer3D(resources->_VSConstantBuffer.GetAddressOf(), &g_VSCBuffer);
+
+	ID3D11RenderTargetView* rtvs[7] = {
+		resources->_renderTargetViewHd.Get(),
+		nullptr, nullptr, nullptr, nullptr, nullptr, nullptr
+	};
+	context->OMSetRenderTargets(7, rtvs, nullptr);
+	context->DrawIndexed(_trianglesCount * 3, 0, 0);
+}
+
 void SteamVRRenderer::RenderScene(bool bBindTranspLyr1)
 {
 	if (_deviceResources->_displayWidth == 0 || _deviceResources->_displayHeight == 0)
@@ -67,6 +110,12 @@ void SteamVRRenderer::RenderScene(bool bBindTranspLyr1)
 		// Instead, let's do nothing here and just use the new hangar soft shadow system.
 		// resources->InitVertexShader(_shadowVertexShaderVR);
 		return;
+
+	if (g_bInSkirmishShipScreen && g_config.HDConcourseEnabled && g_config.D3dRendererTexturesHookEnabled)
+	{
+		RenderSkirmishOPT();
+		return;
+	}
 
 	auto &resources = _deviceResources;
 	auto &context = resources->_d3dDeviceContext;
@@ -118,7 +167,7 @@ void SteamVRRenderer::RenderScene(bool bBindTranspLyr1)
 	*/
 
 	//_deviceResources->InitScissorRect(&scissor);
-	if (!g_bInTechRoom && !g_bInSkirmishShipScreen)
+	if (!g_bInTechRoom)
 		// Regular VR path
 		resources->InitVertexShader(_vertexShaderVR);
 	else

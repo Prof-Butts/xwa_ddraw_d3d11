@@ -10458,16 +10458,6 @@ HRESULT PrimarySurface::Flip(
 				if (g_iNaturalConcourseAnimations > 1)
 					interval = g_iNaturalConcourseAnimations;
 
-				static bool prevFrameInSkirmishShipScreen = false;
-				/*if (!prevFrameInSkirmishShipScreen && g_bInSkirmishShipScreen)
-				{
-					// _offscreenBuffer contains the skirmish ship in VR:
-					DirectX::SaveDDSTextureToFile(context, resources->_offscreenBuffer, L"C:\\Temp\\_SKRMoffscreenBuffer.dds");
-					DirectX::SaveDDSTextureToFile(context, resources->_offscreenBufferPost, L"C:\\Temp\\_SKRMoffscreenBufferPost.dds");
-					DirectX::SaveDDSTextureToFile(context, resources->_offscreenBufferHd, L"C:\\Temp\\_SKRMoffscreenBufferHd.dds");
-					log_debug("[DBG] Skirmish screens dumped");
-				}*/
-
 				for (UINT i = 0; i < interval; i++)
 				{
 					// In the original code the offscreenBuffer is simply resolved into the backBuffer.
@@ -10640,11 +10630,7 @@ HRESULT PrimarySurface::Flip(
 					}
 				}
 
-				const int currentGameState = *(int*)(0x09F60E0 + 0x25FA9);
-				const int isInOPTSkirmishShipScreen = (*(int*)0x007838A0 != 0) && (*(int*)0x009F4BC8 == 0x02);
 				// Clear the RTVs for the next frame
-				// currentGameState is 0x1 when the ESC menu is pressed:
-				if (g_bUseSteamVR && (!isInOPTSkirmishShipScreen || currentGameState != 0))
 				{
 					// We're about to switch from 3D to 2D rendering.
 					// Let's clear the render target for the next iteration or we'll get multiple images during
@@ -10657,8 +10643,6 @@ HRESULT PrimarySurface::Flip(
 						//context->ClearRenderTargetView(resources->_renderTargetViewSteamVRResize, bgColor);
 					}
 				}
-
-				prevFrameInSkirmishShipScreen = g_bInSkirmishShipScreen;
 			}
 			else
 			{

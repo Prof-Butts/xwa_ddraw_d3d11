@@ -423,8 +423,10 @@ public:
 
 	ComPtr<ID3D11Texture2D> _depthStencilL;
 	ComPtr<ID3D11Texture2D> _depthStencilR;
+	ComPtr<ID3D11Texture2D> _depthStencilHd = nullptr;
 	ComPtr<ID3D11DepthStencilView> _depthStencilViewL;
 	ComPtr<ID3D11DepthStencilView> _depthStencilViewR;
+	ComPtr<ID3D11DepthStencilView> _depthStencilViewHd = nullptr;
 	ComPtr<ID3D11DepthStencilView> _shadowMapDSV;
 	ComPtr<ID3D11DepthStencilView> _csmMapDSV;
 	//ComPtr<ID3D11DepthStencilView> _shadowMapDSV_R; // Do I really need a shadow map for the right eye? I don't think so...

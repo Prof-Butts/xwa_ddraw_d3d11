@@ -798,7 +798,30 @@ HRESULT OffscreenSurface::Unlock(
 		if (copyHdBackground)
 		{
 			if (g_bUseSteamVR)
+			{
+				extern bool g_bInSkirmishShipScreen;
+				extern bool g_bRendering3D;
+
+				// The sequence of draw calls when the Skirmish OPT is rendered is weird. The draw calls
+				// happen in SteamVRRenderer::RenderSkirmishOPT(), and the OPT itself appears to be rendered
+				// twice. At the middle point, _this_ method is called twice and _offscreenBufferHdBackground is
+				// overwritten. When this happens, for some reason, the existing OPT render gets wiped out and
+				// we end up with an empty render. I suspect that it gets wiped out because the HdBackground is
+				// rendered as a quad with a depth value that erases the OPT (i.e. the quad is "on top" of the
+				// OPT). To prevent this, I'm clearing the _depthStencilViewHd so that the second time the OPT
+				// is rendered, it can start on a clear depth stencil. Seems to work, but it's still weird.
+				if (!g_bRendering3D &&
+					g_config.HDConcourseEnabled &&
+					g_config.D3dRendererTexturesHookEnabled &&
+					g_bInSkirmishShipScreen)
+				{
+					auto& resources = _deviceResources;
+					auto& context   = resources->_d3dDeviceContext;
+					context->ClearDepthStencilView(resources->_depthStencilViewHd, D3D11_CLEAR_DEPTH, 0.0f, 0);
+				}
+
 				this->_deviceResources->_d3dDeviceContext->CopyResource(this->_deviceResources->_offscreenBufferHdBackground, this->_deviceResources->_offscreenBufferHd);
+			}
 			else
 				this->_deviceResources->_d3dDeviceContext->CopyResource(this->_deviceResources->_offscreenBufferHdBackground, this->_deviceResources->_offscreenBuffer);
 		}

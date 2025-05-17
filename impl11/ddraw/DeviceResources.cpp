@@ -1743,6 +1743,20 @@ HRESULT DeviceResources::OnSizeChanged(HWND hWnd, DWORD dwWidth, DWORD dwHeight)
 	this->_depthStencilViewR.Release();
 	this->_depthStencilL.Release();
 	this->_depthStencilR.Release();
+	if (g_bUseSteamVR && g_config.HDConcourseEnabled &&
+		g_config.D3dRendererTexturesHookEnabled)
+	{
+		if (this->_depthStencilHd)
+		{
+			this->_depthStencilHd.Release();
+			this->_depthStencilHd = nullptr;
+		}
+		if (this->_depthStencilViewHd)
+		{
+			this->_depthStencilViewHd.Release();
+			this->_depthStencilViewHd = nullptr;
+		}
+	}
 	this->_d2d1RenderTarget.Release();
 	this->_d2d1OffscreenRenderTarget.Release();
 	if (g_EnhancedHUDData.Enabled)
@@ -3889,6 +3903,19 @@ HRESULT DeviceResources::OnSizeChanged(HWND hWnd, DWORD dwWidth, DWORD dwHeight)
 		depthStencilDesc.ArraySize = 1;
 		hr = this->_d3dDevice->CreateTexture2D(&depthStencilDesc, nullptr, &this->_depthStencilR);
 
+		if (g_bUseSteamVR && g_config.HDConcourseEnabled &&
+			g_config.D3dRendererTexturesHookEnabled)
+		{
+			auto tmp = depthStencilDesc;
+			depthStencilDesc.Width     = HD_CONCOURSE_WIDTH;
+			depthStencilDesc.Height    = HD_CONCOURSE_HEIGHT;
+			depthStencilDesc.ArraySize = 1;
+			depthStencilDesc.SampleDesc.Count   = 1;
+			depthStencilDesc.SampleDesc.Quality = 0;
+			hr = this->_d3dDevice->CreateTexture2D(&depthStencilDesc, nullptr, &this->_depthStencilHd);
+			depthStencilDesc = tmp;
+		}
+
 		// This lambda function will return the right SrvDesc according to the requested parameters.	
 		auto GetSrvDesc = [](
 			bool useMultisampling,
@@ -3925,8 +3952,16 @@ HRESULT DeviceResources::OnSizeChanged(HWND hWnd, DWORD dwWidth, DWORD dwHeight)
 
 		if (SUCCEEDED(hr))
 		{
-			step = "DepthStencilViewR";			
+			step = "DepthStencilViewR";
 			hr = this->_d3dDevice->CreateDepthStencilView(this->_depthStencilR, &GetSrvDesc(this->_useMultisampling, false), &this->_depthStencilViewR);
+			if (FAILED(hr)) goto out;
+		}
+
+		if (SUCCEEDED(hr) && g_bUseSteamVR &&
+			g_config.HDConcourseEnabled && g_config.D3dRendererTexturesHookEnabled)
+		{
+			step = "DepthStencilViewHd";
+			hr = this->_d3dDevice->CreateDepthStencilView(this->_depthStencilHd, &GetSrvDesc(this->_useMultisampling, false), &this->_depthStencilViewHd);
 			if (FAILED(hr)) goto out;
 		}
 

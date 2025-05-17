@@ -66,7 +66,7 @@ void SteamVRRenderer::SceneEnd()
 void SteamVRRenderer::RenderSkirmishOPT()
 {
 	auto &resources = _deviceResources;
-	auto &context = resources->_d3dDeviceContext;
+	auto &context   = resources->_d3dDeviceContext;
 
 	resources->InitVertexShader(_vertexShader);
 
@@ -84,17 +84,13 @@ void SteamVRRenderer::RenderSkirmishOPT()
 	g_VSCBuffer.sz_override = -1.0f;
 	g_VSCBuffer.mult_z_override = -1.0f;
 	// Add extra depth to Floating GUI elements
-	if (g_bIsFloating3DObject) {
-		_bModifiedShaders = true;
-		g_VSCBuffer.z_override += g_fFloatingGUIObjDepth;
-	}
 	resources->InitVSConstantBuffer3D(resources->_VSConstantBuffer.GetAddressOf(), &g_VSCBuffer);
 
 	ID3D11RenderTargetView* rtvs[7] = {
 		resources->_renderTargetViewHd.Get(),
 		nullptr, nullptr, nullptr, nullptr, nullptr, nullptr
 	};
-	context->OMSetRenderTargets(7, rtvs, nullptr);
+	context->OMSetRenderTargets(7, rtvs, resources->_depthStencilViewHd.Get());
 	context->DrawIndexed(_trianglesCount * 3, 0, 0);
 }
 

@@ -278,6 +278,7 @@ public:
 
 	void CreateVRMeshes();
 	void CreateBackgroundMeshes();
+	void PopulateStarfieldMap();
 	void CreateBackdropIdMapping();
 
 	// Deferred rendering

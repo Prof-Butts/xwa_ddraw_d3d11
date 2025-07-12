@@ -55,7 +55,10 @@ struct PixelShaderOutput
 	float4 color : SV_TARGET0;
 };
 
-PixelShaderOutput RenderSkyBox(PixelShaderInput input)
+// Renders DefaultStarfield.dds
+// This function blends DefaultStarfield.dds with the existing planet backdrops by using
+// both the alpha from the backdrops and the lightness from DefaultStarfield.dds
+PixelShaderOutput RenderDefaultStarfield(PixelShaderInput input)
 {
 	PixelShaderOutput output;
 	output.color = 0;
@@ -88,12 +91,47 @@ PixelShaderOutput RenderSkyBox(PixelShaderInput input)
 	// combines the lightness of the skybox with the inverse alpha of the existing background.
 	// Opaque areas in the background are retained, and only light areas in the skybox are added.
 	// This custom blending step is performed in HyperspaceCompose for the VR path.
-	const float4 background = stellarBG.Sample(bgSampler, input.uv);
+	const float4 background = stellarBG.Sample(bgSampler, input.uv); // This layer contains planets and nebulae
 	const float3 bgBlend    = saturate(background.rgb + skyBoxColor.rgb);
 	output.color = float4(lerp(background.rgb, bgBlend, skyBoxVal * (1.0 - background.a)), 1);
 #else
 	// SteamVR mode: Return just the skybox, blending will be done later:
 	output.color = float4(skyBoxColor, skyBoxVal);
+#endif
+	return output;
+}
+
+// Renders a custom CubeMap (I can probably merge this with RenderDefaultStarfield() later
+PixelShaderOutput RenderCubeMap(PixelShaderInput input)
+{
+	PixelShaderOutput output;
+	output.color = 0;
+
+	// The code here comes from the HyperEntry shader:
+	float2 fragCoord = input.uv * iResolution.xy;
+	float2 p = (2.0 * fragCoord.xy - iResolution.xy) / min(iResolution.x, iResolution.y);
+	p *= preserveAspectRatioComp;
+	p += float2(0, y_center); // In XWA the aiming HUD is not at the screen's center
+
+	// But the code here comes from PixelShaderVRGeom, specifically from the area where
+	// the skybox is rendered:
+	float3 V = normalize(float3(p, -FOVscale));
+	// We invert V.zy here to match the direction vector used in PixelShaderVRGeom:
+	V.yz = -V.yz;
+	// That way, viewMat below is the same we already figured out for PixelShaderVRGeom:
+	V = mul(viewMat, float4(V, 0)).xyz;
+
+	const float3 cubeMapColor = skybox.Sample(bgSampler, V.xyz).rgb;
+
+#ifndef INSTANCED_RENDERING
+	// Blend the cube map with the previous background:
+	// The cube map is rendered *after* the backdrops have already been rendered, so
+	// we need to blend the existing planets/nebulae with the cube map.
+	const float4 background = stellarBG.Sample(bgSampler, input.uv); // This layer contains planets and nebulae
+	output.color = float4(lerp(cubeMapColor.rgb, background.rgb, background.a), 1);
+#else
+	// SteamVR mode: Return just the skybox, blending will be done later:
+	output.color = float4(cubeMapColor, 1);
 #endif
 	return output;
 }
@@ -203,10 +241,15 @@ PixelShaderOutput main(PixelShaderInput input) {
 	if (any(input.uv < p0) || any(input.uv > p1))
 		return output;
 
-	// Special mode: we're rendering the skybox in this path, not the reticle
+	// Special mode: we're rendering the skybox (DefaultStarfield.dds) in this path, not the reticle
 	if (VRmode == 3)
 	{
-		return RenderSkyBox(input);
+		return RenderDefaultStarfield(input);
+	}
+
+	if (VRmode == 4)
+	{
+		return RenderCubeMap(input);
 	}
 
 	// In SBS VR mode, each half-screen receives a full 0..1 uv range. So if we sample the

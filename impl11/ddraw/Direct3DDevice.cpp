@@ -518,6 +518,8 @@ float3 InverseTransformProjectionScreen(float4 pos);
 void ResetObjectIndexMap();
 void ReloadInterdictionMap();
 
+int MakeKeyFromGroupIdImageId(int groupId, int imageId);
+
 float g_fCurrentShipFocalLength = 0.0f; // Gets populated from the current DC "xwahacker_fov" file (if one is provided).
 float g_fCurrentShipLargeFocalLength = 0.0f; // Gets populated from the current "xwahacker_large_fov" DC file (if one is provided).
 bool g_bCustomFOVApplied = false;  // Becomes true in PrimarySurface::Flip once the custom FOV has been applied. Reset to false in DeviceResources::OnSizeChanged
@@ -5053,7 +5055,29 @@ HRESULT Direct3DDevice::Execute(
 					g_PSCBuffer.special_control.ExclusiveMask = SPECIAL_CONTROL_BACKGROUND;
 					// Redirect all background objects to the proper layer:
 					resources->_overrideRTV = BACKGROUND_LYR;
-					if (g_bDebugDefaultStarfield)
+					//if (g_bDebugDefaultStarfield)
+					//	goto out;
+
+					// The following parsing code is also used above, for explosions. Search for
+					// SPECIAL_CONTROL_EXPLOSION. Need to dedupe this later.
+					// In this block, we're skipping stellar backdrops only, but keeping planets
+					// nebulae and other stuff. That way we can blend the cubemap later.
+					// The list in g_StarfieldGroupIdImageIdMap is not exhaustive and will be larger
+					// for TFTC.
+					int GroupId, ImageId;
+					if (!lastTextureSelected->material.DATGroupImageIdParsed)
+					{
+						GetGroupIdImageIdFromDATName(lastTextureSelected->_name.c_str(), &GroupId, &ImageId);
+						lastTextureSelected->material.GroupId = GroupId;
+						lastTextureSelected->material.ImageId = ImageId;
+						lastTextureSelected->material.DATGroupImageIdParsed = true;
+					}
+					GroupId = lastTextureSelected->material.GroupId;
+					ImageId = lastTextureSelected->material.ImageId;
+					const int key = MakeKeyFromGroupIdImageId(GroupId, ImageId);
+					if (g_bDebugDefaultStarfield &&
+						g_StarfieldGroupIdImageIdMap.find(key) != g_StarfieldGroupIdImageIdMap.end())
+						// This is a starfield backdrop, let's skip it
 						goto out;
 				}
 

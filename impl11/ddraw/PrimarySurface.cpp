@@ -4,6 +4,7 @@
 #include "common.h"
 #include <ScreenGrab.h>
 #include <wincodec.h>
+#include <filesystem>
 
 #include "hook_config.h"
 #include "DeviceResources.h"
@@ -30,6 +31,9 @@
 #include "LBVH.h"
 
 #include <DDSTextureLoader.h>
+#include <WICTextureLoader.h>
+
+namespace fs = std::filesystem;
 
 extern D3dRenderer* g_current_renderer;
 extern LBVH* g_ACTLASTree;
@@ -6134,7 +6138,34 @@ out:
 	this->_deviceResources->EndAnnotatedEvent();
 }
 
-void PrimarySurface::RenderDefaultBackground()
+std::vector<std::wstring> ListFiles(std::string path)
+{
+	std::vector<std::wstring> result;
+
+	log_debug("[DBG] [CBM] Listing files under [%s]", path.c_str());
+	if (!fs::exists(path) || !fs::is_directory(path)) {
+		log_debug("[DBG] [CBM] ERROR: Directory %s does not exist", path.c_str());
+		return result;
+	}
+
+	for (const auto& entry : fs::directory_iterator(path)) {
+		// Check if the entry is a regular file
+		if (fs::is_regular_file(entry.status())) {
+			std::string fullName = path + "\\" + entry.path().filename().string();
+			log_debug("[DBG] [CBM]   File: [%s]", fullName.c_str());
+
+			wchar_t wTexName[MAX_TEXTURE_NAME];
+			size_t len = 0;
+			mbstowcs_s(&len, wTexName, MAX_TEXTURE_NAME, fullName.c_str(), MAX_TEXTURE_NAME);
+			std::wstring wstr(wTexName);
+			result.push_back(wstr);
+		}
+	}
+
+	return result;
+}
+
+void PrimarySurface::RenderDefaultBackground(bool renderCubeMap)
 {
 	if (!g_bRenderDefaultStarfield || !g_bRendering3D || g_bDefaultStarfieldRendered)
 		return;
@@ -6142,6 +6173,48 @@ void PrimarySurface::RenderDefaultBackground()
 	auto& resources = this->_deviceResources;
 	auto& device = resources->_d3dDevice;
 	auto& context = resources->_d3dDeviceContext;
+
+#if 1
+	// Here we're overwritting the cubemap for DefaultStarfield.dds. We should fix this later
+	// and have a separate cubemap SRV instead.
+	static bool bFirstTime = true;
+	if (bFirstTime && renderCubeMap)
+	{
+		ID3D11Texture2D* cubeFace;
+		ID3D11ShaderResourceView* cubeFaceSRV;
+		std::vector<std::wstring> fileNames = ListFiles(".\\Effects\\CubeMaps");
+		/*wchar_t* fileNames[] =
+		{
+			L"C:\\Temp\\CubeMaps\\Sample-Asteroid-Field.003.png", // Right, 0
+			L"C:\\Temp\\CubeMaps\\Sample-Asteroid-Field.007.png", // Left,  1
+			L"C:\\Temp\\CubeMaps\\Sample-Asteroid-Field.Top.png", // Top,   2
+			L"C:\\Temp\\CubeMaps\\Sample-Asteroid-Field.Btm.png", // Down,  3
+			L"C:\\Temp\\CubeMaps\\Sample-Asteroid-Field.001.png", // Fwd,   4
+			L"C:\\Temp\\CubeMaps\\Sample-Asteroid-Field.005.png", // Back,  5
+		};*/
+
+		D3D11_BOX box;
+		box.left   = 0;
+		box.top    = 0;
+		box.front  = 0;
+		box.right  = 1024;
+		box.bottom = 1024;
+		box.back   = 1;
+
+		for (int i = 0; i < 6; i++)
+		{
+			HRESULT res = DirectX::CreateWICTextureFromFile(device,
+				fileNames[i].c_str(), (ID3D11Resource **)&cubeFace, &cubeFaceSRV);
+			if (SUCCEEDED(res))
+				context->CopySubresourceRegion(resources->_textureCube, i, 0, 0, 0, cubeFace, 0, &box);
+			else
+				log_debug("[DBG] [CBM] COULD NOT LOAD CUBEFACE [%d]. Error: 0x%x", i, res);
+		}
+
+		//DirectX::SaveDDSTextureToFile(context, resources->_textureCube, L"C:\\Temp\\_textureCube.dds");
+		bFirstTime = false;
+	}
+#endif
 
 	float x0, y0, x1, y1;
 	D3D11_VIEWPORT viewport;
@@ -6221,7 +6294,7 @@ void PrimarySurface::RenderDefaultBackground()
 	g_ShadertoyBuffer.x1 = x1;
 	g_ShadertoyBuffer.y1 = y1;
 	//g_ShadertoyBuffer.VRmode = g_bEnableVR ? (bDirectSBS ? 1 : 2) : 0; // 0 = non-VR, 1 = SBS, 2 = SteamVR
-	g_ShadertoyBuffer.VRmode = 3; // Render the background
+	g_ShadertoyBuffer.VRmode = renderCubeMap ? 4 /* Render CubeMap */ : 3; /* Render DefaultStarfield.dds */
 	g_ShadertoyBuffer.iResolution[0] = g_fCurScreenWidth;
 	g_ShadertoyBuffer.iResolution[1] = g_fCurScreenHeight;
 	// This setting (y_center) interacts with g_MetricRecCBuffer.mr_y_center, even if they're
@@ -10933,7 +11006,7 @@ HRESULT PrimarySurface::Flip(
 			if (!g_bInTechRoom && !g_bMapMode && !g_bDefaultStarfieldRendered)
 			{
 				g_bUseExternalCameraState = true;
-				resources->_primarySurface->RenderDefaultBackground();
+				resources->_primarySurface->RenderDefaultBackground(g_bDebugDefaultStarfield);
 				g_bUseExternalCameraState = false;
 			}
 

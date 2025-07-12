@@ -2619,7 +2619,12 @@ HRESULT DeviceResources::OnSizeChanged(HWND hWnd, DWORD dwWidth, DWORD dwHeight)
 				*/
 
 				//HRESULT res = DirectX::CreateDDSTextureFromFile(this->_d3dDevice, L"C:\\temp\\skymap.dds", (ID3D11Resource **)&_textureCube, &_textureCubeSRV);
-				HRESULT res = DirectX::CreateDDSTextureFromFile(this->_d3dDevice, L".\\Effects\\DefaultStarfield.dds", NULL, &_textureCubeSRV);
+				//HRESULT res = DirectX::CreateDDSTextureFromFile(this->_d3dDevice, L".\\Effects\\DefaultStarfield.dds", NULL, &_textureCubeSRV);
+				// For CubeMaps, this is a bit of a hack. We're still creating the default cube map from DefaultStarfield.dds,
+				// but we added the _textureCube reference so that we have the cubemap buffer (not just the SRV). Then, we later
+				// overwrite the faces of the cube with textures loaded from disk. We should fix this later and create a buffer/SRV
+				// just for cubemaps.
+				HRESULT res = DirectX::CreateDDSTextureFromFile(this->_d3dDevice, L".\\Effects\\DefaultStarfield.dds", (ID3D11Resource **)&_textureCube, &_textureCubeSRV);
 				if (SUCCEEDED(res))
 					log_debug("[DBG] [CUBE] Loaded DefaultStarfield.dds");
 				else

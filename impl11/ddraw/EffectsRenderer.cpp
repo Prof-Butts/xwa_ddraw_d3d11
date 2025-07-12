@@ -2104,32 +2104,11 @@ void EffectsRenderer::CreateBackgroundMeshes()
 		_bgCylTexCoordsBuffer, _bgCylMeshTexCoordsSRV);
 }
 
-void EffectsRenderer::CreateBackdropIdMapping()
+void EffectsRenderer::PopulateStarfieldMap()
 {
-	if (!g_bReplaceBackdrops)
-		return;
-
-	log_debug("[DBG] [CUBE] Creating mission -> backdrop mapping");
-	if (!InitDATReader()) // This call is idempotent and does nothing when DATReader is already loaded
-		log_debug("[DBG] [CUBE] Could not load DATReader!");
-
-	g_BackdropIdToGroupId.clear();
-	LoadDATFile(".\\ResData\\Planet.dat");
-	int numGroups = GetDATGroupCount();
-	log_debug("[DBG] [CUBE] numGroups: %d", numGroups);
-	short* groups = new short[numGroups];
-	GetDATGroupList(groups);
-	for (int i = 0; i < numGroups; i++)
-	{
-		int backdropId = i + 1;
-		// Backdrop #25 does not exist:
-		if (backdropId >= 25) backdropId++;
-		log_debug("[DBG] [CUBE]   backdropId[%d] = %d", backdropId, groups[i]);
-		g_BackdropIdToGroupId[backdropId] = groups[i];
-	}
-	delete[] groups;
-
-	// Populate the starfield map
+	// Populate the standard starfield map.
+	// This code is not an exhaustive list of starfields. Custom DAT files can be
+	// added (TFTC does this), but this is a good starting point for "standard" XWAU.
 	g_StarfieldGroupIdImageIdMap.clear();
 	g_StarfieldGroupIdImageIdMap[MakeKeyFromGroupIdImageId(6104, 0)] = true;
 
@@ -2172,6 +2151,32 @@ void EffectsRenderer::CreateBackdropIdMapping()
 	g_StarfieldGroupIdImageIdMap[MakeKeyFromGroupIdImageId(6104, 5)] = true; // Cap
 }
 
+void EffectsRenderer::CreateBackdropIdMapping()
+{
+	if (!g_bReplaceBackdrops)
+		return;
+
+	log_debug("[DBG] [CUBE] Creating mission -> backdrop mapping");
+	if (!InitDATReader()) // This call is idempotent and does nothing when DATReader is already loaded
+		log_debug("[DBG] [CUBE] Could not load DATReader!");
+
+	g_BackdropIdToGroupId.clear();
+	LoadDATFile(".\\ResData\\Planet.dat");
+	int numGroups = GetDATGroupCount();
+	log_debug("[DBG] [CUBE] numGroups: %d", numGroups);
+	short* groups = new short[numGroups];
+	GetDATGroupList(groups);
+	for (int i = 0; i < numGroups; i++)
+	{
+		int backdropId = i + 1;
+		// Backdrop #25 does not exist:
+		if (backdropId >= 25) backdropId++;
+		log_debug("[DBG] [CUBE]   backdropId[%d] = %d", backdropId, groups[i]);
+		g_BackdropIdToGroupId[backdropId] = groups[i];
+	}
+	delete[] groups;
+}
+
 void EffectsRenderer::CreateShaders() {
 	ID3D11Device* device = _deviceResources->_d3dDevice;
 
@@ -2182,6 +2187,7 @@ void EffectsRenderer::CreateShaders() {
 	CreateVRMeshes();
 
 	CreateBackgroundMeshes();
+	PopulateStarfieldMap();
 	CreateBackdropIdMapping();
 }
 

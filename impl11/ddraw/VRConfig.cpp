@@ -3095,16 +3095,28 @@ bool LoadSSAOParams() {
 			}
 			if (_stricmp(param, "replace_backdrops") == 0)
 			{
+				// This is a failed experiment where I tried to replace XWA's weird
+				// cylinder-and-caps backdrops with a new cube mesh.
 				g_bReplaceBackdrops = (bool)fValue;
 				if (g_bReplaceBackdrops) log_debug("[DBG] [CUBE] Replacing Backdrops");
 			}
 			if (_stricmp(param, "render_default_starfield") == 0)
 			{
+				// This setting is true by default. This renders DefaultStarfield.dds for every
+				// mission; but it's usually covered by regular backdrops
 				g_bRenderDefaultStarfield = (bool)fValue;
 			}
 			if (_stricmp(param, "debug_default_starfield") == 0)
 			{
+				// This renders DefaultStarfield.dds unconditionally so that we can debug it
 				g_bDebugDefaultStarfield = (bool)fValue;
+			}
+			if (_stricmp(param, "enable_cubemaps") == 0)
+			{
+				// This is the "master switch" that enables the new CubeMaps feature.
+				// To enable a CubeMap on a specific mission, its .ini file must be updated
+				// and a corresponding cubemap must be added under Effects\CubeMaps.
+				g_bEnableCubeMaps = (bool)fValue;
 			}
 
 			if (_stricmp(param, TRIANGLE_POINTER_DIST_VRPARAM) == 0) {

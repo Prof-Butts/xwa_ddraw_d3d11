@@ -137,7 +137,7 @@ public:
 
 	void RenderExternalHUD();
 
-	void RenderDefaultBackground(bool renderCubeMap);
+	void RenderDefaultBackground();
 
 	inline void AddSpeedPoint(const Matrix4 &H, D3DTLVERTEX *particles, Vector4 Q, float zdisp, int ofs, float craft_speed);
 

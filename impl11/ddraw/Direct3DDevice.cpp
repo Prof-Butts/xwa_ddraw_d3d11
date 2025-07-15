@@ -5055,8 +5055,22 @@ HRESULT Direct3DDevice::Execute(
 					g_PSCBuffer.special_control.ExclusiveMask = SPECIAL_CONTROL_BACKGROUND;
 					// Redirect all background objects to the proper layer:
 					resources->_overrideRTV = BACKGROUND_LYR;
-					//if (g_bDebugDefaultStarfield)
-					//	goto out;
+					// If g_bDebugDefaultStarfield, we skip _all_ the backdrops (including planets and nebulae)
+					// so that we can see DefaultStarfield.dds
+					if (g_bDebugDefaultStarfield)
+						goto out;
+
+					// When should we populate g_StarfieldGroupIdImageIdMap? We need to load the .ini
+					// file for the current mission, and we need to do it before we decide when to skip
+					// a particular backdrop... so... maybe here?
+					{
+						static int prevMissionIndex = -1;
+						if (prevMissionIndex != *missionIndexLoaded)
+						{
+							// TODO: Load .ini file for the current mission...
+						}
+						prevMissionIndex = *missionIndexLoaded;
+					}
 
 					// The following parsing code is also used above, for explosions. Search for
 					// SPECIAL_CONTROL_EXPLOSION. Need to dedupe this later.
@@ -5075,7 +5089,7 @@ HRESULT Direct3DDevice::Execute(
 					GroupId = lastTextureSelected->material.GroupId;
 					ImageId = lastTextureSelected->material.ImageId;
 					const int key = MakeKeyFromGroupIdImageId(GroupId, ImageId);
-					if (g_bDebugDefaultStarfield &&
+					if (g_bEnableCubeMaps && g_bRenderCubeMapInThisRegion &&
 						g_StarfieldGroupIdImageIdMap.find(key) != g_StarfieldGroupIdImageIdMap.end())
 						// This is a starfield backdrop, let's skip it
 						goto out;

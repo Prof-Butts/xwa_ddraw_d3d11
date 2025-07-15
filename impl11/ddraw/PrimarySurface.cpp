@@ -6165,56 +6165,118 @@ std::vector<std::wstring> ListFiles(std::string path)
 	return result;
 }
 
-void PrimarySurface::RenderDefaultBackground(bool renderCubeMap)
+void PrimarySurface::RenderDefaultBackground()
 {
 	if (!g_bRenderDefaultStarfield || !g_bRendering3D || g_bDefaultStarfieldRendered)
 		return;
 
+	HRESULT res = S_OK;
 	auto& resources = this->_deviceResources;
 	auto& device = resources->_d3dDevice;
 	auto& context = resources->_d3dDeviceContext;
 
-#if 1
-	// Here we're overwritting the cubemap for DefaultStarfield.dds. We should fix this later
-	// and have a separate cubemap SRV instead.
-	static bool bFirstTime = true;
-	if (bFirstTime && renderCubeMap)
+	ID3D11Texture2D* cubeFace = nullptr;
+	static ID3D11Texture2D* cubeTexture = nullptr;
+	static ID3D11ShaderResourceView* cubeTextureSRV = nullptr;
+
+	static int prevMissionIndex = -1;
+	const char* xwaMissionFileName = (const char*)0x06002E8;
+	std::string cubeMapPath = "";
+	if (g_bEnableCubeMaps &&
+		*missionIndexLoaded != prevMissionIndex && xwaMissionFileName != nullptr)
 	{
-		ID3D11Texture2D* cubeFace;
-		ID3D11ShaderResourceView* cubeFaceSRV;
-		std::vector<std::wstring> fileNames = ListFiles(".\\Effects\\CubeMaps");
-		/*wchar_t* fileNames[] =
+		std::string mission = xwaMissionFileName;
+		const int dot = mission.find_last_of('.');
+		mission = mission.substr(0, dot) + ".ini";
+		log_debug("[DBG] [CUBE] Loading ini: %s", mission.c_str());
+		auto lines  = GetFileLines(mission, "CubeMaps");
+		cubeMapPath = GetFileKeyValue(lines, "AllRegions");
+		//log_debug("[DBG] [CUBE] --- region0: [%s]", cubeMapPath.c_str());
+		const int comma        = cubeMapPath.find_last_of(',');
+		const std::string path = cubeMapPath.substr(0, comma);
+		const int size         = atoi(cubeMapPath.substr(comma + 1).c_str());
+		log_debug("[DBG] [CUBE] --- cubeMapPath: [%s]", cubeMapPath.c_str());
+		//log_debug("[DBG] [CUBE] --- path: [%s], size: [%d]", path.c_str(), size);
+
+		if (lines.size() <= 0 || cubeMapPath.length() <= 0)
 		{
-			L"C:\\Temp\\CubeMaps\\Sample-Asteroid-Field.003.png", // Right, 0
-			L"C:\\Temp\\CubeMaps\\Sample-Asteroid-Field.007.png", // Left,  1
-			L"C:\\Temp\\CubeMaps\\Sample-Asteroid-Field.Top.png", // Top,   2
-			L"C:\\Temp\\CubeMaps\\Sample-Asteroid-Field.Btm.png", // Down,  3
-			L"C:\\Temp\\CubeMaps\\Sample-Asteroid-Field.001.png", // Fwd,   4
-			L"C:\\Temp\\CubeMaps\\Sample-Asteroid-Field.005.png", // Back,  5
-		};*/
+			g_bRenderCubeMapInThisRegion = false;
+			log_debug("[DBG] [CUBE] --- g_bRenderCubeMapInThisRegion = false (1)");
+			goto next;
+		}
+
+		// Here we're overwritting the cubemap for DefaultStarfield.dds. We should fix this later
+		// and have a separate cubemap SRV instead.
+		std::vector<std::wstring> fileNames = ListFiles(path.c_str());
+		//log_debug("[DBG] [CUBE] %d images found", fileNames.size());
+		g_bRenderCubeMapInThisRegion = (fileNames.size() == 6);
+		if (!g_bRenderCubeMapInThisRegion)
+		{
+			log_debug("[DBG] [CUBE] --- g_bRenderCubeMapInThisRegion = false (2)");
+			goto next;
+		}
+
+		// Dedupe this later: it's also defined in DeviceResources.h
+#define BACKBUFFER_FORMAT DXGI_FORMAT_B8G8R8A8_UNORM
+		D3D11_TEXTURE2D_DESC cubeDesc = {};
+		D3D11_SHADER_RESOURCE_VIEW_DESC cubeSRVDesc = {};
+		//resources->_textureCube->GetDesc(&cubeDesc);
+		cubeDesc.Width     = size;
+		cubeDesc.Height    = size;
+		cubeDesc.MipLevels = 1;
+		cubeDesc.ArraySize = 6;
+		cubeDesc.Format    = BACKBUFFER_FORMAT;
+		cubeDesc.Usage     = D3D11_USAGE_DEFAULT;
+		cubeDesc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+		cubeDesc.MiscFlags = D3D11_RESOURCE_MISC_TEXTURECUBE;
+		cubeDesc.CPUAccessFlags     = 0;
+		cubeDesc.SampleDesc.Count   = 1;
+		cubeDesc.SampleDesc.Quality = 0;
+
+		cubeSRVDesc.Format        = cubeDesc.Format;
+		cubeSRVDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURECUBE;
+		cubeSRVDesc.TextureCube.MipLevels       = cubeDesc.MipLevels;
+		cubeSRVDesc.TextureCube.MostDetailedMip = 0;
+
+		if (cubeTexture != nullptr) cubeTexture->Release();
+		if (cubeTextureSRV != nullptr) cubeTextureSRV->Release();
+
+		res = device->CreateTexture2D(&cubeDesc, nullptr, &cubeTexture);
+		if (FAILED(res))
+			log_debug("[DBG] [CUBE] FAILED when creating cubeTexture: 0x%x", res);
+
+		res = device->CreateShaderResourceView(cubeTexture, &cubeSRVDesc, &cubeTextureSRV);
+		if (FAILED(res))
+			log_debug("[DBG] [CUBE] FAILED to create cubeTextureSRV: 0x%x", res);
 
 		D3D11_BOX box;
 		box.left   = 0;
 		box.top    = 0;
 		box.front  = 0;
-		box.right  = 1024;
-		box.bottom = 1024;
+		box.right  = size;
+		box.bottom = size;
 		box.back   = 1;
 
-		for (int i = 0; i < 6; i++)
+		// 0: Right
+		// 1: Left
+		// 2: Top
+		// 3: Down
+		// 4: Fwd
+		// 5: Back
+		for (uint32_t i = 0; i < fileNames.size(); i++)
 		{
 			HRESULT res = DirectX::CreateWICTextureFromFile(device,
-				fileNames[i].c_str(), (ID3D11Resource **)&cubeFace, &cubeFaceSRV);
-			if (SUCCEEDED(res))
-				context->CopySubresourceRegion(resources->_textureCube, i, 0, 0, 0, cubeFace, 0, &box);
-			else
-				log_debug("[DBG] [CBM] COULD NOT LOAD CUBEFACE [%d]. Error: 0x%x", i, res);
-		}
+				fileNames[i].c_str(), (ID3D11Resource**)&cubeFace, nullptr);
 
-		//DirectX::SaveDDSTextureToFile(context, resources->_textureCube, L"C:\\Temp\\_textureCube.dds");
-		bFirstTime = false;
+			if (SUCCEEDED(res))
+				context->CopySubresourceRegion(cubeTexture, i, 0, 0, 0, cubeFace, 0, &box);
+			else
+				log_debug("[DBG] [CUBE] COULD NOT LOAD CUBEFACE [%d]. Error: 0x%x", i, res);
+		}
+		//DirectX::SaveDDSTextureToFile(context, cubeTexture, L"C:\\Temp\\_cubeTexture.dds");
 	}
-#endif
+next:
+	prevMissionIndex = *missionIndexLoaded;
 
 	float x0, y0, x1, y1;
 	D3D11_VIEWPORT viewport;
@@ -6294,7 +6356,7 @@ void PrimarySurface::RenderDefaultBackground(bool renderCubeMap)
 	g_ShadertoyBuffer.x1 = x1;
 	g_ShadertoyBuffer.y1 = y1;
 	//g_ShadertoyBuffer.VRmode = g_bEnableVR ? (bDirectSBS ? 1 : 2) : 0; // 0 = non-VR, 1 = SBS, 2 = SteamVR
-	g_ShadertoyBuffer.VRmode = renderCubeMap ? 4 /* Render CubeMap */ : 3; /* Render DefaultStarfield.dds */
+	g_ShadertoyBuffer.VRmode = g_bRenderCubeMapInThisRegion ? 4 : 3; /* Render DefaultStarfield.dds */
 	g_ShadertoyBuffer.iResolution[0] = g_fCurScreenWidth;
 	g_ShadertoyBuffer.iResolution[1] = g_fCurScreenHeight;
 	// This setting (y_center) interacts with g_MetricRecCBuffer.mr_y_center, even if they're
@@ -6418,7 +6480,7 @@ void PrimarySurface::RenderDefaultBackground(bool renderCubeMap)
 
 		// Set the SRVs:
 		ID3D11ShaderResourceView *srvs[] = {
-			resources->_textureCubeSRV, // 21
+			g_bRenderCubeMapInThisRegion ? cubeTextureSRV : resources->_textureCubeSRV, // 21
 			g_bUseSteamVR ? nullptr : resources->_backgroundBufferSRV.Get(),
 		};
 
@@ -11006,7 +11068,7 @@ HRESULT PrimarySurface::Flip(
 			if (!g_bInTechRoom && !g_bMapMode && !g_bDefaultStarfieldRendered)
 			{
 				g_bUseExternalCameraState = true;
-				resources->_primarySurface->RenderDefaultBackground(g_bDebugDefaultStarfield);
+				resources->_primarySurface->RenderDefaultBackground();
 				g_bUseExternalCameraState = false;
 			}
 

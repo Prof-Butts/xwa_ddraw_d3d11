@@ -652,15 +652,11 @@ LRESULT CALLBACK MyWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam
 			// Ctrl + Alt + Key
 			// Toggle Debug buffers
 			case 'D':
-				// g_bDebugDefaultStarfield originally skipped all the backdrops, so
-				// that we could debug DefaultStarfield.dds. This variable temporarily
-				// controls CubeMap rendering. We need to add a "master switch" to render
-				// all cubemaps later and restore this variable's original meaning:
-				g_bDebugDefaultStarfield = !g_bDebugDefaultStarfield;
-				if (g_bDebugDefaultStarfield)
-					DisplayTimedMessage(3, 0, "DEBUG Default Starfield");
+				g_bEnableCubeMaps = !g_bEnableCubeMaps;
+				if (g_bEnableCubeMaps)
+					DisplayTimedMessage(3, 0, "CubeMaps ENABLED");
 				else
-					DisplayTimedMessage(3, 0, "NO Debug Default Starfield");
+					DisplayTimedMessage(3, 0, "CubeMaps disabled");
 
 				/*
 				// g_bRenderDefaultStarfield is used to render DefaultStarfield.dds. It's set

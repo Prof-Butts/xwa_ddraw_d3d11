@@ -25,6 +25,8 @@ extern bool g_bUseSteamVR; // The system will set this flag if the user requeste
 extern bool g_bUseTextureCube;
 extern bool g_bRenderDefaultStarfield;
 extern bool g_bDebugDefaultStarfield;
+extern bool g_bEnableCubeMaps;
+extern bool g_bRenderCubeMapInThisRegion;
 extern bool g_bReplaceBackdrops;
 extern bool g_bDefaultStarfieldRendered;
 extern bool g_bUseExternalCameraState;

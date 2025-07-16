@@ -2267,6 +2267,12 @@ std::vector<std::wstring> ListFiles(std::string path)
 }
 
 ID3D11ShaderResourceView* g_cubeTextureSRV = nullptr;
+/// <summary>
+/// Check if the current mission has changed, and if so, load new cube maps and set
+/// global flags (g_bRenderCubeMapInThisRegion) and SRVs (g_cubeTextureSRV).
+/// This is currently called from D3dOptCreateTextureColorLight() while a mission
+/// is being loaded.
+/// </summary>
 void LoadMissionCubeMaps()
 {
 	static int prevMissionIndex = -1;
@@ -2340,11 +2346,19 @@ void LoadMissionCubeMaps()
 
 		res = device->CreateTexture2D(&cubeDesc, nullptr, &cubeTexture);
 		if (FAILED(res))
+		{
 			log_debug("[DBG] [CUBE] FAILED when creating cubeTexture: 0x%x", res);
+			g_bRenderCubeMapInThisRegion = false;
+			goto next;
+		}
 
 		res = device->CreateShaderResourceView(cubeTexture, &cubeSRVDesc, &g_cubeTextureSRV);
 		if (FAILED(res))
+		{
 			log_debug("[DBG] [CUBE] FAILED to create cubeTextureSRV: 0x%x", res);
+			g_bRenderCubeMapInThisRegion = false;
+			goto next;
+		}
 
 		D3D11_BOX box;
 		box.left   = 0;

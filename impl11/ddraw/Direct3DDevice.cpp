@@ -5060,17 +5060,8 @@ HRESULT Direct3DDevice::Execute(
 					if (g_bDebugDefaultStarfield)
 						goto out;
 
-					// When should we populate g_StarfieldGroupIdImageIdMap? We need to load the .ini
-					// file for the current mission, and we need to do it before we decide when to skip
-					// a particular backdrop... so... maybe here?
-					{
-						static int prevMissionIndex = -1;
-						if (prevMissionIndex != *missionIndexLoaded)
-						{
-							// TODO: Load .ini file for the current mission...
-						}
-						prevMissionIndex = *missionIndexLoaded;
-					}
+					// TODO: Populate g_StarfieldGroupIdImageIdMap when loading the mission .ini
+					//       file in LoadMissionCubeMaps(). That way, we can skip backdrops here
 
 					// The following parsing code is also used above, for explosions. Search for
 					// SPECIAL_CONTROL_EXPLOSION. Need to dedupe this later.

@@ -4,7 +4,6 @@
 #include "common.h"
 #include <ScreenGrab.h>
 #include <wincodec.h>
-#include <filesystem>
 
 #include "hook_config.h"
 #include "DeviceResources.h"
@@ -30,13 +29,10 @@
 #include "EffectsRenderer.h"
 #include "LBVH.h"
 
-#include <DDSTextureLoader.h>
-#include <WICTextureLoader.h>
-
-namespace fs = std::filesystem;
-
 extern D3dRenderer* g_current_renderer;
 extern LBVH* g_ACTLASTree;
+
+extern ID3D11ShaderResourceView* g_cubeTextureSRV;
 
 extern float g_f0x08C1600, g_f0x0686ACC;
 extern float g_f0x080ACF8, g_f0x07B33C0, g_f0x064D1AC;
@@ -2478,7 +2474,7 @@ void SetLights(DeviceResources *resources, float fSSDOEnabled) {
 	Vinv.invert();
 
 	static int prevMissionIndex = -1;
-	const char* xwaMissionFileName = (const char*)0x06002E8;
+	//const char* xwaMissionFileName = (const char*)0x06002E8;
 	//const int missionFileNameIndex = *(int*)0x06002E4;
 	if (*missionIndexLoaded != prevMissionIndex)
 	{
@@ -6138,145 +6134,14 @@ out:
 	this->_deviceResources->EndAnnotatedEvent();
 }
 
-std::vector<std::wstring> ListFiles(std::string path)
-{
-	std::vector<std::wstring> result;
-
-	log_debug("[DBG] [CBM] Listing files under [%s]", path.c_str());
-	if (!fs::exists(path) || !fs::is_directory(path)) {
-		log_debug("[DBG] [CBM] ERROR: Directory %s does not exist", path.c_str());
-		return result;
-	}
-
-	for (const auto& entry : fs::directory_iterator(path)) {
-		// Check if the entry is a regular file
-		if (fs::is_regular_file(entry.status())) {
-			std::string fullName = path + "\\" + entry.path().filename().string();
-			log_debug("[DBG] [CBM]   File: [%s]", fullName.c_str());
-
-			wchar_t wTexName[MAX_TEXTURE_NAME];
-			size_t len = 0;
-			mbstowcs_s(&len, wTexName, MAX_TEXTURE_NAME, fullName.c_str(), MAX_TEXTURE_NAME);
-			std::wstring wstr(wTexName);
-			result.push_back(wstr);
-		}
-	}
-
-	return result;
-}
-
 void PrimarySurface::RenderDefaultBackground()
 {
 	if (!g_bRenderDefaultStarfield || !g_bRendering3D || g_bDefaultStarfieldRendered)
 		return;
 
-	HRESULT res = S_OK;
 	auto& resources = this->_deviceResources;
 	auto& device = resources->_d3dDevice;
 	auto& context = resources->_d3dDeviceContext;
-
-	ID3D11Texture2D* cubeFace = nullptr;
-	static ID3D11Texture2D* cubeTexture = nullptr;
-	static ID3D11ShaderResourceView* cubeTextureSRV = nullptr;
-
-	static int prevMissionIndex = -1;
-	const char* xwaMissionFileName = (const char*)0x06002E8;
-	std::string cubeMapPath = "";
-	if (g_bEnableCubeMaps &&
-		*missionIndexLoaded != prevMissionIndex && xwaMissionFileName != nullptr)
-	{
-		std::string mission = xwaMissionFileName;
-		const int dot = mission.find_last_of('.');
-		mission = mission.substr(0, dot) + ".ini";
-		log_debug("[DBG] [CUBE] Loading ini: %s", mission.c_str());
-		auto lines  = GetFileLines(mission, "CubeMaps");
-		cubeMapPath = GetFileKeyValue(lines, "AllRegions");
-		//log_debug("[DBG] [CUBE] --- region0: [%s]", cubeMapPath.c_str());
-		const int comma        = cubeMapPath.find_last_of(',');
-		const std::string path = cubeMapPath.substr(0, comma);
-		const int size         = atoi(cubeMapPath.substr(comma + 1).c_str());
-		log_debug("[DBG] [CUBE] --- cubeMapPath: [%s]", cubeMapPath.c_str());
-		//log_debug("[DBG] [CUBE] --- path: [%s], size: [%d]", path.c_str(), size);
-
-		if (lines.size() <= 0 || cubeMapPath.length() <= 0)
-		{
-			g_bRenderCubeMapInThisRegion = false;
-			log_debug("[DBG] [CUBE] --- g_bRenderCubeMapInThisRegion = false (1)");
-			goto next;
-		}
-
-		// Here we're overwritting the cubemap for DefaultStarfield.dds. We should fix this later
-		// and have a separate cubemap SRV instead.
-		std::vector<std::wstring> fileNames = ListFiles(path.c_str());
-		//log_debug("[DBG] [CUBE] %d images found", fileNames.size());
-		g_bRenderCubeMapInThisRegion = (fileNames.size() == 6);
-		if (!g_bRenderCubeMapInThisRegion)
-		{
-			log_debug("[DBG] [CUBE] --- g_bRenderCubeMapInThisRegion = false (2)");
-			goto next;
-		}
-
-		// Dedupe this later: it's also defined in DeviceResources.h
-#define BACKBUFFER_FORMAT DXGI_FORMAT_B8G8R8A8_UNORM
-		D3D11_TEXTURE2D_DESC cubeDesc = {};
-		D3D11_SHADER_RESOURCE_VIEW_DESC cubeSRVDesc = {};
-		//resources->_textureCube->GetDesc(&cubeDesc);
-		cubeDesc.Width     = size;
-		cubeDesc.Height    = size;
-		cubeDesc.MipLevels = 1;
-		cubeDesc.ArraySize = 6;
-		cubeDesc.Format    = BACKBUFFER_FORMAT;
-		cubeDesc.Usage     = D3D11_USAGE_DEFAULT;
-		cubeDesc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
-		cubeDesc.MiscFlags = D3D11_RESOURCE_MISC_TEXTURECUBE;
-		cubeDesc.CPUAccessFlags     = 0;
-		cubeDesc.SampleDesc.Count   = 1;
-		cubeDesc.SampleDesc.Quality = 0;
-
-		cubeSRVDesc.Format        = cubeDesc.Format;
-		cubeSRVDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURECUBE;
-		cubeSRVDesc.TextureCube.MipLevels       = cubeDesc.MipLevels;
-		cubeSRVDesc.TextureCube.MostDetailedMip = 0;
-
-		if (cubeTexture != nullptr) cubeTexture->Release();
-		if (cubeTextureSRV != nullptr) cubeTextureSRV->Release();
-
-		res = device->CreateTexture2D(&cubeDesc, nullptr, &cubeTexture);
-		if (FAILED(res))
-			log_debug("[DBG] [CUBE] FAILED when creating cubeTexture: 0x%x", res);
-
-		res = device->CreateShaderResourceView(cubeTexture, &cubeSRVDesc, &cubeTextureSRV);
-		if (FAILED(res))
-			log_debug("[DBG] [CUBE] FAILED to create cubeTextureSRV: 0x%x", res);
-
-		D3D11_BOX box;
-		box.left   = 0;
-		box.top    = 0;
-		box.front  = 0;
-		box.right  = size;
-		box.bottom = size;
-		box.back   = 1;
-
-		// 0: Right
-		// 1: Left
-		// 2: Top
-		// 3: Down
-		// 4: Fwd
-		// 5: Back
-		for (uint32_t i = 0; i < fileNames.size(); i++)
-		{
-			HRESULT res = DirectX::CreateWICTextureFromFile(device,
-				fileNames[i].c_str(), (ID3D11Resource**)&cubeFace, nullptr);
-
-			if (SUCCEEDED(res))
-				context->CopySubresourceRegion(cubeTexture, i, 0, 0, 0, cubeFace, 0, &box);
-			else
-				log_debug("[DBG] [CUBE] COULD NOT LOAD CUBEFACE [%d]. Error: 0x%x", i, res);
-		}
-		//DirectX::SaveDDSTextureToFile(context, cubeTexture, L"C:\\Temp\\_cubeTexture.dds");
-	}
-next:
-	prevMissionIndex = *missionIndexLoaded;
 
 	float x0, y0, x1, y1;
 	D3D11_VIEWPORT viewport;
@@ -6480,7 +6345,7 @@ next:
 
 		// Set the SRVs:
 		ID3D11ShaderResourceView *srvs[] = {
-			g_bRenderCubeMapInThisRegion ? cubeTextureSRV : resources->_textureCubeSRV, // 21
+			g_bRenderCubeMapInThisRegion ? g_cubeTextureSRV : resources->_textureCubeSRV, // 21
 			g_bUseSteamVR ? nullptr : resources->_backgroundBufferSRV.Get(),
 		};
 

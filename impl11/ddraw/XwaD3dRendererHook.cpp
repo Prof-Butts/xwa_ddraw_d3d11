@@ -42,12 +42,17 @@ Backdrops messages look like:
 #include <sstream>
 #include <iomanip>
 #include <tuple>
+#include <filesystem>
 
 #include "XwaD3dRendererHook.h"
 #include "EffectsRenderer.h"
 #include "SteamVRRenderer.h"
 #include "DirectSBSRenderer.h"
 #include "XwaTextureData.h"
+
+#include <WICTextureLoader.h>
+
+namespace fs = std::filesystem;
 
 #ifdef _DEBUG
 #include "../Debug/XwaD3dVertexShader.h"
@@ -214,6 +219,10 @@ int DumpTriangle(const std::string& name, FILE* file, int OBJindex, const XwaVec
 int32_t MakeMeshKey(const SceneCompData* scene);
 void RTResetBlasIDs();
 void ComputeTreeStats(IGenericTreeNode* root);
+
+std::vector<std::string> GetFileLines(const std::string& path, const std::string& section = std::string());
+std::string GetFileKeyValue(const std::vector<std::string>& lines, const std::string& key);
+int GetFileKeyValueInt(const std::vector<std::string>& lines, const std::string& key, int defaultValue = 0);
 
 XwaVector3 cross(const XwaVector3 &v0, const XwaVector3 &v1)
 {
@@ -2229,11 +2238,153 @@ ColorConvert g_colorConvert;
 std::vector<unsigned char>* g_colorMapBuffer = nullptr;
 std::vector<unsigned char>* g_illumMapBuffer = nullptr;
 
+
+std::vector<std::wstring> ListFiles(std::string path)
+{
+	std::vector<std::wstring> result;
+
+	log_debug("[DBG] [CBM] Listing files under [%s]", path.c_str());
+	if (!fs::exists(path) || !fs::is_directory(path)) {
+		log_debug("[DBG] [CBM] ERROR: Directory %s does not exist", path.c_str());
+		return result;
+	}
+
+	for (const auto& entry : fs::directory_iterator(path)) {
+		// Check if the entry is a regular file
+		if (fs::is_regular_file(entry.status())) {
+			std::string fullName = path + "\\" + entry.path().filename().string();
+			log_debug("[DBG] [CBM]   File: [%s]", fullName.c_str());
+
+			wchar_t wTexName[MAX_TEXTURE_NAME];
+			size_t len = 0;
+			mbstowcs_s(&len, wTexName, MAX_TEXTURE_NAME, fullName.c_str(), MAX_TEXTURE_NAME);
+			std::wstring wstr(wTexName);
+			result.push_back(wstr);
+		}
+	}
+
+	return result;
+}
+
+ID3D11ShaderResourceView* g_cubeTextureSRV = nullptr;
+void LoadMissionCubeMaps()
+{
+	static int prevMissionIndex = -1;
+	ID3D11Texture2D* cubeFace = nullptr;
+	static ID3D11Texture2D* cubeTexture = nullptr;
+
+	HRESULT res = S_OK;
+	auto& resources = g_deviceResources;
+	auto& device    = g_deviceResources->_d3dDevice;
+	auto& context   = g_deviceResources->_d3dDeviceContext;
+
+	std::string cubeMapPath = "";
+	if (g_bEnableCubeMaps &&
+		*missionIndexLoaded != prevMissionIndex && xwaMissionFileName != nullptr)
+	{
+		std::string mission = xwaMissionFileName;
+		const int dot = mission.find_last_of('.');
+		mission = mission.substr(0, dot) + ".ini";
+		log_debug("[DBG] [CUBE] Loading ini: %s", mission.c_str());
+		auto lines  = GetFileLines(mission, "CubeMaps");
+		cubeMapPath = GetFileKeyValue(lines, "AllRegions");
+		//log_debug("[DBG] [CUBE] --- region0: [%s]", cubeMapPath.c_str());
+		const int comma        = cubeMapPath.find_last_of(',');
+		const std::string path = cubeMapPath.substr(0, comma);
+		const int size         = atoi(cubeMapPath.substr(comma + 1).c_str());
+		log_debug("[DBG] [CUBE] --- cubeMapPath: [%s]", cubeMapPath.c_str());
+		//log_debug("[DBG] [CUBE] --- path: [%s], size: [%d]", path.c_str(), size);
+
+		if (lines.size() <= 0 || cubeMapPath.length() <= 0)
+		{
+			g_bRenderCubeMapInThisRegion = false;
+			log_debug("[DBG] [CUBE] --- g_bRenderCubeMapInThisRegion = false (1)");
+			goto next;
+		}
+
+		// Here we're overwritting the cubemap for DefaultStarfield.dds. We should fix this later
+		// and have a separate cubemap SRV instead.
+		std::vector<std::wstring> fileNames = ListFiles(path.c_str());
+		//log_debug("[DBG] [CUBE] %d images found", fileNames.size());
+		g_bRenderCubeMapInThisRegion = (fileNames.size() == 6);
+		if (!g_bRenderCubeMapInThisRegion)
+		{
+			log_debug("[DBG] [CUBE] --- g_bRenderCubeMapInThisRegion = false (2)");
+			goto next;
+		}
+
+		// Dedupe this later: it's also defined in DeviceResources.h
+#define BACKBUFFER_FORMAT DXGI_FORMAT_B8G8R8A8_UNORM
+		D3D11_TEXTURE2D_DESC cubeDesc = {};
+		D3D11_SHADER_RESOURCE_VIEW_DESC cubeSRVDesc = {};
+		//resources->_textureCube->GetDesc(&cubeDesc);
+		cubeDesc.Width     = size;
+		cubeDesc.Height    = size;
+		cubeDesc.MipLevels = 1;
+		cubeDesc.ArraySize = 6;
+		cubeDesc.Format    = BACKBUFFER_FORMAT;
+		cubeDesc.Usage     = D3D11_USAGE_DEFAULT;
+		cubeDesc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+		cubeDesc.MiscFlags = D3D11_RESOURCE_MISC_TEXTURECUBE;
+		cubeDesc.CPUAccessFlags     = 0;
+		cubeDesc.SampleDesc.Count   = 1;
+		cubeDesc.SampleDesc.Quality = 0;
+
+		cubeSRVDesc.Format        = cubeDesc.Format;
+		cubeSRVDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURECUBE;
+		cubeSRVDesc.TextureCube.MipLevels       = cubeDesc.MipLevels;
+		cubeSRVDesc.TextureCube.MostDetailedMip = 0;
+
+		if (cubeTexture != nullptr) cubeTexture->Release();
+		if (g_cubeTextureSRV != nullptr) g_cubeTextureSRV->Release();
+
+		res = device->CreateTexture2D(&cubeDesc, nullptr, &cubeTexture);
+		if (FAILED(res))
+			log_debug("[DBG] [CUBE] FAILED when creating cubeTexture: 0x%x", res);
+
+		res = device->CreateShaderResourceView(cubeTexture, &cubeSRVDesc, &g_cubeTextureSRV);
+		if (FAILED(res))
+			log_debug("[DBG] [CUBE] FAILED to create cubeTextureSRV: 0x%x", res);
+
+		D3D11_BOX box;
+		box.left   = 0;
+		box.top    = 0;
+		box.front  = 0;
+		box.right  = size;
+		box.bottom = size;
+		box.back   = 1;
+
+		// 0: Right
+		// 1: Left
+		// 2: Top
+		// 3: Down
+		// 4: Fwd
+		// 5: Back
+		for (uint32_t i = 0; i < fileNames.size(); i++)
+		{
+			HRESULT res = DirectX::CreateWICTextureFromFile(device,
+				fileNames[i].c_str(), (ID3D11Resource**)&cubeFace, nullptr);
+
+			if (SUCCEEDED(res))
+				context->CopySubresourceRegion(cubeTexture, i, 0, 0, 0, cubeFace, 0, &box);
+			else
+				log_debug("[DBG] [CUBE] COULD NOT LOAD CUBEFACE [%d]. Error: 0x%x", i, res);
+		}
+		//DirectX::SaveDDSTextureToFile(context, cubeTexture, L"C:\\Temp\\_cubeTexture.dds");
+	}
+next:
+	prevMissionIndex = *missionIndexLoaded;
+}
+
 HRESULT D3dOptCreateTextureColorLight(XwaD3DInfo* d3dInfo, OptNode* textureNode, int textureId, XwaTextureDescription* textureDescription, unsigned char* optTextureData, unsigned char* optTextureAlphaData, unsigned short* optPalette8, unsigned short* optPalette0)
 {
 	// code from the 32bpp hook
 	const int XwaFlightBrightness = *(int*)0x006002C8;
 	const int brightnessLevel = (XwaFlightBrightness - 0x100) / 0x40;
+
+	// We can piggy-back on this hook to load the cubemaps while the mission is loading.
+	// This isn't a very elegant solution, but it should get the job done
+	LoadMissionCubeMaps();
 
 	if (g_colorMapBuffer == nullptr)
 		g_colorMapBuffer = new std::vector<unsigned char>();

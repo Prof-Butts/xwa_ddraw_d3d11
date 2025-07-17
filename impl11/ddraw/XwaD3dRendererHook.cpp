@@ -2294,12 +2294,11 @@ void LoadMissionCubeMaps()
 		log_debug("[DBG] [CUBE] Loading ini: %s", mission.c_str());
 		auto lines  = GetFileLines(mission, "CubeMaps");
 		cubeMapPath = GetFileKeyValue(lines, "AllRegions");
-		//log_debug("[DBG] [CUBE] --- region0: [%s]", cubeMapPath.c_str());
+		// The path definition may have a comma followed by the size of the texture.
+		// This is now deprecated, but it doesn't hurt to remove the comma if present:
 		const int comma        = cubeMapPath.find_last_of(',');
-		const std::string path = cubeMapPath.substr(0, comma);
-		const int size         = atoi(cubeMapPath.substr(comma + 1).c_str());
+		const std::string path = (comma != std::string::npos) ? cubeMapPath.substr(0, comma) : cubeMapPath;
 		log_debug("[DBG] [CUBE] --- cubeMapPath: [%s]", cubeMapPath.c_str());
-		//log_debug("[DBG] [CUBE] --- path: [%s], size: [%d]", path.c_str(), size);
 
 		if (lines.size() <= 0 || cubeMapPath.length() <= 0)
 		{
@@ -2319,53 +2318,12 @@ void LoadMissionCubeMaps()
 			goto next;
 		}
 
-		// Dedupe this later: it's also defined in DeviceResources.h
-#define BACKBUFFER_FORMAT DXGI_FORMAT_B8G8R8A8_UNORM
-		D3D11_TEXTURE2D_DESC cubeDesc = {};
-		D3D11_SHADER_RESOURCE_VIEW_DESC cubeSRVDesc = {};
-		//resources->_textureCube->GetDesc(&cubeDesc);
-		cubeDesc.Width     = size;
-		cubeDesc.Height    = size;
-		cubeDesc.MipLevels = 1;
-		cubeDesc.ArraySize = 6;
-		cubeDesc.Format    = BACKBUFFER_FORMAT;
-		cubeDesc.Usage     = D3D11_USAGE_DEFAULT;
-		cubeDesc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
-		cubeDesc.MiscFlags = D3D11_RESOURCE_MISC_TEXTURECUBE;
-		cubeDesc.CPUAccessFlags     = 0;
-		cubeDesc.SampleDesc.Count   = 1;
-		cubeDesc.SampleDesc.Quality = 0;
-
-		cubeSRVDesc.Format        = cubeDesc.Format;
-		cubeSRVDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURECUBE;
-		cubeSRVDesc.TextureCube.MipLevels       = cubeDesc.MipLevels;
-		cubeSRVDesc.TextureCube.MostDetailedMip = 0;
-
-		if (cubeTexture != nullptr) cubeTexture->Release();
-		if (g_cubeTextureSRV != nullptr) g_cubeTextureSRV->Release();
-
-		res = device->CreateTexture2D(&cubeDesc, nullptr, &cubeTexture);
-		if (FAILED(res))
-		{
-			log_debug("[DBG] [CUBE] FAILED when creating cubeTexture: 0x%x", res);
-			g_bRenderCubeMapInThisRegion = false;
-			goto next;
-		}
-
-		res = device->CreateShaderResourceView(cubeTexture, &cubeSRVDesc, &g_cubeTextureSRV);
-		if (FAILED(res))
-		{
-			log_debug("[DBG] [CUBE] FAILED to create cubeTextureSRV: 0x%x", res);
-			g_bRenderCubeMapInThisRegion = false;
-			goto next;
-		}
-
 		D3D11_BOX box;
 		box.left   = 0;
 		box.top    = 0;
 		box.front  = 0;
-		box.right  = size;
-		box.bottom = size;
+		box.right  = 1; // Will be defined later
+		box.bottom = 1; // Will be defined later
 		box.back   = 1;
 
 		// 0: Right
@@ -2374,13 +2332,64 @@ void LoadMissionCubeMaps()
 		// 3: Down
 		// 4: Fwd
 		// 5: Back
+		UINT size = 0;
 		for (uint32_t i = 0; i < fileNames.size(); i++)
 		{
 			HRESULT res = DirectX::CreateWICTextureFromFile(device,
 				fileNames[i].c_str(), (ID3D11Resource**)&cubeFace, nullptr);
 
 			if (SUCCEEDED(res))
+			{
+				// When the first face of the cube is loaded, we get the size of the texture
+				// and we use that to re-create the cubeTexture and cubeTextureSRV:
+				if (i == 0)
+				{
+					D3D11_TEXTURE2D_DESC desc;
+					cubeFace->GetDesc(&desc);
+					size = desc.Width;
+					box.right = box.bottom = size;
+
+					D3D11_TEXTURE2D_DESC cubeDesc = {};
+					D3D11_SHADER_RESOURCE_VIEW_DESC cubeSRVDesc = {};
+					cubeDesc.Width     = size;
+					cubeDesc.Height    = size;
+					cubeDesc.MipLevels = 1;
+					cubeDesc.ArraySize = 6;
+					cubeDesc.Format    = desc.Format; // Use the texture's format
+					cubeDesc.Usage     = D3D11_USAGE_DEFAULT;
+					cubeDesc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+					cubeDesc.MiscFlags = D3D11_RESOURCE_MISC_TEXTURECUBE;
+					cubeDesc.CPUAccessFlags     = 0;
+					cubeDesc.SampleDesc.Count   = 1;
+					cubeDesc.SampleDesc.Quality = 0;
+
+					cubeSRVDesc.Format        = cubeDesc.Format;
+					cubeSRVDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURECUBE;
+					cubeSRVDesc.TextureCube.MipLevels       = cubeDesc.MipLevels;
+					cubeSRVDesc.TextureCube.MostDetailedMip = 0;
+
+					if (cubeTexture != nullptr) cubeTexture->Release();
+					if (g_cubeTextureSRV != nullptr) g_cubeTextureSRV->Release();
+
+					res = device->CreateTexture2D(&cubeDesc, nullptr, &cubeTexture);
+					if (FAILED(res))
+					{
+						log_debug("[DBG] [CUBE] FAILED when creating cubeTexture: 0x%x", res);
+						g_bRenderCubeMapInThisRegion = false;
+						goto next;
+					}
+
+					res = device->CreateShaderResourceView(cubeTexture, &cubeSRVDesc, &g_cubeTextureSRV);
+					if (FAILED(res))
+					{
+						log_debug("[DBG] [CUBE] FAILED to create cubeTextureSRV: 0x%x", res);
+						g_bRenderCubeMapInThisRegion = false;
+						goto next;
+					}
+				}
+
 				context->CopySubresourceRegion(cubeTexture, i, 0, 0, 0, cubeFace, 0, &box);
+			}
 			else
 				log_debug("[DBG] [CUBE] COULD NOT LOAD CUBEFACE [%d]. Error: 0x%x", i, res);
 		}

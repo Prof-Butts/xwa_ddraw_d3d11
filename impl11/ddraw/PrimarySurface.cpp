@@ -6467,6 +6467,13 @@ void PrimarySurface::RenderDefaultBackground()
 	this->_deviceResources->EndAnnotatedEvent();
 }
 
+char RenderBackdropsHook()
+{
+	char (*XwaRenderBackdrops)() = (char(*)()) 0x405FE0;
+	//log_debug("[DBG] XwaRenderBackdrops");
+	return XwaRenderBackdrops();
+}
+
 inline void ProjectSpeedPoint(const Matrix4 &ViewMatrix, D3DTLVERTEX *particles, int idx)
 {
 	const float FOVFactor = g_ShadertoyBuffer.FOVscale;

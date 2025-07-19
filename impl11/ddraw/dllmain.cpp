@@ -54,6 +54,7 @@ extern bool g_bEnableQBVHwSAH;
 extern bool g_bUseCentroids;
 
 void RenderEngineGlowHook(void* A4, int A8, void* textureSurface, uint32_t A10, uint32_t A14);
+char RenderBackdropsHook();
 
 void Normalize(float4 *Vector) {
 	float x = Vector->x;
@@ -1603,6 +1604,23 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
 				*(unsigned char*)(addr + 0x00) = 0xE8;
 				// Now we replace the destination of the call with our hook:
 				*(int*)(addr + 0x01) = (int)TargetBoxHook - (addr + 0x05);
+			}
+
+			// Backdrops hook:
+			// Experimental: it works, but let's enable it later
+			if (false)
+			{
+				// L00405FE0
+				//void XwaRenderBackdrops()
+				uint32_t addr;
+
+				addr = 0x045A5B7; // Hangar render loop calls RenderBackdrops()
+				*(unsigned char*)(addr + 0x00) = 0xE8;
+				*(int*)(addr + 0x01) = (int)RenderBackdropsHook - (addr + 0x05);
+
+				addr = 0x04F00CE; // The main render loop ("RelatedToPlayer") calls RenderBackdrops()
+				*(unsigned char*)(addr + 0x00) = 0xE8;
+				*(int*)(addr + 0x01) = (int)RenderBackdropsHook - (addr + 0x05);
 			}
 
 			if (g_config.Text2DRendererEnabled) 

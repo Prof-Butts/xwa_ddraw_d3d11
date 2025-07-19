@@ -32,7 +32,8 @@
 extern D3dRenderer* g_current_renderer;
 extern LBVH* g_ACTLASTree;
 
-extern ID3D11ShaderResourceView* g_cubeTextureSRV;
+extern ID3D11ShaderResourceView* g_allRegionsCubeTextureSRV;
+extern ID3D11ShaderResourceView* g_cubeTexturesSRV[MAX_MISSION_REGIONS];
 
 extern float g_f0x08C1600, g_f0x0686ACC;
 extern float g_f0x080ACF8, g_f0x07B33C0, g_f0x064D1AC;
@@ -6139,6 +6140,29 @@ void PrimarySurface::RenderDefaultBackground()
 	if (!g_bRenderDefaultStarfield || !g_bRendering3D || g_bDefaultStarfieldRendered)
 		return;
 
+	// V0x008C1CD8
+	//int s_XwaCurrentRegion;
+	int region = 0;
+	/*
+	 * The max number of regions in a mission is 4. But in the game engine there is
+	 * an extra region for the hangar. So when creating a mission you can have up to
+	 * 4 regions. In the game engine there are up to 5 regions. The hangar region is
+	 * the one after the last mission region. So if there are 4 regions in a mission
+	 * then the region index of the hangar is 4. If there are 2 regions in a mission
+	 * then the region index of the hangar is 2.
+	 */
+	// I'm going to ignore the comment above (by Jeremy) and make the hangar region 0
+	// otherwise, accessing the currentRegion field from PlayerDataTable does return
+	// the region-after-the-last-region-in-this-mission index, which can be complicated.
+	if (g_playerInHangar != nullptr && *g_playerInHangar)
+		region = 0;
+	else
+		region = PlayerDataTable[*g_playerIndex].currentRegion;
+	//log_debug("[DBG] currentRegion: %d", curRegion);
+	//const int  region = PlayerDataTable[*g_playerIndex].criticalMessageObjectIndex;
+	const bool validRegion = (region >= 0 && region < MAX_MISSION_REGIONS);
+	const bool renderCubeMapInThisRegion = (validRegion && g_bRenderCubeMapInThisRegion[region]);
+
 	auto& resources = this->_deviceResources;
 	auto& device = resources->_d3dDevice;
 	auto& context = resources->_d3dDeviceContext;
@@ -6221,7 +6245,7 @@ void PrimarySurface::RenderDefaultBackground()
 	g_ShadertoyBuffer.x1 = x1;
 	g_ShadertoyBuffer.y1 = y1;
 	//g_ShadertoyBuffer.VRmode = g_bEnableVR ? (bDirectSBS ? 1 : 2) : 0; // 0 = non-VR, 1 = SBS, 2 = SteamVR
-	g_ShadertoyBuffer.VRmode = g_bRenderCubeMapInThisRegion ? 4 : 3; /* Render DefaultStarfield.dds */
+	g_ShadertoyBuffer.VRmode = (renderCubeMapInThisRegion || g_bRenderAllRegionsCubeMap) ? 4 : 3; /* Render DefaultStarfield.dds */
 	g_ShadertoyBuffer.iResolution[0] = g_fCurScreenWidth;
 	g_ShadertoyBuffer.iResolution[1] = g_fCurScreenHeight;
 	// This setting (y_center) interacts with g_MetricRecCBuffer.mr_y_center, even if they're
@@ -6343,9 +6367,16 @@ void PrimarySurface::RenderDefaultBackground()
 		};
 		context->OMSetRenderTargets(1, rtvs, NULL);
 
+		ID3D11ShaderResourceView*       cubeMapSRV = resources->_textureCubeSRV;
+		if (g_bRenderAllRegionsCubeMap) cubeMapSRV = g_allRegionsCubeTextureSRV;
+		if (renderCubeMapInThisRegion)  cubeMapSRV = g_cubeTexturesSRV[region];
+		// AddRef() might be necessary here because when cubeMapSRV goes out of scope,
+		// it will call Release() automatically
+		if (cubeMapSRV != nullptr) cubeMapSRV->AddRef();
 		// Set the SRVs:
 		ID3D11ShaderResourceView *srvs[] = {
-			g_bRenderCubeMapInThisRegion ? g_cubeTextureSRV : resources->_textureCubeSRV, // 21
+			cubeMapSRV, // 21
+			//renderCubeMapInThisRegion ? g_cubeTexturesSRV[0] : resources->_textureCubeSRV,
 			g_bUseSteamVR ? nullptr : resources->_backgroundBufferSRV.Get(),
 		};
 

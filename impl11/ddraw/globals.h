@@ -245,6 +245,10 @@ constexpr float METERS_TO_OPT = 40.96f;
 constexpr float GLOVE_NEAR_THRESHOLD_METERS = 0.05f;
 constexpr float GLOVE_NEAR_THRESHOLD_OPTSCALE = GLOVE_NEAR_THRESHOLD_METERS * METERS_TO_OPT;
 
+constexpr int MAX_MISSION_REGIONS = 4;
+extern bool g_bRenderAllRegionsCubeMap;
+extern bool g_bRenderCubeMapInThisRegion[MAX_MISSION_REGIONS];
+
 // Raytracing
 enum class BLASBuilderType
 {

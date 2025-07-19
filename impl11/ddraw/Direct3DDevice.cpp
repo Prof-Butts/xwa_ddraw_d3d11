@@ -5080,7 +5080,10 @@ HRESULT Direct3DDevice::Execute(
 					GroupId = lastTextureSelected->material.GroupId;
 					ImageId = lastTextureSelected->material.ImageId;
 					const int key = MakeKeyFromGroupIdImageId(GroupId, ImageId);
-					if (g_bEnableCubeMaps && g_bRenderCubeMapInThisRegion &&
+					const int region = PlayerDataTable[*g_playerIndex].criticalMessageObjectIndex;
+					const bool validRegion = (region >= 0 && region < MAX_MISSION_REGIONS);
+					if (g_bEnableCubeMaps &&
+						(g_bRenderAllRegionsCubeMap || (validRegion && g_bRenderCubeMapInThisRegion[region])) &&
 						g_StarfieldGroupIdImageIdMap.find(key) != g_StarfieldGroupIdImageIdMap.end())
 						// This is a starfield backdrop, let's skip it
 						goto out;

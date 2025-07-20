@@ -5080,7 +5080,7 @@ HRESULT Direct3DDevice::Execute(
 					GroupId = lastTextureSelected->material.GroupId;
 					ImageId = lastTextureSelected->material.ImageId;
 					const int key = MakeKeyFromGroupIdImageId(GroupId, ImageId);
-					const int region = PlayerDataTable[*g_playerIndex].criticalMessageObjectIndex;
+					const int region = PlayerDataTable[*g_playerIndex].currentRegion;
 					const bool validRegion = (region >= 0 && region < MAX_MISSION_REGIONS);
 					if (g_bEnableCubeMaps &&
 						(g_bRenderAllRegionsCubeMap || (validRegion && g_bRenderCubeMapInThisRegion[region])) &&

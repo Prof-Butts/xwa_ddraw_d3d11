@@ -6158,8 +6158,6 @@ void PrimarySurface::RenderDefaultBackground()
 		region = 0;
 	else
 		region = PlayerDataTable[*g_playerIndex].currentRegion;
-	//log_debug("[DBG] currentRegion: %d", curRegion);
-	//const int  region = PlayerDataTable[*g_playerIndex].criticalMessageObjectIndex;
 	const bool validRegion = (region >= 0 && region < MAX_MISSION_REGIONS);
 	const bool renderCubeMapInThisRegion = (validRegion && g_bRenderCubeMapInThisRegion[region]);
 

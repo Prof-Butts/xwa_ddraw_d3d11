@@ -1606,19 +1606,19 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
 				*(int*)(addr + 0x01) = (int)TargetBoxHook - (addr + 0x05);
 			}
 
-			// Backdrops hook:
-			// Experimental: it works, but let's enable it later
-			if (false)
+			// Backdrops hook. Doesn't do much for now, but we could render
+			// the cubemaps in this hook.
 			{
-				// L00405FE0
-				//void XwaRenderBackdrops()
+				// 0x0405FE0: void XwaRenderBackdrops()
 				uint32_t addr;
 
 				addr = 0x045A5B7; // Hangar render loop calls RenderBackdrops()
+				// Here we make sure the instruction is a call (0xE8):
 				*(unsigned char*)(addr + 0x00) = 0xE8;
 				*(int*)(addr + 0x01) = (int)RenderBackdropsHook - (addr + 0x05);
 
 				addr = 0x04F00CE; // The main render loop ("RelatedToPlayer") calls RenderBackdrops()
+				// Here we make sure the instruction is a call (0xE8):
 				*(unsigned char*)(addr + 0x00) = 0xE8;
 				*(int*)(addr + 0x01) = (int)RenderBackdropsHook - (addr + 0x05);
 			}

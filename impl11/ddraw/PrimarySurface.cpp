@@ -6470,8 +6470,15 @@ void PrimarySurface::RenderDefaultBackground()
 char RenderBackdropsHook()
 {
 	char (*XwaRenderBackdrops)() = (char(*)()) 0x405FE0;
-	//log_debug("[DBG] XwaRenderBackdrops");
-	return XwaRenderBackdrops();
+	// The sequence of events goes like this:
+	// XwaRenderBackdrops() (enter & exit)
+	// Backdrop 1
+	// Backdrop 2
+	// ...
+	// So, in other words, it looks like XwaRenderBackdrops() only
+	// enqueues the draw calls but doesn't execute them while inside
+	// the function.
+	return XwaRenderBackdrops(); // Looks like the return value is always 0
 }
 
 inline void ProjectSpeedPoint(const Matrix4 &ViewMatrix, D3DTLVERTEX *particles, int idx)

@@ -2378,8 +2378,19 @@ bool LoadCubeMap(const std::string path,
 	return true;
 }
 
+static int prevMissionIndex = -1;
 ID3D11ShaderResourceView* g_allRegionsCubeTextureSRV = nullptr;
 ID3D11ShaderResourceView* g_cubeTexturesSRV[MAX_MISSION_REGIONS] = { nullptr, nullptr, nullptr, nullptr };
+
+/// <summary>
+/// Sets prevMissionIndex = -1. This causes the .ini file for the current mission
+/// to be reloaded -- and its cubemaps too.
+/// </summary>
+void ResetMissionCubeMaps()
+{
+	prevMissionIndex = -1;
+}
+
 /// <summary>
 /// Check if the current mission has changed, and if so, load new cube maps and set
 /// global flags (g_bRenderCubeMapInThisRegion) and SRVs (g_cubeTextureSRV).
@@ -2388,7 +2399,6 @@ ID3D11ShaderResourceView* g_cubeTexturesSRV[MAX_MISSION_REGIONS] = { nullptr, nu
 /// </summary>
 void LoadMissionCubeMaps()
 {
-	static int prevMissionIndex = -1;
 	static ID3D11Texture2D* cubeTextures[MAX_MISSION_REGIONS] = { nullptr, nullptr, nullptr, nullptr };
 	static ID3D11Texture2D* allRegionsCubeTexture = nullptr;
 

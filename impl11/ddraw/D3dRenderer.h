@@ -198,6 +198,13 @@ extern std::map<int, int> g_BackdropIdToGroupId;
 /// </summary>
 extern std::map<int, bool> g_StarfieldGroupIdImageIdMap;
 /// <summary>
+/// This map is used to remove specific backdrops when rendering cubemaps.
+/// Gets cleared and populated every time a mission is loaded.
+/// TFTC will most likely need this given the amount of custom backdrops
+/// used there.
+/// </summary>
+extern std::map<int, bool> g_DisabledGroupIdImageIdMap;
+/// <summary>
 /// Set to true every time a new mission or region is loaded. When true, we must parse
 /// the backdrops and count how many we need to tag
 /// </summary>

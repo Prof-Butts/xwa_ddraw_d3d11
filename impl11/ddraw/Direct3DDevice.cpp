@@ -5084,7 +5084,9 @@ HRESULT Direct3DDevice::Execute(
 					const bool validRegion = (region >= 0 && region < MAX_MISSION_REGIONS);
 					if (g_bEnableCubeMaps &&
 						(g_bRenderAllRegionsCubeMap || (validRegion && g_bRenderCubeMapInThisRegion[region])) &&
-						g_StarfieldGroupIdImageIdMap.find(key) != g_StarfieldGroupIdImageIdMap.end())
+
+						(g_StarfieldGroupIdImageIdMap.find(key) != g_StarfieldGroupIdImageIdMap.end() ||
+						 g_DisabledGroupIdImageIdMap.find(key)  != g_DisabledGroupIdImageIdMap.end()))
 						// This is a starfield backdrop, let's skip it
 						goto out;
 				}

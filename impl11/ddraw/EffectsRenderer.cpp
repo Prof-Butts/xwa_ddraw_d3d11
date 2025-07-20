@@ -2151,6 +2151,36 @@ void EffectsRenderer::PopulateStarfieldMap()
 	g_StarfieldGroupIdImageIdMap[MakeKeyFromGroupIdImageId(6104, 5)] = true; // Cap
 }
 
+void PopulateDisabledBackdrops(std::string& list)
+{
+	std::string token;
+	size_t pos, idx;
+	log_debug("[DBG] [CUBE] Parsing DisabledBackdrops: [%s]", list.c_str());
+
+	do
+	{
+		pos = list.find(';');
+		// Get the next token:
+		token = list.substr(0, pos);
+
+		// Process the token
+		idx = token.find('-');
+		if (idx != std::string::npos)
+		{
+			const int groupId = atoi(token.substr(0, idx).c_str());
+			const int imageId = atoi(token.substr(idx+1, token.size() - (idx+1)).c_str());
+			const int key = MakeKeyFromGroupIdImageId(groupId, imageId);
+			g_DisabledGroupIdImageIdMap[key] = true;
+			log_debug("[DBG] [CUBE] -- Disabled: %d-%d", groupId, imageId);
+		}
+
+		// If we haven't reached the end of the string, then erase
+		// the current token and repeat
+		if (pos != std::string::npos)
+			list.erase(0, pos + 1);
+	} while (pos != std::string::npos);
+}
+
 void EffectsRenderer::CreateBackdropIdMapping()
 {
 	if (!g_bReplaceBackdrops)

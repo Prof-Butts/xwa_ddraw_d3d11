@@ -213,6 +213,7 @@ int g_iBackdropsToTag = -1, g_iBackdropsTagged = 0;
 std::map<int, int> g_BackdropIdToGroupId;
 std::map<int, bool> g_StarfieldGroupIdImageIdMap;
 std::map<int, bool> g_DisabledGroupIdImageIdMap;
+std::map<int, bool> g_EnabledOvrGroupIdImageIdMap;
 std::map<int, void*> g_GroupIdImageIdToTextureMap;
 Direct3DTexture* g_StarfieldSRVs[STARFIELD_TYPE::MAX] = { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr };
 
@@ -225,7 +226,7 @@ std::vector<std::string> GetFileLines(const std::string& path, const std::string
 std::string GetFileKeyValue(const std::vector<std::string>& lines, const std::string& key);
 int GetFileKeyValueInt(const std::vector<std::string>& lines, const std::string& key, int defaultValue = 0);
 
-void PopulateDisabledBackdrops(std::string& list);
+void PopulateBackdropsMap(std::string& list, std::map<int, bool>& map);
 
 XwaVector3 cross(const XwaVector3 &v0, const XwaVector3 &v1)
 {
@@ -2395,6 +2396,7 @@ void ResetMissionCubeMaps()
 	// Reset the mission-specific list of starfield backdrops. This should
 	// get populated when the mission .ini file is loaded.
 	g_DisabledGroupIdImageIdMap.clear();
+	g_EnabledOvrGroupIdImageIdMap.clear();
 }
 
 /// <summary>
@@ -2434,7 +2436,10 @@ void LoadMissionCubeMaps()
 		}
 
 		std::string DisabledBackdropList = GetFileKeyValue(lines, "DisabledBackdrops");
-		PopulateDisabledBackdrops(DisabledBackdropList);
+		PopulateBackdropsMap(DisabledBackdropList, g_DisabledGroupIdImageIdMap);
+
+		std::string EnabledBackdropList = GetFileKeyValue(lines, "EnabledBackdrops");
+		PopulateBackdropsMap(EnabledBackdropList, g_EnabledOvrGroupIdImageIdMap);
 
 		std::string allRegionsPath = GetFileKeyValue(lines, "AllRegions");
 		std::string regionPath[4];

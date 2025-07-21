@@ -2151,7 +2151,7 @@ void EffectsRenderer::PopulateStarfieldMap()
 	g_StarfieldGroupIdImageIdMap[MakeKeyFromGroupIdImageId(6104, 5)] = true; // Cap
 }
 
-void PopulateDisabledBackdrops(std::string& list)
+void PopulateBackdropsMap(std::string& list, std::map<int, bool>& map)
 {
 	std::string token;
 	size_t pos, idx;
@@ -2170,7 +2170,7 @@ void PopulateDisabledBackdrops(std::string& list)
 			const int groupId = atoi(token.substr(0, idx).c_str());
 			const int imageId = atoi(token.substr(idx+1, token.size() - (idx+1)).c_str());
 			const int key = MakeKeyFromGroupIdImageId(groupId, imageId);
-			g_DisabledGroupIdImageIdMap[key] = true;
+			map[key] = true;
 			log_debug("[DBG] [CUBE] -- Disabled: %d-%d", groupId, imageId);
 		}
 

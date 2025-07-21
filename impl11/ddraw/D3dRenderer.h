@@ -205,6 +205,14 @@ extern std::map<int, bool> g_StarfieldGroupIdImageIdMap;
 /// </summary>
 extern std::map<int, bool> g_DisabledGroupIdImageIdMap;
 /// <summary>
+/// The opposite of g_DisabledGroupIdImageIdMap: any GroupId-ImageId in this
+/// map is displayed, even if it has been disabled by g_StarfieldGroupIdImageIdMap
+/// or g_DisabledGroupIdImageIdMap. The reason for this is that g_StarfieldGroupIdImageIdMap
+/// has some hard-coded entries that may not work for TFTC. This is a mechanism to restore
+/// any images we should be displaying in TFTC.
+/// </summary>
+extern std::map<int, bool> g_EnabledOvrGroupIdImageIdMap;
+/// <summary>
 /// Set to true every time a new mission or region is loaded. When true, we must parse
 /// the backdrops and count how many we need to tag
 /// </summary>

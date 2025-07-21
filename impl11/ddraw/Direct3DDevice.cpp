@@ -801,6 +801,11 @@ void RenderEngineGlowHook(void *A4, int A8, void* textureSurface, uint32_t outer
 	Xwa3dRenderEngineGlow(A4, A8, textureSurface, outerColor, coreColor);
 }
 
+inline bool IsInMap(const std::map<int, bool>& map, int key)
+{
+	return (map.find(key) != map.end());
+}
+
 int g_ExecuteCount;
 int g_ExecuteVertexCount;
 int g_ExecuteIndexCount;
@@ -5085,9 +5090,12 @@ HRESULT Direct3DDevice::Execute(
 					if (g_bEnableCubeMaps &&
 						(g_bRenderAllRegionsCubeMap || (validRegion && g_bRenderCubeMapInThisRegion[region])) &&
 
-						(g_StarfieldGroupIdImageIdMap.find(key) != g_StarfieldGroupIdImageIdMap.end() ||
-						 g_DisabledGroupIdImageIdMap.find(key)  != g_DisabledGroupIdImageIdMap.end()))
-						// This is a starfield backdrop, let's skip it
+						// If this GroupId-ImageId is disabled...
+						(IsInMap(g_StarfieldGroupIdImageIdMap, key) ||
+						 IsInMap(g_DisabledGroupIdImageIdMap, key)) &&
+						// ... but is not in the enabled-override list...
+						!IsInMap(g_EnabledOvrGroupIdImageIdMap, key))
+						// Then this is a skippable backdrop (starfield)
 						goto out;
 				}
 

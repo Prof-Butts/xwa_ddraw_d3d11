@@ -2365,6 +2365,16 @@ bool LoadCubeMap(const std::string path,
 				res = device->OpenSharedResource(handle, IID_PPV_ARGS(&cubeFace));
 				ExeLoadTextureRelease();
 			}
+
+			{
+				static bool firstTime = true;
+				HANDLE handle;
+				if (firstTime)
+				{
+					ExeDATLoadTexture("Effects\TieFighterCockpit.dat", 23, 0, &handle);
+					firstTime = false;
+				}
+			}
 		}
 
 		if (SUCCEEDED(res))

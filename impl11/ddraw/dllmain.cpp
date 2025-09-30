@@ -343,18 +343,18 @@ LRESULT CALLBACK MyWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam
 
 			case VK_RIGHT:
 				switch (g_KeySet) {
-				case 1:
+				case MOVE_LIGHTS_KEY_SET:
 					g_LightVector[0].x += 0.1f;
 					g_LightVector[0].normalize();
 					PrintVector(g_LightVector[0]);
 					break;
-				case 2:
+				case CHANGE_FOV_KEY_SET:
 					IncreaseFOV(50.0f);
 					// First try to update the DC file. If that fails, then save the regular focal length
 					if (!UpdateXWAHackerFOV())
 						SaveFocalLength();
 					break;
-				case 3:
+				case MOVE_POINT_LIGHT_KEY_SET:
 					g_LaserPointDebug.x += 0.1f;
 					log_debug("[DBG] g_LaserPointDebug: %0.3f, %0.3f, %0.3f",
 						g_LaserPointDebug.x, g_LaserPointDebug.y, g_LaserPointDebug.z);
@@ -424,18 +424,18 @@ LRESULT CALLBACK MyWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam
 				return 0;
 			case VK_LEFT:
 				switch (g_KeySet) {
-				case 1:
+				case MOVE_LIGHTS_KEY_SET:
 					g_LightVector[0].x -= 0.1f;
 					g_LightVector[0].normalize();
 					PrintVector(g_LightVector[0]);
 					break;
-				case 2:
+				case CHANGE_FOV_KEY_SET:
 					IncreaseFOV(-50.0f);
 					// First try to update the DC file. If that fails, then save the regular focal length
 					if (!UpdateXWAHackerFOV())
 						SaveFocalLength();
 					break;
-				case 3:
+				case MOVE_POINT_LIGHT_KEY_SET:
 					g_LaserPointDebug.x -= 0.1f;
 					log_debug("[DBG] g_LaserPointDebug: %0.3f, %0.3f, %0.3f",
 						g_LaserPointDebug.x, g_LaserPointDebug.y, g_LaserPointDebug.z);
@@ -510,16 +510,12 @@ LRESULT CALLBACK MyWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam
 
 			case VK_UP:
 				switch (g_KeySet) {
-				case 1:
+				case MOVE_LIGHTS_KEY_SET:
 					g_LightVector[0].y += 0.1f;
 					g_LightVector[0].normalize();
 					PrintVector(g_LightVector[0]);
 					break;
-				case 2:
-					//IncreaseMetricMult(0.1f);
-					//SaveVRParams();
-					break;
-				case 3:
+				case MOVE_POINT_LIGHT_KEY_SET:
 					g_LaserPointDebug.y += 0.1f;
 					log_debug("[DBG] g_LaserPointDebug: %0.3f, %0.3f, %0.3f",
 						g_LaserPointDebug.x, g_LaserPointDebug.y, g_LaserPointDebug.z);
@@ -556,16 +552,12 @@ LRESULT CALLBACK MyWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam
 				return 0;
 			case VK_DOWN:
 				switch (g_KeySet) {
-				case 1:
+				case MOVE_LIGHTS_KEY_SET:
 					g_LightVector[0].y -= 0.1f;
 					g_LightVector[0].normalize();
 					PrintVector(g_LightVector[0]);
 					break;
-				case 2:
-					//IncreaseMetricMult(-0.1f);
-					//SaveVRParams();
-					break;
-				case 3:
+				case MOVE_POINT_LIGHT_KEY_SET:
 					g_LaserPointDebug.y -= 0.1f;
 					log_debug("[DBG] g_LaserPointDebug: %0.3f, %0.3f, %0.3f",
 						g_LaserPointDebug.x, g_LaserPointDebug.y, g_LaserPointDebug.z);
@@ -1079,20 +1071,12 @@ LRESULT CALLBACK MyWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam
 			// Ctrl + Up
 			case VK_UP:
 				switch (g_KeySet) {
-				case 1:
+				case MOVE_LIGHTS_KEY_SET:
 					g_LightVector[0].z += 0.1f;
 					g_LightVector[0].normalize();
 					PrintVector(g_LightVector[0]);
 					break;
-				case 2:
-					//IncreaseScreenScale(0.1f);
-					//SaveVRParams();
-
-					//IncreaseAspectRatio(0.05f);
-					//IncreaseReticleScale(0.1f);
-					//SaveVRParams();
-					break;
-				case 3:
+				case MOVE_POINT_LIGHT_KEY_SET:
 					g_LaserPointDebug.z += 0.1f;
 					log_debug("[DBG] g_LaserPointDebug: %0.3f, %0.3f, %0.3f",
 						g_LaserPointDebug.x, g_LaserPointDebug.y, g_LaserPointDebug.z);
@@ -1113,7 +1097,7 @@ LRESULT CALLBACK MyWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam
 					g_contOriginWorldSpace[0].y += 0.01f;
 					//log_debug("[DBG] g_contOriginWorldSpace.xy: %0.3f, %0.3f", g_contOriginWorldSpace.x, g_contOriginWorldSpace.y);
 					break;
-				case 16:
+				case ROTATE_CUBEMAPS_KEY_SET:
 					CubeMapEditIncrAngX(1.0f, g_CubeMaps.editOverlays);
 					break;
 				}
@@ -1121,20 +1105,12 @@ LRESULT CALLBACK MyWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam
 				// Ctrl + Down
 			case VK_DOWN:
 				switch (g_KeySet) {
-				case 1:
+				case MOVE_LIGHTS_KEY_SET:
 					g_LightVector[0].z -= 0.1f;
 					g_LightVector[0].normalize();
 					PrintVector(g_LightVector[0]);
 					break;
-				case 2:
-					//IncreaseScreenScale(-0.1f);
-					//SaveVRParams();
-
-					//IncreaseAspectRatio(-0.05f);
-					//IncreaseReticleScale(-0.1f);
-					//SaveVRParams();
-					break;
-				case 3:
+				case MOVE_POINT_LIGHT_KEY_SET:
 					g_LaserPointDebug.z -= 0.1f;
 					log_debug("[DBG] g_LaserPointDebug: %0.3f, %0.3f, %0.3f",
 						g_LaserPointDebug.x, g_LaserPointDebug.y, g_LaserPointDebug.z);
@@ -1158,7 +1134,7 @@ LRESULT CALLBACK MyWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam
 					g_contOriginWorldSpace[0].y -= 0.01f;
 					//log_debug("[DBG] g_contOriginWorldSpace.xy: %0.3f, %0.3f", g_contOriginWorldSpace.x, g_contOriginWorldSpace.y);
 					break;
-				case 16:
+				case ROTATE_CUBEMAPS_KEY_SET:
 					CubeMapEditIncrAngX(-1.0f, g_CubeMaps.editOverlays);
 					break;
 				}
@@ -1166,13 +1142,11 @@ LRESULT CALLBACK MyWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam
 			// Ctrl + Left
 			case VK_LEFT:
 				switch (g_KeySet) {
-				case 2:
-					break;
 				case 11:
 					g_contOriginWorldSpace[0].x -= 0.01f;
 					//log_debug("[DBG] g_contOriginWorldSpace.xy: %0.3f, %0.3f", g_contOriginWorldSpace.x, g_contOriginWorldSpace.y);
 					break;
-				case 16:
+				case ROTATE_CUBEMAPS_KEY_SET:
 					CubeMapEditIncrAngY(1.0f, g_CubeMaps.editOverlays);
 					break;
 				}
@@ -1180,13 +1154,11 @@ LRESULT CALLBACK MyWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam
 			// Ctrl + Right
 			case VK_RIGHT:
 				switch (g_KeySet) {
-				case 2:
-					break;
 				case 11:
 					g_contOriginWorldSpace[0].x += 0.01f;
 					//log_debug("[DBG] g_contOriginWorldSpace.xy: %0.3f, %0.3f", g_contOriginWorldSpace.x, g_contOriginWorldSpace.y);
 					break;
-				case 16:
+				case ROTATE_CUBEMAPS_KEY_SET:
 					CubeMapEditIncrAngY(-1.0f, g_CubeMaps.editOverlays);
 					break;
 				}
@@ -1247,10 +1219,10 @@ LRESULT CALLBACK MyWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam
 			case VK_LEFT:
 				switch (g_KeySet)
 				{
-				case 2:
+				case CHANGE_FOV_KEY_SET:
 					IncreaseTextParallax(-0.05f);
 					break;
-				case 16:
+				case ROTATE_CUBEMAPS_KEY_SET:
 					CubeMapEditIncrAngZ(-1.0f, g_CubeMaps.editOverlays);
 					break;
 				}
@@ -1258,10 +1230,10 @@ LRESULT CALLBACK MyWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam
 			case VK_RIGHT:
 				switch (g_KeySet)
 				{
-				case 2:
+				case CHANGE_FOV_KEY_SET:
 					IncreaseTextParallax(0.05f);
 					break;
-				case 16:
+				case ROTATE_CUBEMAPS_KEY_SET:
 					CubeMapEditIncrAngZ(1.0f, g_CubeMaps.editOverlays);
 					break;
 				}

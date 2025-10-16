@@ -2175,7 +2175,7 @@ void PopulateBackdropsMap(std::string& list, std::map<int, bool>& map)
 		}
 		else if (token == "ALL" || token == "all")
 		{
-			log_debug("[DBG] [CUBE] Disabling ALL backdrops!");
+			log_debug("[DBG] [CUBE] Disabling/Enabling ALL backdrops!");
 			map[-1] = true;
 			return;
 		}

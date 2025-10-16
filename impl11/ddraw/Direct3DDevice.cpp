@@ -5111,6 +5111,7 @@ HRESULT Direct3DDevice::Execute(
 					const int region = PlayerDataTable[*g_playerIndex].currentRegion;
 					const bool validRegion = (region >= 0 && region < MAX_MISSION_REGIONS);
 					if (g_CubeMaps.bEnabled &&
+						!IsInMap(g_EnabledOvrGroupIdImageIdMap, -1) && // "EnabledBackdrops = ALL" enables all backdrops
 						(g_CubeMaps.bRenderAllRegions || (validRegion && g_CubeMaps.bRenderInThisRegion[region])) &&
 
 						// If this GroupId-ImageId is disabled...

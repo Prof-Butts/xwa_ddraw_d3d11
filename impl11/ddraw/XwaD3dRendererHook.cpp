@@ -2582,7 +2582,12 @@ void LoadMissionCubeMaps()
 		// Disable all cubemaps as soon as a new mission is loaded.
 		// We'll re-enable them if we find the relevant settings in the .ini file.
 		g_CubeMaps.bRenderAllRegions = false;
-		for (int i = 0; i < MAX_MISSION_REGIONS; i++) g_CubeMaps.bRenderInThisRegion[i] = false;
+		for (int i = 0; i < MAX_MISSION_REGIONS; i++)
+		{
+			g_CubeMaps.bRenderInThisRegion[i]      = false;
+			g_CubeMaps.bRenderIllumInThisRegion[i] = false;
+			g_CubeMaps.bRenderOvrInThisRegion[i]   = false;
+		}
 
 		std::string mission = xwaMissionFileName;
 		const int dot = mission.find_last_of('.');

@@ -442,6 +442,8 @@ struct CubeMapData
 	float allRegionsIllumTexRes = -1;
 	float allRegionsMipRes = 16.0f;
 	float allRegionsIllumMipRes = 16.0f;
+	float hangarAngX = -90.0f, hangarAngY = 0.0f, hangarAngZ = 0.0f;
+	float hangarOvrAngX = -90.0f, hangarOvrAngY = 0.0f, hangarOvrAngZ = 0.0f;
 
 	float regionSpecular[MAX_MISSION_REGIONS];
 	float regionAmbientInt[MAX_MISSION_REGIONS];

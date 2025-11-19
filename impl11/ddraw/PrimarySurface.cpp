@@ -6454,20 +6454,21 @@ void PrimarySurface::RenderDefaultBackground()
 	if (renderCubeMap && (!g_CubeMaps.bEnabled || bInHyperspace))
 		goto out;
 
-	float angX = g_CubeMaps.allRegionsAngX;
-	float angY = g_CubeMaps.allRegionsAngY;
-	float angZ = g_CubeMaps.allRegionsAngZ;
-	float ovrAngX = g_CubeMaps.allRegionsOvrAngX;
-	float ovrAngY = g_CubeMaps.allRegionsOvrAngY;
-	float ovrAngZ = g_CubeMaps.allRegionsOvrAngZ;
+	const bool bPlayerInHangar = g_playerInHangar != nullptr ? (*g_playerInHangar) : false;
+	float angX = bPlayerInHangar ? g_CubeMaps.hangarAngX : g_CubeMaps.allRegionsAngX;
+	float angY = bPlayerInHangar ? g_CubeMaps.hangarAngY : g_CubeMaps.allRegionsAngY;
+	float angZ = bPlayerInHangar ? g_CubeMaps.hangarAngZ : g_CubeMaps.allRegionsAngZ;
+	float ovrAngX = bPlayerInHangar ? g_CubeMaps.hangarOvrAngX : g_CubeMaps.allRegionsOvrAngX;
+	float ovrAngY = bPlayerInHangar ? g_CubeMaps.hangarOvrAngY : g_CubeMaps.allRegionsOvrAngY;
+	float ovrAngZ = bPlayerInHangar ? g_CubeMaps.hangarOvrAngZ : g_CubeMaps.allRegionsOvrAngZ;
 	if (renderCubeMapInThisRegion)
 	{
-		angX = g_CubeMaps.regionAngX[region];
-		angY = g_CubeMaps.regionAngY[region];
-		angZ = g_CubeMaps.regionAngZ[region];
-		ovrAngX = g_CubeMaps.regionOvrAngX[region];
-		ovrAngY = g_CubeMaps.regionOvrAngY[region];
-		ovrAngZ = g_CubeMaps.regionOvrAngZ[region];
+		angX = bPlayerInHangar ? g_CubeMaps.hangarAngX : g_CubeMaps.regionAngX[region];
+		angY = bPlayerInHangar ? g_CubeMaps.hangarAngY : g_CubeMaps.regionAngY[region];
+		angZ = bPlayerInHangar ? g_CubeMaps.hangarAngZ : g_CubeMaps.regionAngZ[region];
+		ovrAngX = bPlayerInHangar ? g_CubeMaps.hangarOvrAngX : g_CubeMaps.regionOvrAngX[region];
+		ovrAngY = bPlayerInHangar ? g_CubeMaps.hangarOvrAngY : g_CubeMaps.regionOvrAngY[region];
+		ovrAngZ = bPlayerInHangar ? g_CubeMaps.hangarOvrAngZ : g_CubeMaps.regionOvrAngZ[region];
 	}
 
 	const int editRegion = renderCubeMapInThisRegion ? region : -1;

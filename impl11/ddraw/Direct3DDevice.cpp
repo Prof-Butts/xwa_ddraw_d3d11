@@ -677,6 +677,32 @@ void RenderSkyBox();
 
 float clamp(float val, float min, float max);
 
+enum RenderStateEnum : unsigned int
+{
+	RenderState_None = 0,
+	RenderState_TexturePerspective = 1,
+	RenderState_Dithering = 2,
+	RenderState_SpecularLight = 4,
+	RenderState_Antialiasing = 8,
+	RenderState_SubPixelCorrection = 16,
+	RenderState_SubPixelXCorrection = 32,
+	RenderState_Fog = 64,
+	RenderState_TextureMagLinear = 128,
+	RenderState_TextureMinLinear = 256,
+	RenderState_Blend = 512,
+	RenderState_BlendModulateAlpha = 1024,
+	RenderState_ZFunc = 2048,
+	RenderState_ZWrite = 4096,
+	RenderState_TextureClamp = 8192,
+	RenderState_ColorRendering = 32768,
+	RenderState_ZFuncEqual = 65536,
+	RenderState_BlendDecal = 262144,
+	RenderState_NoAlphaTest = 524288,
+};
+
+RenderStateEnum& s_XwaD3dRenderState = *(RenderStateEnum*)0x007B1CD8;
+
+
 CraftInstanceHardpoint GetHardpoint(CraftInstance* craftInstance, int index)
 {
 	CraftInstanceHardpoint* hardpoints = (CraftInstanceHardpoint*)((int)craftInstance + g_craftConfig.Craft_Offset_2DF);
@@ -5110,7 +5136,14 @@ HRESULT Direct3DDevice::Execute(
 					const int key = MakeKeyFromGroupIdImageId(GroupId, ImageId);
 					const int region = PlayerDataTable[*g_playerIndex].currentRegion;
 					const bool validRegion = (region >= 0 && region < MAX_MISSION_REGIONS);
+
+					const RenderStateEnum backdropRenderState = (RenderStateEnum)(RenderState_Dithering |
+						RenderState_SubPixelCorrection | RenderState_TextureMagLinear |
+						RenderState_TextureMinLinear | RenderState_Blend | RenderState_BlendModulateAlpha);
+					bool isBackdrop = (s_XwaD3dRenderState & ~RenderState_TextureClamp) == backdropRenderState;
+
 					if (g_CubeMaps.bEnabled &&
+						isBackdrop && // We only skip backdrops, everything else should be rendered
 						!IsInMap(g_EnabledOvrGroupIdImageIdMap, -1) && // "EnabledBackdrops = ALL" enables all backdrops
 						(g_CubeMaps.bRenderAllRegions || (validRegion && g_CubeMaps.bRenderInThisRegion[region])) &&
 

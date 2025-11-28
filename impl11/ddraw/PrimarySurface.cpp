@@ -6639,7 +6639,35 @@ void PrimarySurface::RenderDefaultBackground()
 		}
 	}
 	{
-		const Matrix4 viewMat       = g_ShadertoyBuffer.viewMat;
+		// This little experiment comes from Jeremy's CubeMap code. It only works when
+		// nothing is targeted, and it doesn't seem to work inside the hangar either.
+#if 0
+		Matrix4 viewMat;
+		Matrix4 swap({ 1,0,0,0,  0,0,1,0,  0,1,0,0,  0,0,0,1 });
+		Matrix4 swapInv({ -1,0,0,0,  0,0,1,0,  0,-1,0,0,  0,0,0,1 });
+
+		viewMat[0] = *(float*)0x007B4BEC;
+		viewMat[1] = *(float*)0x007B6FF8;
+		viewMat[2] = *(float*)0x007B33DC;
+		viewMat[3] = 0.0f;
+		viewMat[4] = *(float*)0x007B4BE8;
+		viewMat[5] = *(float*)0x007B6FF0;
+		viewMat[6] = *(float*)0x007B33D8;
+		viewMat[7] = 0.0f;
+		viewMat[8] = *(float*)0x007B4BF4;
+		viewMat[9] = *(float*)0x007B33D4;
+		viewMat[10] = *(float*)0x007B4BE4;
+		viewMat[11] = 0.0f;
+		viewMat[12] = 0.0f;
+		viewMat[13] = 0.0f;
+		viewMat[14] = 0.0f;
+		viewMat[15] = 1.0f;
+
+		viewMat = swap * viewMat * swap * swapInv;
+		g_ShadertoyBuffer.viewMat   = cubeMapRot * viewMat;
+		g_ShadertoyBuffer.secondMat = ovrCubeMapRot * viewMat;
+#endif
+		Matrix4 viewMat       = g_ShadertoyBuffer.viewMat;
 		g_ShadertoyBuffer.viewMat   = cubeMapRot * viewMat;
 		g_ShadertoyBuffer.secondMat = ovrCubeMapRot * viewMat;
 	}
@@ -6797,7 +6825,6 @@ void PrimarySurface::RenderDefaultBackground()
 		// Set the SRVs:
 		ID3D11ShaderResourceView *srvs[] = {
 			cubeMapSRV,      // 21
-			//renderCubeMapInThisRegion ? g_cubeTexturesSRV[0] : resources->_textureCubeSRV,
 			g_bUseSteamVR ? nullptr : resources->_backgroundBufferSRV.Get(), // 22
 			cubeMapIllumSRV, // 23
 			overlaySRV,      // 24

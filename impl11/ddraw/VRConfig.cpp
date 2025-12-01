@@ -316,7 +316,6 @@ bool g_bEnableLevelsShader = false;
 float g_fLevelsWhitePoint = 235.0f;
 float g_fLevelsBlackPoint = 16.0f;
 
-bool g_bEnableXwaDDrawPlayer = true;
 bool g_bXwaDDrawPlayerPresent = false;
 bool g_bForce60FPS = true;
 
@@ -3166,7 +3165,7 @@ bool LoadSSAOParams() {
 			}
 			if (_stricmp(param, "enable_xwaddrawplayer") == 0)
 			{
-				g_bEnableXwaDDrawPlayer = (bool)fValue;
+				g_config.EnableSideProcess = (bool)fValue;
 			}
 			if (_stricmp(param, "force_60_fps") == 0)
 			{

@@ -329,7 +329,6 @@ extern float g_fMouseRangeX, g_fMouseRangeY;
 extern float g_fMouseDecelRate_s;
 
 // XwaDDrawPlayer
-extern bool g_bEnableXwaDDrawPlayer;
 extern bool g_bXwaDDrawPlayerPresent;
 
 extern bool g_bForce60FPS;

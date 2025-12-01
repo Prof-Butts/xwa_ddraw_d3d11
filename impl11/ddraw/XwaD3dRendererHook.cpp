@@ -2346,7 +2346,7 @@ bool LoadCubeMap(const std::string path,
 	*diffuseMipLevel_out = 0;
 	for (uint32_t cubeFaceIdx = 0; cubeFaceIdx < fileNames.size(); cubeFaceIdx++)
 	{
-		if (!g_bEnableXwaDDrawPlayer || !g_bXwaDDrawPlayerPresent)
+		if (!g_config.EnableSideProcess || !g_bXwaDDrawPlayerPresent)
 		{
 			ID3D11ShaderResourceView* cubeFaceSRV = nullptr;
 

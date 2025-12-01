@@ -68,6 +68,9 @@ public:
 	float TechRoomMetallicity;
 	float TechRoomAmbient;
 
+	bool EnableSideProcess;
+	bool EnableCubeMaps;
+
 	std::string ScreenshotsDirectory;
 };
 

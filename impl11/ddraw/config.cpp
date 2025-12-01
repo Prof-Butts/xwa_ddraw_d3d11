@@ -91,6 +91,9 @@ Config::Config()
 	this->TechRoomMetallicity = 0.15f;
 	this->TechRoomAmbient = 0.18f;
 
+	this->EnableSideProcess = true;
+	this->EnableCubeMaps = true;
+
 	CreateDirectory("Screenshots", nullptr);
 	this->ScreenshotsDirectory = "Screenshots";
 
@@ -313,6 +316,14 @@ Config::Config()
 			else if (name == "TechRoomAmbient")
 			{
 				this->TechRoomAmbient = stof(value);
+			}
+			else if (name == "EnableSideProcess")
+			{
+				this->EnableSideProcess = stoi(value) != 0;
+			}
+			else if (name == "EnableCubeMaps")
+			{
+				this->EnableCubeMaps = stoi(value) != 0;
 			}
 		}
 	}

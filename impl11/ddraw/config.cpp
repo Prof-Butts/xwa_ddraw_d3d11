@@ -93,6 +93,7 @@ Config::Config()
 
 	this->EnableSideProcess = true;
 	this->EnableCubeMaps = true;
+	InitCubeMaps();
 
 	CreateDirectory("Screenshots", nullptr);
 	this->ScreenshotsDirectory = "Screenshots";
@@ -324,6 +325,7 @@ Config::Config()
 			else if (name == "EnableCubeMaps")
 			{
 				this->EnableCubeMaps = stoi(value) != 0;
+				InitCubeMaps();
 			}
 		}
 	}

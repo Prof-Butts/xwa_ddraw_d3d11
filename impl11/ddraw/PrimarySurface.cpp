@@ -3789,7 +3789,7 @@ void PrimarySurface::DeferredPass()
 	}
 
 	const bool bInHyperspace = (g_HyperspacePhaseFSM != HS_INIT_ST);
-	const bool cubeMappingEnabled = !bInHyperspace && !*g_playerInHangar && g_CubeMaps.bEnabled &&
+	const bool cubeMappingEnabled = !bInHyperspace && !*g_playerInHangar && g_config.EnableCubeMaps &&
 		(g_CubeMaps.bRenderAllRegions || renderCubeMapInThisRegion);
 	const bool illumCubeMappingEnabled = cubeMappingEnabled &&
 		(g_CubeMaps.bAllRegionsIllum || renderIllumCubeMapInThisRegion);
@@ -6451,7 +6451,7 @@ void PrimarySurface::RenderDefaultBackground()
 	// corona, and also saves us a draw() call that won't be visible in the end.
 	// ... We should also disable cubemaps if we're in hyperspace!
 	const bool bInHyperspace = (g_HyperspacePhaseFSM != HS_INIT_ST);
-	if (renderCubeMap && (!g_CubeMaps.bEnabled || bInHyperspace))
+	if (renderCubeMap && (!g_config.EnableCubeMaps || bInHyperspace))
 		goto out;
 
 	const bool bPlayerInHangar = (!g_CubeMaps.bUseNewOrientation) && (g_playerInHangar != nullptr ? (*g_playerInHangar) : false);

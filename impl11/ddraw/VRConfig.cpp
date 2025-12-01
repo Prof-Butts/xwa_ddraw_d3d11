@@ -339,6 +339,12 @@ void SetHDRState(bool state)
 	g_ShadingSys_PSBuffer.HDREnabled = g_bHDREnabled;
 }
 
+void InitCubeMaps()
+{
+	g_KeySet = CHANGE_FOV_KEY_SET; // Just in case...
+	g_CubeMaps.editMode = CubeMapEditMode::DISABLED;
+}
+
 /* Loads the VR parameters from vrparams.cfg */
 void LoadVRParams() {
 	log_debug("[DBG] Loading view params...");
@@ -3121,9 +3127,8 @@ bool LoadSSAOParams() {
 				// This is the "master switch" that enables the new CubeMaps feature.
 				// To enable a CubeMap on a specific mission, its .ini file must be updated
 				// and a corresponding cubemap must be added under Effects\CubeMaps.
-				g_CubeMaps.bEnabled = (bool)fValue;
-				g_KeySet = CHANGE_FOV_KEY_SET; // Just in case...
-				g_CubeMaps.editMode = CubeMapEditMode::DISABLED;
+				g_config.EnableCubeMaps = (bool)fValue;
+				InitCubeMaps();
 			}
 			if (_stricmp(param, "debug_cubemap_rotation") == 0)
 			{

@@ -86,3 +86,5 @@ public:
 };
 
 extern CraftConfig g_craftConfig;
+
+void InitCubeMaps();

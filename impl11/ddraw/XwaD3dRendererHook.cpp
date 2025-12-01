@@ -2584,7 +2584,7 @@ void LoadMissionCubeMaps()
 	auto& device    = g_deviceResources->_d3dDevice;
 	auto& context   = g_deviceResources->_d3dDeviceContext;
 
-	if (g_CubeMaps.bEnabled &&
+	if (g_config.EnableCubeMaps &&
 		*missionIndexLoaded != prevMissionIndex && xwaMissionFileName != nullptr)
 	{
 		// Disable all cubemaps as soon as a new mission is loaded.

@@ -424,7 +424,6 @@ enum class CubeMapEditMode
 
 struct CubeMapData
 {
-	bool bEnabled = false;
 	bool bRenderAllRegions = false;
 	bool bAllRegionsIllum = false;
 	bool bAllRegionsOvr = false;

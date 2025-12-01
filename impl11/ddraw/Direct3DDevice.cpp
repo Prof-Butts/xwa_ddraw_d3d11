@@ -5142,7 +5142,7 @@ HRESULT Direct3DDevice::Execute(
 						RenderState_TextureMinLinear | RenderState_Blend | RenderState_BlendModulateAlpha);
 					bool isBackdrop = (s_XwaD3dRenderState & ~RenderState_TextureClamp) == backdropRenderState;
 
-					if (g_CubeMaps.bEnabled &&
+					if (g_config.EnableCubeMaps &&
 						isBackdrop && // We only skip backdrops, everything else should be rendered
 						!IsInMap(g_EnabledOvrGroupIdImageIdMap, -1) && // "EnabledBackdrops = ALL" enables all backdrops
 						(g_CubeMaps.bRenderAllRegions || (validRegion && g_CubeMaps.bRenderInThisRegion[region])) &&

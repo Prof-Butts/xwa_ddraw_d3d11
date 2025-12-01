@@ -176,6 +176,29 @@ Intersection ClosestHit(BVHNode* g_BVH, float3 origin, int Offset, float3& P_out
 Vector4 SteamVRToOPTCoords(Vector4 P);
 void SetLights(DeviceResources* resources, float fSSDOEnabled);
 
+bool g_bBackdropTransformCaptured = false;
+Matrix4 g_BackdropTransform;
+void CaptureBackdropTransform()
+{
+	g_BackdropTransform[0]  = *(float*)0x007B4BEC;
+	g_BackdropTransform[1]  = *(float*)0x007B6FF8;
+	g_BackdropTransform[2]  = *(float*)0x007B33DC;
+	g_BackdropTransform[3]  = 0.0f;
+	g_BackdropTransform[4]  = *(float*)0x007B4BE8;
+	g_BackdropTransform[5]  = *(float*)0x007B6FF0;
+	g_BackdropTransform[6]  = *(float*)0x007B33D8;
+	g_BackdropTransform[7]  = 0.0f;
+	g_BackdropTransform[8]  = *(float*)0x007B4BF4;
+	g_BackdropTransform[9]  = *(float*)0x007B33D4;
+	g_BackdropTransform[10] = *(float*)0x007B4BE4;
+	g_BackdropTransform[11] = 0.0f;
+	g_BackdropTransform[12] = 0.0f;
+	g_BackdropTransform[13] = 0.0f;
+	g_BackdropTransform[14] = 0.0f;
+	g_BackdropTransform[15] = 1.0f;
+	g_bBackdropTransformCaptured = true;
+}
+
 inline int MakeKeyFromGroupIdImageId(int groupId, int imageId)
 {
 	return (groupId << 16) | (imageId);
@@ -2496,6 +2519,8 @@ void EffectsRenderer::SceneBegin(DeviceResources* deviceResources)
 		deviceResources->_OPTMeshTransformCB.GetAddressOf(), &g_OPTMeshTransformCB);
 	// Initialize the hangar AABB
 	_hangarShadowAABB.SetInfinity();
+
+	if (!g_bBackdropTransformCaptured) CaptureBackdropTransform();
 
 	if (PlayerDataTable->missionTime == 0)
 		ApplyCustomHUDColor();

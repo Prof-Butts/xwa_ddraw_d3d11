@@ -657,6 +657,11 @@ LRESULT CALLBACK MyWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam
 					DisplayTimedMessage(3, 0, "CubeMaps ENABLED");
 				else
 					DisplayTimedMessage(3, 0, "CubeMaps disabled");
+				/*g_CubeMaps.bUseNewOrientation = !g_CubeMaps.bUseNewOrientation;
+				if (g_CubeMaps.bUseNewOrientation)
+					DisplayTimedMessage(3, 0, "NEW Orientation Enabled");
+				else
+					DisplayTimedMessage(3, 0, "OLD Orientation");*/
 
 				/*
 				// g_bRenderDefaultStarfield is used to render DefaultStarfield.dds. It's set

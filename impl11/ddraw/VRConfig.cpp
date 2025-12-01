@@ -3148,6 +3148,22 @@ bool LoadSSAOParams() {
 			{
 				g_CubeMaps.editAngIncr = fValue;
 			}
+			if (_stricmp(param, "use_default_skybox_orientation") == 0)
+			{
+				g_CubeMaps.bUseNewOrientation = !((bool)fValue);
+				if (g_CubeMaps.bUseNewOrientation == false)
+				{
+					// If the New Orientation feature is disabled, then the default hangar
+					// rotation must be X = -90:
+					g_CubeMaps.hangarAngX    = -90.0f;
+					g_CubeMaps.hangarOvrAngX = -90.0f;
+					log_debug("[DBG] [CUBE] New Orientation Feature (Jeremy's code) DISABLED");
+				}
+				else
+				{
+					log_debug("[DBG] [CUBE] New Orientation Feature (Jeremy's code) ENABLED");
+				}
+			}
 			if (_stricmp(param, "enable_xwaddrawplayer") == 0)
 			{
 				g_bEnableXwaDDrawPlayer = (bool)fValue;

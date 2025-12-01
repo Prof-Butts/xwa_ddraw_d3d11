@@ -2501,13 +2501,13 @@ void ParseCubeMapMissionIni(const std::vector<std::string>& lines)
 	g_CubeMaps.allRegionsMipRes = GetFileKeyValueFloat(lines, "AllRegionsReflectionRes", 8.0f);
 	g_CubeMaps.allRegionsDiffuseMipLevel = FindMipLevel(g_CubeMaps.allRegionsTexRes, g_CubeMaps.allRegionsMipRes);
 
-	g_CubeMaps.hangarAngX = GetFileKeyValueFloat(lines, "HangarRotationX", -90.0f);
-	g_CubeMaps.hangarAngY = GetFileKeyValueFloat(lines, "HangarRotationY",  0.0f);
-	g_CubeMaps.hangarAngZ = GetFileKeyValueFloat(lines, "HangarRotationZ",  0.0f);
+	g_CubeMaps.hangarAngX = GetFileKeyValueFloat(lines, "HangarRotationX", g_CubeMaps.bUseNewOrientation ? 0.0f : -90.0f);
+	g_CubeMaps.hangarAngY = GetFileKeyValueFloat(lines, "HangarRotationY", 0.0f);
+	g_CubeMaps.hangarAngZ = GetFileKeyValueFloat(lines, "HangarRotationZ", 0.0f);
 
-	g_CubeMaps.hangarOvrAngX = GetFileKeyValueFloat(lines, "HangarOverlayRotationX", -90.0f);
-	g_CubeMaps.hangarOvrAngY = GetFileKeyValueFloat(lines, "HangarOverlayRotationY",  0.0f);
-	g_CubeMaps.hangarOvrAngZ = GetFileKeyValueFloat(lines, "HangarOverlayRotationZ",  0.0f);
+	g_CubeMaps.hangarOvrAngX = GetFileKeyValueFloat(lines, "HangarOverlayRotationX", g_CubeMaps.bUseNewOrientation ? 0.0f : -90.0f);
+	g_CubeMaps.hangarOvrAngY = GetFileKeyValueFloat(lines, "HangarOverlayRotationY", 0.0f);
+	g_CubeMaps.hangarOvrAngZ = GetFileKeyValueFloat(lines, "HangarOverlayRotationZ", 0.0f);
 
 	char* regionSpecNames[MAX_MISSION_REGIONS]       = { "Region0Specular",   "Region1Specular",   "Region2Specular",   "Region3Specular" };
 	char* regionAmbientIntNames[MAX_MISSION_REGIONS] = { "Region0AmbientInt", "Region1AmbientInt", "Region2AmbientInt", "Region3AmbientInt" };

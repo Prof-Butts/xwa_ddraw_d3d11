@@ -139,6 +139,8 @@ extern bool g_bAutoGreeblesEnabled;
 extern bool g_bShowBlastMarks;
 extern float g_fBlastMarkOfsX, g_fBlastMarkOfsY;
 extern bool g_bEnableDeveloperMode;
+extern bool g_bBackdropTransformCaptured;
+extern Matrix4 g_BackdropTransform;
 
 /*
  * Dumps the vertices in the current instruction to the given file after back-projecting them
@@ -430,6 +432,8 @@ struct CubeMapData
 	bool bRenderInThisRegion[MAX_MISSION_REGIONS] = { false, false, false, false };
 	bool bRenderIllumInThisRegion[MAX_MISSION_REGIONS] = { false, false, false, false };
 	bool bRenderOvrInThisRegion[MAX_MISSION_REGIONS] = { false, false, false, false };
+	// When set, this flag uses Jeremy's code to set the CubeMap orientation (fixes hangar CubeMaps)
+	bool bUseNewOrientation = true;
 	float allRegionsSpecular   = 0.7f;
 	float allRegionsAmbientInt = 0.15f;
 	float allRegionsAmbientMin = 0.0f;
@@ -442,8 +446,8 @@ struct CubeMapData
 	float allRegionsIllumTexRes = -1;
 	float allRegionsMipRes = 16.0f;
 	float allRegionsIllumMipRes = 16.0f;
-	float hangarAngX = -90.0f, hangarAngY = 0.0f, hangarAngZ = 0.0f;
-	float hangarOvrAngX = -90.0f, hangarOvrAngY = 0.0f, hangarOvrAngZ = 0.0f;
+	float hangarAngX = 0.0f, hangarAngY = 0.0f, hangarAngZ = 0.0f;
+	float hangarOvrAngX = 0.0f, hangarOvrAngY = 0.0f, hangarOvrAngZ = 0.0f;
 
 	float regionSpecular[MAX_MISSION_REGIONS];
 	float regionAmbientInt[MAX_MISSION_REGIONS];

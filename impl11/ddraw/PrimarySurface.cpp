@@ -6454,7 +6454,7 @@ void PrimarySurface::RenderDefaultBackground()
 	if (renderCubeMap && (!g_CubeMaps.bEnabled || bInHyperspace))
 		goto out;
 
-	const bool bPlayerInHangar = g_playerInHangar != nullptr ? (*g_playerInHangar) : false;
+	const bool bPlayerInHangar = (!g_CubeMaps.bUseNewOrientation) && (g_playerInHangar != nullptr ? (*g_playerInHangar) : false);
 	float angX = bPlayerInHangar ? g_CubeMaps.hangarAngX : g_CubeMaps.allRegionsAngX;
 	float angY = bPlayerInHangar ? g_CubeMaps.hangarAngY : g_CubeMaps.allRegionsAngY;
 	float angZ = bPlayerInHangar ? g_CubeMaps.hangarAngZ : g_CubeMaps.allRegionsAngZ;

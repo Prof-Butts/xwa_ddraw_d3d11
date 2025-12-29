@@ -2611,6 +2611,15 @@ void LoadMissionCubeMaps()
 
 		const std::string illumStr = "_illum";
 		const std::string ovrStr   = "_overlay";
+
+		g_CubeMaps.renderMode = g_CubeMaps.defaultRenderMode;
+		std::string renderMode = GetFileKeyValue(lines, "RenderMode", "Effects");
+		if (_stricmp(renderMode.c_str(), "golden") == 0)
+		{
+			g_CubeMaps.renderMode = CubeMapRenderMode::GOLDEN;
+			log_debug("[DBG] [CUBE] Render mode for this mission set to GOLDEN");
+		}
+
 		std::string allRegionsPath = GetFileKeyValue(lines, "AllRegions");
 		std::string allRegionsIllumPath = GetFileKeyValue(lines, "AllRegionsIllum",
 			allRegionsPath.size() > 0 ? allRegionsPath + illumStr : "");

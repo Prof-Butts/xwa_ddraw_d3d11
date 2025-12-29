@@ -5111,11 +5111,26 @@ HRESULT Direct3DDevice::Execute(
 					if (g_bDebugDefaultStarfield)
 						goto out;
 
-					// The way backdrops blend by default is a bit weird: it appears to leave
-					// transparent areas where there should be none. So, I'm using a new custom
-					// blending mode that accumulates the alpha channel to fix some problems
-					// where DefaultStarfield shows through solid planets.
-					EnableTransparencyForBackdrops();
+					if (g_CubeMaps.renderMode == CubeMapRenderMode::GOLDEN)
+					{
+						// When Jeremy added support for cubemaps in the golden ddraw, he also
+						// added a new hook that allows the FX ddraw to render cubemaps _before_
+						// all backdrops. The code below enables regular blending when that render
+						// mode is enabled.
+						EnableTransparency();
+					}
+					else
+					{
+						// This is the way CubeMaps were rendered in the FX ddraw before Jeremy added
+						// support for cubemaps in the Golden ddraw: the CubeMaps are rendered _after_
+						// all backdrops, so that causes some blending issues. See the original comment
+						// below:
+						// The way backdrops blend by default is a bit weird: it appears to leave
+						// transparent areas where there should be none. So, I'm using a new custom
+						// blending mode that accumulates the alpha channel to fix some problems
+						// where DefaultStarfield shows through solid planets.
+						EnableTransparencyForBackdrops();
+					}
 
 					// The following parsing code is also used above, for explosions. Search for
 					// SPECIAL_CONTROL_EXPLOSION. Need to dedupe this later.

@@ -6933,12 +6933,15 @@ char RenderBackdropsHook()
 	// backdrops are enqueued. Sounds like a good way to get rid of that awkward
 	// blending mode that we need to use when DefaultStarfield is rendered on top
 	// of existing backdrops... Only, the resulting images don't blend that well!
-	/*if (!g_bInTechRoom && !g_bMapMode && !g_bDefaultStarfieldRendered)
+	// If the "Golden" render mode is enabled, we use this path to render
+	// cubemaps.
+	if (g_CubeMaps.renderMode == CubeMapRenderMode::GOLDEN &&
+		!g_bInTechRoom && !g_bMapMode && !g_bDefaultStarfieldRendered)
 	{
 		g_bUseExternalCameraState = true;
 		g_deviceResources->_primarySurface->RenderDefaultBackground();
 		g_bUseExternalCameraState = false;
-	}*/
+	}
 
 	return XwaRenderBackdrops(); // Looks like the return value is always 0
 }
@@ -11438,8 +11441,10 @@ HRESULT PrimarySurface::Flip(
 			}
 
 			// Rendering the DefaultStarfield/CubeMap here produces better blending than
-			// doing it in the backdrops hook.
-			if (!g_bInTechRoom && !g_bMapMode && !g_bDefaultStarfieldRendered)
+			// doing it in the backdrops hook. This is the original path used to render
+			// Cubemaps in the FX ddraw:
+			if (g_CubeMaps.renderMode == CubeMapRenderMode::EFFECTS &&
+				!g_bInTechRoom && !g_bMapMode && !g_bDefaultStarfieldRendered)
 			{
 				g_bUseExternalCameraState = true;
 				resources->_primarySurface->RenderDefaultBackground();

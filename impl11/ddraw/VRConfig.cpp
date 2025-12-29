@@ -3130,6 +3130,17 @@ bool LoadSSAOParams() {
 				g_config.EnableCubeMaps = (bool)fValue;
 				InitCubeMaps();
 			}
+			if (_stricmp(param, "skybox_default_render_mode") == 0)
+			{
+				g_CubeMaps.defaultRenderMode = CubeMapRenderMode::EFFECTS;
+				if (_stricmp(svalue, "golden") == 0)
+				{
+					g_CubeMaps.defaultRenderMode = CubeMapRenderMode::GOLDEN;
+					log_debug("[DBG] [CUBE] Default CubeMap render mode set to GOLDEN");
+				}
+				else
+					log_debug("[DBG] [CUBE] Default CubeMap render mode set to EFFECTS");
+			}
 			if (_stricmp(param, "debug_cubemap_rotation") == 0)
 			{
 				if (_stricmp(svalue, "standard") == 0)

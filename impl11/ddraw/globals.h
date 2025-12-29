@@ -422,11 +422,19 @@ enum class CubeMapEditMode
 	LOCAL_COORDS
 };
 
+enum class CubeMapRenderMode
+{
+	EFFECTS, // CubeMaps are rendered _after_ the backdrops -- this is the original method for the FX ddraw.
+	GOLDEN   // CubeMaps are rendered before the backdrops. The Golden ddraw uses this method.
+};
+
 struct CubeMapData
 {
 	bool bRenderAllRegions = false;
 	bool bAllRegionsIllum = false;
 	bool bAllRegionsOvr = false;
+	CubeMapRenderMode defaultRenderMode = CubeMapRenderMode::EFFECTS;
+	CubeMapRenderMode renderMode = CubeMapRenderMode::EFFECTS;
 	bool bRenderInThisRegion[MAX_MISSION_REGIONS] = { false, false, false, false };
 	bool bRenderIllumInThisRegion[MAX_MISSION_REGIONS] = { false, false, false, false };
 	bool bRenderOvrInThisRegion[MAX_MISSION_REGIONS] = { false, false, false, false };

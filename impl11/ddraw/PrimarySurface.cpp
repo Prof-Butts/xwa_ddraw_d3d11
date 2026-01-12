@@ -6309,7 +6309,7 @@ void CubeMapEditIncrAngZ(float mult, bool overlay)
 	g_CubeMaps.editParamsModified = true;
 }
 
-void PrimarySurface::RenderDefaultBackground()
+void PrimarySurface::RenderDefaultBackground(bool drawCubeMap, bool drawCubeMapOvr)
 {
 	if (!g_bRenderDefaultStarfield || !g_bRendering3D || g_bDefaultStarfieldRendered)
 		return;
@@ -6814,9 +6814,10 @@ void PrimarySurface::RenderDefaultBackground()
 		// Set the SRVs:
 		ID3D11ShaderResourceView *srvs[] = {
 			cubeMapSRV,      // 21
-			g_bUseSteamVR ? nullptr : resources->_backgroundBufferSRV.Get(), // 22
-			cubeMapIllumSRV, // 23
-			overlaySRV,      // 24
+			g_bUseSteamVR  ? nullptr : resources->_backgroundBufferSRV.Get(), // 22
+			drawCubeMap    ? cubeMapIllumSRV : nullptr, // 23
+			drawCubeMapOvr ? overlaySRV      : nullptr, // 24
+			nullptr,
 		};
 
 		context->PSSetShaderResources(21, 4, srvs);
@@ -6909,7 +6910,9 @@ void PrimarySurface::RenderDefaultBackground()
 	}
 
 out:
-	g_bDefaultStarfieldRendered = true;
+	// The overlay layer is the last cubemap layer. So, if it's enabled, then that
+	// means we have finished rendering cubemaps
+	if (drawCubeMapOvr) g_bDefaultStarfieldRendered = true;
 
 	// Restore previous rendertarget, etc
 	renderer->RestoreContext();
@@ -6939,7 +6942,8 @@ char RenderBackdropsHook()
 		!g_bInTechRoom && !g_bMapMode && !g_bDefaultStarfieldRendered)
 	{
 		g_bUseExternalCameraState = true;
-		g_deviceResources->_primarySurface->RenderDefaultBackground();
+		// In GOLDEN mode, we only render the CubeMap layer. The overlay layer is rendered later.
+		g_deviceResources->_primarySurface->RenderDefaultBackground(true, false);
 		g_bUseExternalCameraState = false;
 	}
 
@@ -11443,11 +11447,15 @@ HRESULT PrimarySurface::Flip(
 			// Rendering the DefaultStarfield/CubeMap here produces better blending than
 			// doing it in the backdrops hook. This is the original path used to render
 			// Cubemaps in the FX ddraw:
-			if (g_CubeMaps.renderMode == CubeMapRenderMode::EFFECTS &&
-				!g_bInTechRoom && !g_bMapMode && !g_bDefaultStarfieldRendered)
+			if (!g_bInTechRoom && !g_bMapMode && !g_bDefaultStarfieldRendered)
 			{
 				g_bUseExternalCameraState = true;
-				resources->_primarySurface->RenderDefaultBackground();
+				// When CubeMapRenderMode is set to EFFECTS, then both the CubeMaps and Overlay
+				// layers are rendered. When it's set to GOLDEN, then only the Overlay layer is
+				// rendered. So in both cases, the overlay layer is rendered here
+				resources->_primarySurface->RenderDefaultBackground(
+					g_CubeMaps.renderMode == CubeMapRenderMode::EFFECTS,
+					true);
 				g_bUseExternalCameraState = false;
 			}
 

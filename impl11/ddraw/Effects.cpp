@@ -213,6 +213,8 @@ D3DTLVERTEX g_SpeedParticles2D[MAX_SPEED_PARTICLES * 12];
 Vector3 g_CockpitPOVOffset = { 0, 0, 0 };
 Vector3 g_GunnerTurretPOVOffset = { 0, 0, 0 };
 Vector3 g_HologramDisp = { 0, 0, 0 };
+Vector3 g_HUDDisp = { 0, 0, 0 }; // Independent 2D HUD displacement (OPT coords)
+bool g_bApply2DHudDisp = true; // Toggle to enable applying the 2D HUD displacement during compositing
 
 // **************************
 // DATReader global vars and function pointers
@@ -965,6 +967,120 @@ bool SaveHoloOffsetToIniFile()
 	remove(sFileName);
 	rename(sTempFileName, sFileName);
 	return true;
+}
+
+/*
+ * Saves the independent 2D HUD Offset to the current .ini file.
+ * We'll store it in the same section as the hologram offsets under keys HUDOffsetX/Y/Z
+ */
+bool SaveHUDOffsetToIniFile()
+{
+    // Reuse the same file/section handling as SaveHoloOffsetToIniFile but write HUDOffset keys
+    char sFileName[256], *sTempFileName = "./TempIniFile.txt";
+    char sCraftName[128];
+    FILE* in_file, *out_file;
+    int error = 0, line = 0, len = 0;
+    char buf[256];
+    enum FSM { INIT_ST, IN_TAG_ST } fsm = INIT_ST;
+
+    const bool bGunnerTurret = (g_iPresentCounter > PLAYERDATATABLE_MIN_SAFE_FRAME) ?
+        PlayerDataTable[*g_playerIndex].gunnerTurretActive : false;
+    const char* sectionName = bGunnerTurret ? "GunnerTurretHoloOffsets" : "CockpitHoloOffsets";
+
+    if (strlen(g_sCurrentCockpit) <= 0) {
+        log_debug("[DBG] [HUD] Cockpit name hasn't been captured, will not write HUD Offset");
+        return false;
+    }
+
+    strncpy_s(sCraftName, 128, g_sCurrentCockpit, 128);
+    len = strlen(sCraftName);
+    sCraftName[len - 7] = 0;
+
+    snprintf(sFileName, 256, ".\\FlightModels\\%s.ini", sCraftName);
+    // Open sFileName for reading
+    try { error = fopen_s(&in_file, sFileName, "rt"); } catch (...) { log_debug("[DBG] Could not read [%s]", sFileName); }
+    if (error != 0) return false;
+    try { error = fopen_s(&out_file, sTempFileName, "wt"); } catch (...) { log_debug("[DBG] Could not create temporary file: [%s]", sTempFileName); }
+    if (error != 0) { fclose(in_file); return false; }
+
+    bool bWritten = false;
+    bool bPrevLineBlank = false;
+    int prevLineLen = 0;
+    while (fgets(buf, 256, in_file) != NULL) {
+        line++;
+        if (buf[0] == ';') { fprintf(out_file, buf); continue; }
+        if (buf[0] == '[') {
+            if (strstr(buf, sectionName) != NULL) {
+                fsm = IN_TAG_ST;
+            }
+            else {
+                if (fsm == IN_TAG_ST) {
+                    fsm = INIT_ST;
+                    if (!bPrevLineBlank) fprintf(out_file, "\n");
+                    fprintf(out_file, "[%s]\n", sectionName);
+                    // write HUD offset keys
+                    fprintf(out_file, "HUDOffsetX = %0.3f\n", g_HUDDisp.x);
+                    fprintf(out_file, "HUDOffsetY = %0.3f\n", g_HUDDisp.y);
+                    fprintf(out_file, "HUDOffsetZ = %0.3f\n", g_HUDDisp.z);
+                    fprintf(out_file, "\n");
+                    bWritten = true;
+                }
+            }
+        }
+        if (fsm != IN_TAG_ST) { prevLineLen = strlen(buf); bPrevLineBlank = (prevLineLen == 1) && buf[prevLineLen - 1] == '\n'; fprintf(out_file, buf); }
+    }
+    if (!bWritten) {
+        if (!bPrevLineBlank) fprintf(out_file, "\n");
+        fprintf(out_file, "[%s]\n", sectionName);
+        fprintf(out_file, "HUDOffsetX = %0.3f\n", g_HUDDisp.x);
+        fprintf(out_file, "HUDOffsetY = %0.3f\n", g_HUDDisp.y);
+        fprintf(out_file, "HUDOffsetZ = %0.3f\n", g_HUDDisp.z);
+        bWritten = true;
+    }
+
+    fclose(out_file); fclose(in_file);
+    remove(sFileName); rename(sTempFileName, sFileName);
+    return true;
+}
+
+/*
+ * Loads the independent 2D HUD Offset from the current .ini file.
+ */
+bool LoadHUDOffsetFromIniFile()
+{
+    char sFileName[256], sCraftName[128];
+    char buf[256], param[128], svalue[128];
+    FILE* in_file;
+    int error = 0, line = 0, len = 0;
+    float fValue;
+    enum FSM { OUT_OF_TAG_ST, IN_CP_TAG_ST, IN_GT_TAG_ST } fsm = OUT_OF_TAG_ST;
+
+    g_HUDDisp = { 0, 0, 0 };
+    if (strlen(g_sCurrentCockpit) <= 0) return false;
+    strncpy_s(sCraftName, 128, g_sCurrentCockpit, 128);
+    len = strlen(sCraftName);
+    sCraftName[len - 7] = 0;
+    snprintf(sFileName, 256, ".\\FlightModels\\%s.ini", sCraftName);
+    try { error = fopen_s(&in_file, sFileName, "rt"); } catch (...) { return false; }
+    if (error != 0) return false;
+    while (fgets(buf, 256, in_file) != NULL) {
+        line++; if (buf[0] == ';' || buf[0] == '#') continue; if (strlen(buf) == 0) continue;
+        if (buf[0] == '[') {
+            if (strstr(buf, "CockpitHoloOffsets") != NULL) fsm = IN_CP_TAG_ST;
+            else if (strstr(buf, "GunnerTurretHoloOffsets") != NULL) fsm = IN_GT_TAG_ST;
+            else fsm = OUT_OF_TAG_ST;
+        }
+        if (fsm == IN_CP_TAG_ST || fsm == IN_GT_TAG_ST) {
+            if (sscanf_s(buf, "%s = %s", param, 128, svalue, 128) > 0) {
+                fValue = (float)atof(svalue);
+                if (_stricmp(param, "HUDOffsetX") == 0) g_HUDDisp.x = fValue;
+                if (_stricmp(param, "HUDOffsetY") == 0) g_HUDDisp.y = fValue;
+                if (_stricmp(param, "HUDOffsetZ") == 0) g_HUDDisp.z = fValue;
+            }
+        }
+    }
+    fclose(in_file);
+    return true;
 }
 
 /*

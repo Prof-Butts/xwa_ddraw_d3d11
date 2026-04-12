@@ -9577,6 +9577,15 @@ void ProcessKeyboard()
 	bool LtKey    = (GetAsyncKeyState(VK_LEFT)    & 0x8000) == 0x8000;
 	bool RtKey    = (GetAsyncKeyState(VK_RIGHT)   & 0x8000) == 0x8000;
 
+	// Numpad keys for 2D HUD displacement
+    bool Np4Key   = (GetAsyncKeyState(VK_NUMPAD4) & 0x8000) == 0x8000;
+    bool Np6Key   = (GetAsyncKeyState(VK_NUMPAD6) & 0x8000) == 0x8000;
+    bool Np8Key   = (GetAsyncKeyState(VK_NUMPAD8) & 0x8000) == 0x8000;
+    bool Np2Key   = (GetAsyncKeyState(VK_NUMPAD2) & 0x8000) == 0x8000;
+    bool Np9Key   = (GetAsyncKeyState(VK_NUMPAD9) & 0x8000) == 0x8000;
+    bool Np3Key   = (GetAsyncKeyState(VK_NUMPAD3) & 0x8000) == 0x8000;
+	bool Np5Key   = (GetAsyncKeyState(VK_NUMPAD5) & 0x8000) == 0x8000;
+
 	static bool prevHKey  = false;
 	static bool prevRKey  = false;
 	static bool prevUpKey = false;
@@ -9586,7 +9595,7 @@ void ProcessKeyboard()
 
 	// Alt Key
 	if (AltKey && !ShiftKey && !CtrlKey)
-	{
+{
 		/*if (HKey && !prevHKey)
 		{
 			g_bSkipHUD = !g_bSkipHUD;
@@ -9628,7 +9637,7 @@ void ProcessKeyboard()
 
 	// Alt + Shift Key
 	if (AltKey && ShiftKey && !CtrlKey)
-	{
+{
 		if (LtKey && !prevLtKey)
 		{
 			g_HologramDisp.y += HOLO_DISP_Y;
@@ -9641,6 +9650,71 @@ void ProcessKeyboard()
 			SaveHoloOffsetToIniFile();
 		}
 	}
+
+	// Ctrl + Numpad4/6: move independent 2D HUD displacement left/right
+	static bool prevNp4Key = false;
+	static bool prevNp6Key = false;
+	static bool prevNp8Key = false;
+	static bool prevNp2Key = false;
+	static bool prevNp9Key = false;
+	static bool prevNp3Key = false;
+	static bool prevNp5Key = false;
+	if (CtrlKey)
+	{
+		if (Np4Key && !prevNp4Key)
+		{
+			// Adjust in OPT coords: move left
+			g_HUDDisp.x -= HOLO_DISP_X; // reuse step size constant
+			// Persist to INI alongside hologram offsets (create/save function later)
+			SaveHUDOffsetToIniFile();
+		}
+		if (Np6Key && !prevNp6Key)
+		{
+			// Adjust in OPT coords: move right
+			g_HUDDisp.x += HOLO_DISP_X; // reuse step size constant
+			SaveHUDOffsetToIniFile();
+		}
+
+		// Depth controls: Ctrl + Numpad8 (up), Ctrl + Numpad2 (down)
+		if (Np8Key && !prevNp8Key)
+		{
+			g_HUDDisp.z += HOLO_DISP_Z;
+			SaveHUDOffsetToIniFile();
+		}
+		if (Np2Key && !prevNp2Key)
+		{
+			g_HUDDisp.z -= HOLO_DISP_Z;
+			SaveHUDOffsetToIniFile();
+		}
+
+		// Vertical controls: Ctrl + Numpad9 (push further from the camera), Ctrl + Numpad3 (pull closer to the camera)
+		if (Np9Key && !prevNp9Key)
+		{
+			g_HUDDisp.y -= HOLO_DISP_Y;
+			SaveHUDOffsetToIniFile();
+		}
+		if (Np3Key && !prevNp3Key)
+		{
+			g_HUDDisp.y += HOLO_DISP_Y;
+			SaveHUDOffsetToIniFile();
+		}
+		// Reset to default: Ctrl + Numpad5
+		if (Np5Key && !prevNp5Key)
+		{
+			g_HUDDisp.x = 0.0f;
+			g_HUDDisp.y = 0.0f;
+			g_HUDDisp.z = 0.0f;			
+			SaveHUDOffsetToIniFile();
+		}
+	}
+
+	prevNp4Key = Np4Key;
+	prevNp6Key = Np6Key;
+	prevNp8Key = Np8Key;
+	prevNp2Key = Np2Key;
+	prevNp9Key = Np9Key;
+	prevNp3Key = Np3Key;
+	prevNp5Key = Np5Key;
 
 	prevHKey  = HKey;
 	prevRKey  = RKey;

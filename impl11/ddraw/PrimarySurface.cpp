@@ -2167,6 +2167,25 @@ void PrimarySurface::DrawHUDVertices() {
 	g_VSMatrixCB.fullViewMat = g_VSMatrixCB.fullViewMat * hudTransform;
 #endif
 
+    // Apply independent 2D HUD displacement if present. This uses g_HUDDisp (OPT coords)
+    // and converts it to the HUD composite space. Guard behind a toggle in case of issues.
+    extern Vector3 g_HUDDisp; // declared in Effects.h
+    extern bool g_bApply2DHudDisp;
+    Matrix4 savedFullViewMat; // saved only if we modify it
+    bool bHudDispApplied = false;
+    if (g_bApply2DHudDisp)
+    {
+        Matrix4 hudTransform2D;
+        // Convert OPT coords to HUD composite space: swap Y/Z and scale down (same heuristic as hologram)
+        hudTransform2D.translate(0.1f * g_HUDDisp.x,
+                                 0.1f * g_HUDDisp.z,
+                                 0.1f * g_HUDDisp.y);
+        // Save and apply
+        savedFullViewMat = g_VSMatrixCB.fullViewMat;
+        g_VSMatrixCB.fullViewMat = g_VSMatrixCB.fullViewMat * hudTransform2D;
+        bHudDispApplied = true;
+    }
+
 	// Since the HUD is all rendered on a flat surface, we lose the vrparams that make the 3D object
 	// and text float
 	g_VSCBuffer.z_override     = g_fFloatingGUIDepth;
@@ -2291,10 +2310,10 @@ void PrimarySurface::DrawHUDVertices() {
 		DirectX::SaveDDSTextureToFile(context, resources->_offscreenBuffer, L"C:\\Temp\\_mapVR.dds");
 	}
 
-	if (!g_bEnableVR || g_bUseSteamVR) // Shortcut for the SteamVR and non-VR path
-	{
-		goto out;
-	}
+    if (!g_bEnableVR || g_bUseSteamVR) // Shortcut for the SteamVR and non-VR path
+    {
+        goto out;
+    }
 
 	// Render the right image in SBS mode
 	context->OMSetRenderTargets(1, resources->_renderTargetView.GetAddressOf(), NULL);
@@ -2315,10 +2334,9 @@ void PrimarySurface::DrawHUDVertices() {
 		context->Draw(6, 0);
 
 out:
-#if 0
-	// Restore the old view matrix
-	g_VSMatrixCB.fullViewMat = curMat;
-#endif
+    // Restore the old view matrix if we applied the HUD displacement earlier so other draws are unaffected
+    if (bHudDispApplied)
+        g_VSMatrixCB.fullViewMat = savedFullViewMat;
 	this->_deviceResources->EndAnnotatedEvent();
 }
 

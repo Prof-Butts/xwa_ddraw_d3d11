@@ -2145,28 +2145,6 @@ void PrimarySurface::DrawHUDVertices() {
 	// Apply view transform to the HUD to fix it in space. It needs the inverse of the fullViewMat that contains the headtracking pose.
 	g_VSMatrixCB.fullViewMat.invert();
 
-	// Applying g_HologramDisp to the HUD causes some issues in some cockpits.
-	// The problem here is that an offset that looks good in pancake mode sometimes
-	// makes the holograms appear too close in VR. Since this displacement is also
-	// applied to the HUD, this may cause the HUD to be rendered _behind_ the user in
-	// VR (this is what happens in the A-Wing and B-Wing).
-	// One solution would be to have an independent displacement just for the HUD;
-	// but we'd need yet another set of hotkeys for that, and we don't have that many
-	// left. Maybe a better solution would be to use the VR controllers to move the HUD,
-	// say, while parked in the hangar; but that would be a new feature.
-	// Note that if this code is re-enabled, then curMat must also be re-enabled below,
-	// in the "out:" case to restore the original g_VSMatrixCB.fullViewMat transform.
-#if 0
-	Matrix4 hudTransform;
-	// g_HologramDisp is in OPT coords, but here we need SteamVR/meters, so we swap
-	// Y and Z and reduce the scale a bit:
-	hudTransform.translate(0.1f * g_HologramDisp.x,
-	                       0.1f * g_HologramDisp.z,
-	                       0.1f * g_HologramDisp.y);
-	Matrix4 curMat = g_VSMatrixCB.fullViewMat;
-	g_VSMatrixCB.fullViewMat = g_VSMatrixCB.fullViewMat * hudTransform;
-#endif
-
     // Apply independent 2D HUD displacement if present. This uses g_HUDDisp (OPT coords)
     // and converts it to the HUD composite space. Guard behind a toggle in case of issues.
     extern Vector3 g_HUDDisp; // declared in Effects.h

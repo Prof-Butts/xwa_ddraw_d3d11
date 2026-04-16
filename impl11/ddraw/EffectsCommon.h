@@ -579,6 +579,9 @@ bool SavePOVOffsetToIniFile();
 bool LoadPOVOffsetFromIniFile();
 bool SaveHoloOffsetToIniFile();
 bool LoadHoloOffsetFromIniFile();
+// Independent 2D HUD offset persistence
+bool SaveHUDOffsetToIniFile();
+bool LoadHUDOffsetFromIniFile();
 void EulerAnglesToRUF(
 	float angX, float angY, float angZ,
 	Vector4& R, Vector4& U, Vector4& F);

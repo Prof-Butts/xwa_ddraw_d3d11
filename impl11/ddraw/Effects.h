@@ -126,6 +126,9 @@ extern bool g_bMetricParamsNeedReapply;
 extern Vector3 g_CockpitPOVOffset;
 extern Vector3 g_GunnerTurretPOVOffset;
 extern Vector3 g_HologramDisp;
+// Independent displacement for the classic 2D HUD (in OPT coords)
+extern Vector3 g_HUDDisp;
+extern bool g_bApply2DHudDisp;
 
 bool isInVector(uint32_t crc, std::vector<uint32_t>& vector);
 bool isInVector(const char* name, std::vector<char*>& vector);

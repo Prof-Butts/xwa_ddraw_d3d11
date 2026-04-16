@@ -599,10 +599,14 @@ void XwaTextureData::TagTexture()
 					{
 						LoadPOVOffsetFromIniFile();
 					}
-					// Load the Holo Offset from the current INI file
-					{
-						LoadHoloOffsetFromIniFile();
-					}
+			// Load the Holo Offset from the current INI file
+			{
+				LoadHoloOffsetFromIniFile();
+			}
+			// Load the independent 2D HUD offset
+			{
+				LoadHUDOffsetFromIniFile();
+			}
 					// Load the HUD color from the current INI file
 					{
 						LoadHUDColorFromIniFile();

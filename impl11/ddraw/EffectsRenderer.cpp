@@ -6782,7 +6782,11 @@ bool EffectsRenderer::DCReplaceTextures(const SceneCompData* scene)
 			// If there are no DC elements to display and no cover texture, then there's nothing to do here.
 			// If we continue anyway and replace the textures below, artifacts will appear on empty elements.
 			// Artifacts appear on ships with no beam weapon in the beam weapon DC cockpit area, for instance.
-			if (numCoords == 0 && !g_PSCBuffer.bUseCoverTexture)
+
+			// If there's no DC elements to apply, then we can skip the rest of this method, regardless of
+			// whether there's a cover texture or not. That way the original texture will be displayed instead
+			// of an empty image.
+			if (numCoords == 0 /* && !g_PSCBuffer.bUseCoverTexture */)
 				goto out;
 
 			if (_bDCIsTransparent)

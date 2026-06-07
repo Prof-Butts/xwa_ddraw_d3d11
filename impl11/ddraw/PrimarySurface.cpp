@@ -25,6 +25,7 @@
 #include "commonVR.h"
 #include "VRConfig.h"
 #include "SharedMem.h"
+#include "WineD2DEffectShim.h"
 #include "D3dRenderer.h"
 #include "EffectsRenderer.h"
 #include "LBVH.h"
@@ -13108,7 +13109,45 @@ HRESULT PrimarySurface::UpdateOverlayDisplay(
 			g_pVROverlay->SetOverlayTexelAspect(g_VR2Doverlay, 1.0f);
 		}
 		return DD_OK;
-	}		
+	}
+
+	// Non-VR: present TgSmush movie frames through the D3D11 swapchain
+	// (ddraw.cfg TgSmushSwapchainPresentEnabled=1, pairs with TgSmush.cfg
+	// MFD3DPresent=1). The MF pipeline delivers 30fps into shared memory,
+	// but under wine TgSmush's GDI StretchDIBits present is throttled to
+	// ~5-10fps visible by the window-surface -> X11 flush.
+	if (g_config.TgSmushSwapchainPresentEnabled &&
+		!g_bUseSteamVR && WineShim_TgSmushMoviePlaying())
+	{
+		resources->CreateTgSmushTexture(g_pSharedDataTgSmush->videoFrameWidth, g_pSharedDataTgSmush->videoFrameHeight);
+
+		if (resources->_tgSmushTex != nullptr)
+		{
+			static int lastFrameRendered = -1;
+			if (lastFrameRendered != g_pSharedDataTgSmush->videoFrameIndex &&
+				g_pSharedDataTgSmush->videoDataPtr != nullptr)
+			{
+				D3D11_MAPPED_SUBRESOURCE map;
+				if (SUCCEEDED(context->Map(resources->_tgSmushTex, 0, D3D11_MAP_WRITE_DISCARD, 0, &map)))
+				{
+					const uint32_t w = g_pSharedDataTgSmush->videoFrameWidth;
+					const uint32_t h = g_pSharedDataTgSmush->videoFrameHeight;
+					const char* src = (const char*)g_pSharedDataTgSmush->videoDataPtr;
+					char* dst = (char*)map.pData;
+					if (map.RowPitch == w * 4)
+						memcpy(dst, src, (size_t)w * h * 4);
+					else
+						for (uint32_t y = 0; y < h; y++)
+							memcpy(dst + (size_t)y * map.RowPitch, src + (size_t)y * w * 4, (size_t)w * 4);
+					context->Unmap(resources->_tgSmushTex, 0);
+				}
+				lastFrameRendered = g_pSharedDataTgSmush->videoFrameIndex;
+
+				WineShim_PresentMovieFrame(resources);
+			}
+			return DD_OK;
+		}
+	}
 
 #if LOGGER
 	str.str("\tDDERR_UNSUPPORTED");

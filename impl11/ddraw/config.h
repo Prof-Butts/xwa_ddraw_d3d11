@@ -61,6 +61,12 @@ public:
 
 	bool HDConcourseEnabled;
 
+	// Present TgSmush shared-memory movie frames as a letterboxed quad
+	// through the D3D11 swapchain (pairs with TgSmush.cfg MFD3DPresent=1;
+	// for wine, where the GDI window present is throttled). Default off:
+	// stock TgSmush presents into its own window.
+	bool TgSmushSwapchainPresentEnabled;
+
 	float ProjectionParameterA;
 	float ProjectionParameterB;
 	float ProjectionParameterC;

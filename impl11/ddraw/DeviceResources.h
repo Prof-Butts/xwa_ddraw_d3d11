@@ -92,7 +92,7 @@ public:
 		return this->msg[0] == 0;
 	}
 
-	inline void SetMsg(char *msg, time_t seconds, short y, short font_size_idx, uint32_t color) {
+	inline void SetMsg(const char *msg, time_t seconds, short y, short font_size_idx, uint32_t color) {
 		strcpy_s(this->msg, 128, msg);
 		this->t_exp = time(NULL) + seconds;
 		this->y = y;
@@ -111,7 +111,7 @@ const int MAX_TIMED_MESSAGES = 3;
 /*
   Only rows 0..2 are available
  */
-void DisplayTimedMessage(uint32_t seconds, int row, char *msg);
+void DisplayTimedMessage(uint32_t seconds, int row, const char *msg);
 
 class DeviceResources
 {

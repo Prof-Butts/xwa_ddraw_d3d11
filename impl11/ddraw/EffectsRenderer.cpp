@@ -142,7 +142,7 @@ constexpr float HOLO_DISP_Z = METERS_TO_OPT * 0.01f;
 
 float lerp(float x, float y, float s);
 
-inline float clamp(float val, float min, float max)
+float clamp(float val, float min, float max) // Linux/clang-cl: de-inlined, used cross-TU (MSVC LTCG resolved this)
 {
 	if (val < min) val = min;
 	if (val > max) val = max;
@@ -199,7 +199,7 @@ void CaptureBackdropTransform()
 	g_bBackdropTransformCaptured = true;
 }
 
-inline int MakeKeyFromGroupIdImageId(int groupId, int imageId)
+int MakeKeyFromGroupIdImageId(int groupId, int imageId) // Linux/clang-cl: de-inlined, used cross-TU (MSVC LTCG resolved this)
 {
 	return (groupId << 16) | (imageId);
 }
@@ -492,7 +492,7 @@ void OBJDump(XwaVector3 *vertices, int count)
 	fprintf(D3DDumpOBJFile, "\n");
 }
 
-inline Matrix4 XwaTransformToMatrix4(const XwaTransform &M)
+Matrix4 XwaTransformToMatrix4(const XwaTransform &M) // Linux/clang-cl: de-inlined, used cross-TU (MSVC LTCG resolved this)
 {
 	return Matrix4(
 		M.Rotation._11, M.Rotation._12, M.Rotation._13, 0.0f,
@@ -5376,7 +5376,7 @@ bool GetCurrentTargetStats(int* shields, int* hull, int* system, std::string &ca
 		(object->objectGenus == Genus_Utility);
 
 	// The default value is -1. When the craft is identified the value is 0. When the craft is inspected the value is >= 1.
-	char* FGName = (inspected >= 0) ?
+	const char* FGName = (inspected >= 0) ?
 		g_XwaTieFlightGroups[object->FGIndex].FlightGroup.Name : "Unknown";
 	name = (char*)s_ExeCraftTable[craftInstance->CraftType].pCraftShortName +
 		std::string(": ") + FGName;
@@ -5505,7 +5505,7 @@ InstanceEvent *EffectsRenderer::ObjectIDToInstanceEvent(int objectId, uint32_t m
 		log_debug("[DBG] [INST] New InstanceEvent added to objectId-matId: %d-%d",
 			objectId, materialId);
 		g_objectIdToInstanceEvent.insert(std::make_pair(Id, InstanceEvent()));
-		auto &new_it = g_objectIdToInstanceEvent.find(Id);
+		auto new_it = g_objectIdToInstanceEvent.find(Id);
 		if (new_it != g_objectIdToInstanceEvent.end())
 			return &new_it->second;
 		else
@@ -5530,7 +5530,7 @@ FixedInstanceData* EffectsRenderer::ObjectIDToFixedInstanceData(int objectId, ui
 		log_debug("[DBG] [UV] New FixedInstance added to objectId-matId: %d-%d",
 			objectId, materialId);
 		g_fixedInstanceDataMap.insert(std::make_pair(Id, FixedInstanceData()));
-		auto& new_it = g_fixedInstanceDataMap.find(Id);
+		auto new_it = g_fixedInstanceDataMap.find(Id);
 		if (new_it != g_fixedInstanceDataMap.end())
 			return &new_it->second;
 		else
@@ -6284,7 +6284,7 @@ void EffectsRenderer::MainSceneHook(const SceneCompData* scene)
 			// Find the LOD for this FaceGroup. We need this so that we can coalesce
 			// all the FGs belonging to the same LOD in one BVH. That improves performance.
 			int faceGroupId = MakeFaceGroupKey(scene);
-			auto& it = g_FGToLODMap.find(faceGroupId);
+			auto it = g_FGToLODMap.find(faceGroupId);
 			int LOD = -1;
 			if (it != g_FGToLODMap.end())
 			{
@@ -6456,7 +6456,7 @@ out:
  If the game is rendering the hyperspace effect, this function will select shaderToyBuf
  when rendering the cockpit. Otherwise it will select the regular offscreenBuffer
  */
-inline ID3D11RenderTargetView *EffectsRenderer::SelectOffscreenBuffer() {
+ID3D11RenderTargetView *EffectsRenderer::SelectOffscreenBuffer() { // Linux/clang-cl: de-inlined, used cross-TU (MSVC LTCG resolved this)
 	auto& resources = this->_deviceResources;
 
 	ID3D11RenderTargetView *regularRTV = resources->_renderTargetView.Get();

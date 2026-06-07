@@ -230,7 +230,7 @@ public:
 
 	inline void Expand(const std::vector<Vector4> &Limits)
 	{
-		for each (Vector4 v in Limits)
+		for (Vector4 v : Limits) // Linux/clang-cl: MSVC-only `for each` -> range-for (identical semantics)
 			Expand(v);
 	}
 

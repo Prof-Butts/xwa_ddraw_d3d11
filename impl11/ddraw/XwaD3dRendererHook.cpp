@@ -1988,7 +1988,7 @@ void ParseOptFaceGrouping(int meshKey, OptNode* outerNode)
 					// g_FGToLODMap is used to coalesce vertices that belong on the same LOD when building the BVH (RT)
 					g_FGToLODMap[faceGroupID] = lodID;
 
-					auto& it = g_meshToFGMap.find(meshKey);
+					auto it = g_meshToFGMap.find(meshKey);
 					if (it == g_meshToFGMap.end())
 					{
 						// Initialize this entry
@@ -2081,7 +2081,7 @@ void D3dRendererOptNodeHook(OptHeader* optHeader, int nodeIndex, SceneCompData* 
 				{
 					//int numVertices = subnode->Parameter1;
 					int meshKey = subnode->Parameter2;
-					auto& it = g_MeshTagMap.find(meshKey);
+					auto it = g_MeshTagMap.find(meshKey);
 					if (it == g_MeshTagMap.end())
 					{
 						// DEBUG: Dump the node hierarchy when a hotkey is pressed

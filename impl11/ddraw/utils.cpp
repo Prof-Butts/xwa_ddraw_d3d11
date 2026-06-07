@@ -19,7 +19,7 @@
 using namespace Gdiplus;
 
 short DisplayCenteredText(char* str, int font_size_index, short y, uint32_t color);
-void DisplayTimedMessage(uint32_t seconds, int row, char* msg);
+void DisplayTimedMessage(uint32_t seconds, int row, const char* msg);
 
 std::string int_to_hex(int i)
 {

@@ -7329,7 +7329,7 @@ void DirectBVH4BuilderGPU(AABB centroidBox, std::vector<T>& leafItems,
 	const XwaVector3* vertices, const int* indices, BVHNode *QBVHBuffer)
 {
 	DBVH4BuildData<T> data;
-	data.isTopLevelBuild = constexpr (std::is_same_v<T, TLASLeafItem>);
+	data.isTopLevelBuild = std::is_same_v<T, TLASLeafItem>; // Linux/clang-cl: invalid `constexpr (expr)` removed
 	data.leafItems     = leafItems;
 	data.numPrimitives = leafItems.size();
 #ifdef BVH_REPROCESS_SPLITS

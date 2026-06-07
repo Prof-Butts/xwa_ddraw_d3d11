@@ -572,7 +572,7 @@ extern float g_fMetricMult;
 extern int g_WindowWidth, g_WindowHeight;
 extern D3D11_VIEWPORT g_nonVRViewport;
 
-void DisplayTimedMessage(uint32_t seconds, int row, char* msg);
+void DisplayTimedMessage(uint32_t seconds, int row, const char* msg);
 void DisplayTimedMessageV(uint32_t seconds, int row, const char* format, ...);
 
 bool SavePOVOffsetToIniFile();

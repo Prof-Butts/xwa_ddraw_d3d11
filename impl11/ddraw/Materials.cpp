@@ -1095,7 +1095,7 @@ bool LoadFrameSequence(char* buf, std::vector<TexSeqElem>& tex_sequence,
 			log_debug("[DBG] Group %d has %d images", GroupId, ImageList.size());
 		}
 		// Iterate over the list of Images and add one TexSeqElem for each one of them
-		for each (short ImageId in ImageList)
+		for (short ImageId : ImageList) // Linux/clang-cl: MSVC `for each` -> range-for
 		{
 			// Store the DAT filename in texname and set the appropriate flag. texname contains
 			// the path and filename.
@@ -1208,7 +1208,7 @@ bool LoadSimpleFrames(char *buf, std::vector<TexSeqElem> &tex_sequence)
 			ImageList = ReadZIPImageListFromGroup(sDATZIPFileName.c_str(), GroupId);
 		log_debug("[DBG] [MAT] Frame-by-Frame data. Group %d has %d images", GroupId, ImageList.size());
 		// Iterate over the list of Images and add one TexSeqElem for each one of them
-		for each (short ImageId in ImageList)
+		for (short ImageId : ImageList) // Linux/clang-cl: MSVC `for each` -> range-for
 		{
 			// Store the DAT filename in texname and set the appropriate flag. texname contains
 			// the path and filename.
@@ -2353,7 +2353,7 @@ void AnimateMaterials() {
 			continue;
 		}
 		uint64_t Id = InstEventIdFromObjectMaterialId(atc->objectId, atc->materialId);
-		auto& it = g_objectIdToInstanceEvent.find(Id);
+		auto it = g_objectIdToInstanceEvent.find(Id);
 		if (it != g_objectIdToInstanceEvent.end()) {
 			if (it->second.EventFired(atc->InstEvent))
 				atc->ResetAnimation();

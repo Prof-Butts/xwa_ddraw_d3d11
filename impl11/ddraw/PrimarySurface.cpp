@@ -10707,8 +10707,7 @@ HRESULT PrimarySurface::Flip(
 	bool bHyperspaceFirstFrame = g_bHyperspaceFirstFrame; // Used to clear the shadowMap DSVs *after* they're used
 
 	/* Display VR movies */
-	if (g_bUseSteamVR && g_pSharedDataTgSmush != nullptr &&
-		g_pSharedDataTgSmush->videoFrameIndex > 0)
+	if (g_bUseSteamVR && WineShim_TgSmushMoviePlaying())
 	{
 		// Create or resize the TgSmush texture. If we already created this texture and there's
 		// no change in dimensions, CreateTgSmushTexture() will do nothing.
@@ -10745,8 +10744,12 @@ HRESULT PrimarySurface::Flip(
 		}
 	}
 
-	if (g_pSharedDataTgSmush != nullptr && g_pSharedDataTgSmush->videoFrameIndex > 0)
-		// Early exit in case Flip is being called from Tgsmush to avoid doing anything unnecessary that can cause crashes.
+	// Early exit in case Flip is being called from Tgsmush to avoid doing
+	// anything unnecessary that can cause crashes. MoviePlaying() also
+	// guards against a stale shared-mem flag (a TgSmush that died, or an
+	// MF session that never delivered the shutdown callback, would
+	// otherwise freeze the screen on the last presented frame forever).
+	if (WineShim_TgSmushMoviePlaying())
 		return DD_OK;
 
 	if (this->_deviceResources->sceneRenderedEmpty && this->_deviceResources->_frontbufferSurface != nullptr && this->_deviceResources->_frontbufferSurface->wasBltFastCalled)
@@ -13069,8 +13072,7 @@ HRESULT PrimarySurface::UpdateOverlayDisplay(
 	auto& context = resources->_d3dDeviceContext;
 
 	/* Display VR movies in SteamVR */
-	if (g_bUseSteamVR && g_pSharedDataTgSmush != nullptr &&
-		g_pSharedDataTgSmush->videoFrameIndex > 0)
+	if (g_bUseSteamVR && WineShim_TgSmushMoviePlaying())
 	{
 		// Create or resize the TgSmush texture. If we already created this texture and there's
 		// no change in dimensions, CreateTgSmushTexture() will do nothing.

@@ -140,15 +140,6 @@ constexpr float HOLO_DISP_X = METERS_TO_OPT * 0.01f;
 constexpr float HOLO_DISP_Y = METERS_TO_OPT * 0.01f;
 constexpr float HOLO_DISP_Z = METERS_TO_OPT * 0.01f;
 
-float lerp(float x, float y, float s);
-
-float clamp(float val, float min, float max) // Linux/clang-cl: de-inlined, used cross-TU (MSVC LTCG resolved this)
-{
-	if (val < min) val = min;
-	if (val > max) val = max;
-	return val;
-}
-
 inline float sign(float val)
 {
 	return (val >= 0.0f) ? 1.0f : -1.0f;

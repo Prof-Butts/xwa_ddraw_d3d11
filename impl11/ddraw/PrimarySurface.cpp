@@ -164,10 +164,6 @@ void DumpGlobalLights()
 }
 */
 
-inline float lerp(float x, float y, float s) {
-	return x + s * (y - x);
-}
-
 inline float3 lerp(float3 A, float3 B, float s) {
 	float3 R;
 	R.x = A.x + s * (B.x - A.x);

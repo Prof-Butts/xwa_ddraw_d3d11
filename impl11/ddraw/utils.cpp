@@ -57,6 +57,18 @@ void toupper(char* string)
 	}
 }
 
+float lerp(float x, float y, float s)
+{
+	return x + s * (y - x);
+}
+
+float clamp(float val, float min, float max)
+{
+	if (val < min) val = min;
+	if (val > max) val = max;
+	return val;
+}
+
 #if LOGGER
 
 std::string tostr_IID(REFIID iid)

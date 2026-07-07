@@ -14,6 +14,9 @@ std::string wchar_tostring(LPCWSTR text);
 std::wstring string_towstring(const std::string& text);
 std::wstring string_towstring(const char* text);
 
+float lerp(float x, float y, float s);
+float clamp(float val, float min, float max);
+
 short ComputeMsgWidth(char* str, int font_size_index);
 short DisplayText(char* str, int font_size_index, short x, short y, uint32_t color);
 short DisplayCenteredText(char* str, int font_size_index, short y, uint32_t color);

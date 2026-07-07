@@ -39,53 +39,50 @@ public:
 
 static LibraryWrapper ddraw("ddraw.dll");
 
+// Linux/clang-cl build fix (see ../../../linux-build-fixes.patch): clang forbids
+// non-ASM statements (the guarded local-static init) in naked functions, so the
+// GetProcAddress statics are hoisted to file scope (runs at DLL attach, ordered
+// after `ddraw` above in this TU) - behavior-equivalent to the lazy original.
+static void(*AcquireDDThreadLock_proc)() = (void(*)())GetProcAddress(ddraw._module, "AcquireDDThreadLock");
 extern "C" __declspec(naked) void AcquireDDThreadLock()
 {
-	static void(*ddraw_proc)() = (void(*)())GetProcAddress(ddraw._module, "AcquireDDThreadLock");
-
-	__asm jmp ddraw_proc;
+	__asm jmp AcquireDDThreadLock_proc;
 }
 
+static void(*CompleteCreateSysmemSurface_proc)() = (void(*)())GetProcAddress(ddraw._module, "CompleteCreateSysmemSurface");
 extern "C" __declspec(naked) void CompleteCreateSysmemSurface()
 {
-	static void(*ddraw_proc)() = (void(*)())GetProcAddress(ddraw._module, "CompleteCreateSysmemSurface");
-
-	__asm jmp ddraw_proc;
+	__asm jmp CompleteCreateSysmemSurface_proc;
 }
 
+static void(*D3DParseUnknownCommand_proc)() = (void(*)())GetProcAddress(ddraw._module, "D3DParseUnknownCommand");
 extern "C" __declspec(naked) void D3DParseUnknownCommand()
 {
-	static void(*ddraw_proc)() = (void(*)())GetProcAddress(ddraw._module, "D3DParseUnknownCommand");
-
-	__asm jmp ddraw_proc;
+	__asm jmp D3DParseUnknownCommand_proc;
 }
 
+static void(*DDGetAttachedSurfaceLcl_proc)() = (void(*)())GetProcAddress(ddraw._module, "DDGetAttachedSurfaceLcl");
 extern "C" __declspec(naked) void DDGetAttachedSurfaceLcl()
 {
-	static void(*ddraw_proc)() = (void(*)())GetProcAddress(ddraw._module, "DDGetAttachedSurfaceLcl");
-
-	__asm jmp ddraw_proc;
+	__asm jmp DDGetAttachedSurfaceLcl_proc;
 }
 
+static void(*DDInternalLock_proc)() = (void(*)())GetProcAddress(ddraw._module, "DDInternalLock");
 extern "C" __declspec(naked) void DDInternalLock()
 {
-	static void(*ddraw_proc)() = (void(*)())GetProcAddress(ddraw._module, "DDInternalLock");
-
-	__asm jmp ddraw_proc;
+	__asm jmp DDInternalLock_proc;
 }
 
+static void(*DDInternalUnlock_proc)() = (void(*)())GetProcAddress(ddraw._module, "DDInternalUnlock");
 extern "C" __declspec(naked) void DDInternalUnlock()
 {
-	static void(*ddraw_proc)() = (void(*)())GetProcAddress(ddraw._module, "DDInternalUnlock");
-
-	__asm jmp ddraw_proc;
+	__asm jmp DDInternalUnlock_proc;
 }
 
+static void(*DSoundHelp_proc)() = (void(*)())GetProcAddress(ddraw._module, "DSoundHelp");
 extern "C" __declspec(naked) void DSoundHelp()
 {
-	static void(*ddraw_proc)() = (void(*)())GetProcAddress(ddraw._module, "DSoundHelp");
-
-	__asm jmp ddraw_proc;
+	__asm jmp DSoundHelp_proc;
 }
 
 extern "C" HRESULT WINAPI DirectDrawCreate(
@@ -294,44 +291,38 @@ extern "C" HRESULT WINAPI DirectDrawEnumerateW(
 	return ddraw_proc(lpCallback, lpContext);
 }
 
+static void(*GetDDSurfaceLocal_proc)() = (void(*)())GetProcAddress(ddraw._module, "GetDDSurfaceLocal");
 extern "C" __declspec(naked) void GetDDSurfaceLocal()
 {
-	static void(*ddraw_proc)() = (void(*)())GetProcAddress(ddraw._module, "GetDDSurfaceLocal");
-
-	__asm jmp ddraw_proc;
+	__asm jmp GetDDSurfaceLocal_proc;
 }
 
+static void(*GetOLEThunkData_proc)() = (void(*)())GetProcAddress(ddraw._module, "GetOLEThunkData");
 extern "C" __declspec(naked) void GetOLEThunkData()
 {
-	static void(*ddraw_proc)() = (void(*)())GetProcAddress(ddraw._module, "GetOLEThunkData");
-
-	__asm jmp ddraw_proc;
+	__asm jmp GetOLEThunkData_proc;
 }
 
+static void(*GetSurfaceFromDC_proc)() = (void(*)())GetProcAddress(ddraw._module, "GetSurfaceFromDC");
 extern "C" __declspec(naked) void GetSurfaceFromDC()
 {
-	static void(*ddraw_proc)() = (void(*)())GetProcAddress(ddraw._module, "GetSurfaceFromDC");
-
-	__asm jmp ddraw_proc;
+	__asm jmp GetSurfaceFromDC_proc;
 }
 
+static void(*RegisterSpecialCase_proc)() = (void(*)())GetProcAddress(ddraw._module, "RegisterSpecialCase");
 extern "C" __declspec(naked) void RegisterSpecialCase()
 {
-	static void(*ddraw_proc)() = (void(*)())GetProcAddress(ddraw._module, "RegisterSpecialCase");
-
-	__asm jmp ddraw_proc;
+	__asm jmp RegisterSpecialCase_proc;
 }
 
+static void(*ReleaseDDThreadLock_proc)() = (void(*)())GetProcAddress(ddraw._module, "ReleaseDDThreadLock");
 extern "C" __declspec(naked) void ReleaseDDThreadLock()
 {
-	static void(*ddraw_proc)() = (void(*)())GetProcAddress(ddraw._module, "ReleaseDDThreadLock");
-
-	__asm jmp ddraw_proc;
+	__asm jmp ReleaseDDThreadLock_proc;
 }
 
+static void(*SetAppCompatData_proc)() = (void(*)())GetProcAddress(ddraw._module, "SetAppCompatData");
 extern "C" __declspec(naked) void SetAppCompatData()
 {
-	static void(*ddraw_proc)() = (void(*)())GetProcAddress(ddraw._module, "SetAppCompatData");
-
-	__asm jmp ddraw_proc;
+	__asm jmp SetAppCompatData_proc;
 }

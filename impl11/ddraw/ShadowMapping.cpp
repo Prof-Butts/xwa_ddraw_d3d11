@@ -26,7 +26,7 @@ int g_iNumSunCentroids = 0;
 
 /*********************************************************/
 
-void DisplayTimedMessage(uint32_t seconds, int row, char* msg);
+void DisplayTimedMessage(uint32_t seconds, int row, const char* msg);
 
 void ToggleCSM()
 {

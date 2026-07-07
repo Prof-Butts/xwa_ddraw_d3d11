@@ -509,10 +509,10 @@ float RealVertFOVToRawFocalLength(float real_FOV);
 
 void GetCraftViewMatrix(Matrix4 *result);
 
-inline void backProjectMetric(float sx, float sy, float rhw, Vector3 *P);
+void backProjectMetric(float sx, float sy, float rhw, Vector3 *P);
 inline void backProjectMetric(UINT index, Vector3 *P);
 Vector3 projectMetric(Vector3 pos3D, Matrix4 viewMatrix, Matrix4 projEyeMatrix, bool bForceNonVR);
-inline Vector3 projectToInGameOrPostProcCoordsMetric(Vector3 pos3D, Matrix4 viewMatrix, Matrix4 projEyeMatrix, bool bForceNonVR = false);
+Vector3 projectToInGameOrPostProcCoordsMetric(Vector3 pos3D, Matrix4 viewMatrix, Matrix4 projEyeMatrix, bool bForceNonVR = false);
 float3 InverseTransformProjectionScreen(float4 pos);
 
 void ResetObjectIndexMap();
@@ -1341,7 +1341,7 @@ HRESULT Direct3DDevice::QuickSetZWriteEnabled(BOOL Enabled) {
 	return hr;
 }
 
-inline float lerp(float x, float y, float s) {
+float lerp(float x, float y, float s) { // Linux/clang-cl: de-inlined, used cross-TU (MSVC LTCG resolved this)
 	return x + s * (y - x);
 }
 
@@ -1755,7 +1755,7 @@ float ClosestPointOnTriangle(
  *		OPT-scale metric 3D centered on the current camera.
  *	    VR path: same as non-VR but with Y flipped
  */
-inline void backProjectMetric(float sx, float sy, float rhw, Vector3 *P) {
+void backProjectMetric(float sx, float sy, float rhw, Vector3 *P) { // Linux/clang-cl: de-inlined, used cross-TU (MSVC LTCG resolved this)
 	float3 temp;
 	float FOVscaleZ;
 	float sm_FOVscale = g_MetricRecCBuffer.mr_FOVscale;
@@ -1926,7 +1926,7 @@ Vector3 projectMetric(Vector3 pos3D, Matrix4 viewMatrix, Matrix4 projEyeMatrix, 
  *		Regular path: in-game 2D coords (sx, sy)
  *	    VR path: Post-proc coords
  */
-inline Vector3 projectToInGameOrPostProcCoordsMetric(Vector3 pos3D, Matrix4 viewMatrix, Matrix4 projEyeMatrix, bool bForceNonVR)
+Vector3 projectToInGameOrPostProcCoordsMetric(Vector3 pos3D, Matrix4 viewMatrix, Matrix4 projEyeMatrix, bool bForceNonVR)
 {
 	Vector3 P = pos3D;
 	//float w;
@@ -5578,12 +5578,12 @@ HRESULT Direct3DDevice::Execute(
 				}
 				*/
 				if (g_bDumpSSAOBuffers && g_bDumpOBJEnabled && (bIsEngineGlow || bIsMapIcon)) {
-					log_debug("[DBG] Dumping OBJ (bIsEngineGlow|bIsMapIcon): obj_%d, %s", g_iDumpOBJIdx, lastTextureSelected->_name);
+					log_debug("[DBG] Dumping OBJ (bIsEngineGlow|bIsMapIcon): obj_%d, %s", g_iDumpOBJIdx, lastTextureSelected->_name.c_str()); // Linux/clang-cl: std::string through varargs
 					DumpVerticesToOBJ(g_DumpOBJFile, instruction, currentIndexLocation,
 						g_iDumpOBJIdx, lastTextureSelected->_name.c_str(), bIsMapIcon);
 				}
 				if (g_bDumpSSAOBuffers && g_bDumpOBJEnabled && bIsExplosion) {
-					log_debug("[DBG] Dumping OBJ (bIsExplosion): obj_%d, %s", g_iDumpLaserOBJIdx, lastTextureSelected->_name);
+					log_debug("[DBG] Dumping OBJ (bIsExplosion): obj_%d, %s", g_iDumpLaserOBJIdx, lastTextureSelected->_name.c_str()); // Linux/clang-cl: std::string through varargs
 					DumpVerticesToOBJ(g_DumpLaserFile, instruction, currentIndexLocation,
 						g_iDumpLaserOBJIdx, lastTextureSelected->_name.c_str());
 				}

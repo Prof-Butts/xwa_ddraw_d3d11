@@ -54,7 +54,7 @@ void GetGunnerTurretViewMatrixSpeedEffect(Matrix4 * result, bool applyHeadingInG
 void DisplayBox(char *name, Box box);
 Vector3 project(Vector3 pos3D, Matrix4 viewMatrix, Matrix4 projEyeMatrix /*, float *sx, float *sy */);
 inline void backProject(float sx, float sy, float rhw, Vector3 *P);
-inline void backProjectMetric(float sx, float sy, float rhw, Vector3 *P);
+void backProjectMetric(float sx, float sy, float rhw, Vector3 *P);
 
 // These are the actual functions for (back)-projection currently used as of Feb 2024:
 float4 TransformProjection(float3 input);
@@ -63,7 +63,7 @@ float3 InverseTransformProjectionScreen(float4 input);
 
 Vector3 projectMetric(Vector3 pos3D, Matrix4 viewMatrix, Matrix4 projEyeMatrix, bool bForceNonVR);
 inline Vector3 projectToInGameCoords(Vector3 pos3D, Matrix4 viewMatrix, Matrix4 projEyeMatrix);
-inline Vector3 projectToInGameOrPostProcCoordsMetric(Vector3 pos3D, Matrix4 viewMatrix, Matrix4 projEyeMatrix, bool bForceNonVR = false);
+Vector3 projectToInGameOrPostProcCoordsMetric(Vector3 pos3D, Matrix4 viewMatrix, Matrix4 projEyeMatrix, bool bForceNonVR = false);
 //void ComputeBaryCoords(const Vector3& v0, const Vector3& v1, const Vector3& v2, const Vector3& P,
 //	float& u, float& v);
 bool rayTriangleIntersect(
@@ -75,7 +75,7 @@ float ClosestPointOnTriangle(
 	Vector3& P, float& u, float& v, float margin);
 void ResetXWALightInfo();
 void DumpHyperspaceVertexBuffer(float width, float height);
-inline Matrix4 XwaTransformToMatrix4(const XwaTransform& M);
+Matrix4 XwaTransformToMatrix4(const XwaTransform& M);
 float4 TransformProjection(float3 input);
 float4 TransformProjectionScreen(float3 input);
 void EmulMouseWithVRControllers();
@@ -13232,7 +13232,7 @@ short DisplayCenteredText(char* str, int font_size_index, short y, uint32_t colo
   the timer on whatever is in that slot. The hard-coded values are screen-height
   relative and seem to work fine across different resolutions.
  */
-void DisplayTimedMessage(uint32_t seconds, int row, char* msg) {
+void DisplayTimedMessage(uint32_t seconds, int row, const char* msg) {
 	short y_pos = (short)(g_fCurInGameHeight * (0.189f + 0.05f * row));
 	g_TimedMessages[row].SetMsg(msg, seconds, y_pos, FONT_LARGE_IDX, FONT_BLUE_COLOR);
 }

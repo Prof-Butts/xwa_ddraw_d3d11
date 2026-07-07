@@ -67,17 +67,6 @@ inline float sign(float val)
 	return (val >= 0.0f) ? 1.0f : -1.0f;
 }
 
-inline float clamp(float val, float min, float max)
-{
-	if (val < min) val = min;
-	if (val > max) val = max;
-	return val;
-}
-
-inline float lerp(float x, float y, float s) {
-	return x + s * (y - x);
-}
-
 float SignedReduceClamp(float val, float delta, float abs_min, float abs_max)
 {
 	float s = sign(val);

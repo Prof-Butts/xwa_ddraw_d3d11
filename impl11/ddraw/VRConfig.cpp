@@ -321,18 +321,6 @@ bool g_bForce60FPS = true;
 
 #include "D3dRenderer.h"
 
-inline float lerp(float x, float y, float s)
-{
-	return x + s * (y - x);
-}
-
-inline float clamp(float val, float min, float max)
-{
-	if (val < min) val = min;
-	if (val > max) val = max;
-	return val;
-}
-
 void SetHDRState(bool state)
 {
 	g_bHDREnabled = state;

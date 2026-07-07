@@ -675,8 +675,6 @@ float4 g_SunColors[MAX_SUN_FLARES];
 int g_iSunFlareCount = 0;
 void RenderSkyBox();
 
-float clamp(float val, float min, float max);
-
 enum RenderStateEnum : unsigned int
 {
 	RenderState_None = 0,
@@ -1339,10 +1337,6 @@ HRESULT Direct3DDevice::QuickSetZWriteEnabled(BOOL Enabled) {
 	if (SUCCEEDED(hr))
 		resources->_d3dDeviceContext->OMSetDepthStencilState(depthState, 0);
 	return hr;
-}
-
-float lerp(float x, float y, float s) { // Linux/clang-cl: de-inlined, used cross-TU (MSVC LTCG resolved this)
-	return x + s * (y - x);
 }
 
 void Direct3DDevice::GetBoundingBoxUVs(LPD3DINSTRUCTION instruction, UINT curIndex,

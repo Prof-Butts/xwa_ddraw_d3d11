@@ -313,10 +313,6 @@ FILE *g_DebugFile = NULL;
 class XwaTextureData;
 extern std::vector<XwaTextureData*> g_AuxTextureVector;
 
-inline float lerp(float x, float y, float s) {
-	return x + s * (y - x);
-}
-
 void log_err(const char *format, ...)
 {
 	char buf[120];

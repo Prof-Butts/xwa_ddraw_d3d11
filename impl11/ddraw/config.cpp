@@ -83,6 +83,7 @@ Config::Config()
 	this->FlipDATImages = false;
 
 	this->HDConcourseEnabled = false;
+	this->TgSmushSwapchainPresentEnabled = false;
 
 	this->ProjectionParameterA = 32.0f;
 	this->ProjectionParameterB = 256.0f;
@@ -290,6 +291,10 @@ Config::Config()
 			else if (name == "HDConcourseEnabled")
 			{
 				this->HDConcourseEnabled = stoi(value) != 0;
+			}
+			else if (name == "TgSmushSwapchainPresentEnabled")
+			{
+				this->TgSmushSwapchainPresentEnabled = stoi(value) != 0;
 			}
 			else if (name == "ProjectionParameterA")
 			{

@@ -5,6 +5,7 @@
 #include "DeviceResources.h"
 #include "OffscreenSurface.h"
 #include "SurfaceDC.h"
+#include "WineD2DEffectShim.h"
 
 OffscreenSurface::OffscreenSurface(DeviceResources* deviceResources)
 {
@@ -427,7 +428,9 @@ HRESULT OffscreenSurface::GetDC(
 			pDC->callback = &this->_deviceResources->_surfaceDcCallback;
 
 			// FX ddraw version:
-			pDC->d2d1RenderTarget = this->_deviceResources->_d2d1OffscreenRenderTarget;
+			// Under wine, hand out a shim that covers d2d's unimplemented
+			// custom-effect path (raw target unchanged on Windows).
+			pDC->d2d1RenderTarget = WineShim_GetRenderTarget(this->_deviceResources);
 			// Golden ddraw version:
 			//pDC->d2d1RenderTarget = this->_deviceResources->_d2d1RenderTarget;
 

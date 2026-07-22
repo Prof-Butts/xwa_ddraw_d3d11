@@ -10,7 +10,6 @@
 #include "PrimarySurface.h"
 #include "BackbufferSurface.h"
 #include "FrontbufferSurface.h"
-#include "PrimaryDC.h"
 #include "FreePIE.h"
 #include "Matrices.h"
 #include "Direct3DTexture.h"
@@ -20,6 +19,7 @@
 #include "XwaDrawRadarHook.h"
 #include "XwaDrawBracketHook.h"
 #include "XwaConcourseHook.h"
+#include "PrimaryDC.h"
 #include "xwa_structures.h"
 #include "effects.h"
 #include "globals.h"
@@ -12727,16 +12727,31 @@ HRESULT PrimarySurface::GetDC(
 	{
 		PrimaryDC* pDC = (PrimaryDC*)lphDC;
 
-		pDC->width = this->_deviceResources->_backbufferWidth;
-		pDC->height = this->_deviceResources->_backbufferHeight;
+		if (g_bUseSteamVR)
+		{
+			// For the HD Concourse, we need to specify HD width/height or else
+			// the resulting image will be cropped
+			pDC->width = HD_CONCOURSE_WIDTH;
+			pDC->height = HD_CONCOURSE_HEIGHT;
+		}
+		else
+		{
+			pDC->width = this->_deviceResources->_backbufferWidth;
+			pDC->height = this->_deviceResources->_backbufferHeight;
+		}
 		pDC->displayWidth = this->_deviceResources->_displayWidth;
 		pDC->displayHeight = this->_deviceResources->_displayHeight;
 		pDC->aspectRatioPreserved = g_config.AspectRatioPreserved;
 		pDC->d2d1Factory = this->_deviceResources->_d2d1Factory;
-		pDC->d2d1RenderTarget = this->_deviceResources->_d2d1RenderTarget;
+		// FX ddraw version:
+		pDC->d2d1RenderTarget = this->_deviceResources->_d2d1OffscreenRenderTarget;
+		// Golden ddraw version:
+		//pDC->d2d1RenderTarget = this->_deviceResources->_d2d1RenderTarget;
 		pDC->d2d1DrawingStateBlock = this->_deviceResources->_d2d1DrawingStateBlock;
 		pDC->dwriteFactory = this->_deviceResources->_dwriteFactory;
-		pDC->d3d11RenderTargetView = this->_deviceResources->_renderTargetView;
+		pDC->d3d11RenderTargetView = (g_bUseSteamVR && g_config.HDConcourseEnabled) ?
+			pDC->d3d11RenderTargetView = this->_deviceResources->_renderTargetViewHd :
+			pDC->d3d11RenderTargetView = this->_deviceResources->_renderTargetView;
 		pDC->d3d11Device = this->_deviceResources->_d3dDevice;
 		pDC->d3d11DeviceContext = this->_deviceResources->_d3dDeviceContext;
 		pDC->dxgiSwapChain = this->_deviceResources->_swapChain;

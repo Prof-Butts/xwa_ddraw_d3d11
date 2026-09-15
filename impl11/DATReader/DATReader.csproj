@@ -1,137 +1,61 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
-<Project ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
-  <Import Project="$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props" Condition="Exists('$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props')" />
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
   <PropertyGroup>
-    <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
-    <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
-    <ProjectGuid>{5168EF2E-AF2C-4F7F-B328-3B8C711C0893}</ProjectGuid>
-    <OutputType>Library</OutputType>
-    <AppDesignerFolder>Properties</AppDesignerFolder>
-    <RootNamespace>DATReader</RootNamespace>
-    <AssemblyName>DATReader</AssemblyName>
-    <TargetFrameworkVersion>v4.8</TargetFrameworkVersion>
-    <FileAlignment>512</FileAlignment>
-    <Deterministic>true</Deterministic>
-    <TargetFrameworkProfile />
-    <NuGetPackageImportStamp>
-    </NuGetPackageImportStamp>
-  </PropertyGroup>
-  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
-    <DebugSymbols>true</DebugSymbols>
-    <DebugType>full</DebugType>
-    <Optimize>false</Optimize>
-    <OutputPath>bin\Debug\</OutputPath>
-    <DefineConstants>DEBUG;TRACE</DefineConstants>
-    <ErrorReport>prompt</ErrorReport>
-    <WarningLevel>4</WarningLevel>
-  </PropertyGroup>
-  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
-    <DebugType>pdbonly</DebugType>
-    <Optimize>true</Optimize>
-    <OutputPath>bin\Release\</OutputPath>
-    <DefineConstants>TRACE</DefineConstants>
-    <ErrorReport>prompt</ErrorReport>
-    <WarningLevel>4</WarningLevel>
-  </PropertyGroup>
-  <PropertyGroup>
-    <DllExportIdent>E1DA1CC6-5CDF-4ACF-A9A7-B048B1DEB952</DllExportIdent>
-    <DllExportMetaLibName>DllExport.dll</DllExportMetaLibName>
-    <DllExportNamespace>DATReader</DllExportNamespace>
-    <DllExportDDNSCecil>false</DllExportDDNSCecil>
-    <PlatformTarget>x86</PlatformTarget>
-    <DllExportOrdinalsBase>1</DllExportOrdinalsBase>
-    <DllExportGenExpLib>false</DllExportGenExpLib>
-    <DllExportOurILAsm>false</DllExportOurILAsm>
-    <DllExportSysObjRebase>false</DllExportSysObjRebase>
-    <DllExportLeaveIntermediateFiles>false</DllExportLeaveIntermediateFiles>
-    <DllExportTimeout>30000</DllExportTimeout>
-    <DllExportPeCheck>2</DllExportPeCheck>
-    <DllExportPatches>0</DllExportPatches>
-    <DllExportPreProcType>0</DllExportPreProcType>
-    <DllExportPostProcType>0</DllExportPostProcType>
-  </PropertyGroup>
-  <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Debug|x86'">
-    <DebugSymbols>true</DebugSymbols>
-    <OutputPath>bin\x86\Debug\</OutputPath>
-    <DefineConstants>DEBUG;TRACE</DefineConstants>
-    <DebugType>full</DebugType>
-    <PlatformTarget>x86</PlatformTarget>
-    <ErrorReport>prompt</ErrorReport>
-    <CodeAnalysisRuleSet>MinimumRecommendedRules.ruleset</CodeAnalysisRuleSet>
-  </PropertyGroup>
-  <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Release|x86'">
-    <OutputPath>bin\x86\Release\</OutputPath>
-    <DefineConstants>TRACE</DefineConstants>
-    <Optimize>true</Optimize>
-    <DebugType>portable</DebugType>
-    <PlatformTarget>x86</PlatformTarget>
-    <ErrorReport>prompt</ErrorReport>
-    <CodeAnalysisRuleSet>MinimumRecommendedRules.ruleset</CodeAnalysisRuleSet>
+    <TargetFramework>net9.0</TargetFramework>
+    <LangVersion>12.0</LangVersion>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>disable</Nullable>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-    <BaseAddress>301989888</BaseAddress>
-    <DebugSymbols>true</DebugSymbols>
+    <Version>1.0.0.0</Version>
+    <ProductName>DATReader</ProductName>
+    <Description>DATReader</Description>
+    <Company>Leo Reyes</Company>
+    <Copyright>Copyright © 2021 Leo Reyes</Copyright>
+    <RuntimeIdentifier>win-x86</RuntimeIdentifier>
+    <IsAotCompatible Condition="$([MSBuild]::IsTargetFrameworkCompatible('$(TargetFramework)', 'net8.0'))">true</IsAotCompatible>
+    <VerifyReferenceAotCompatibility>true</VerifyReferenceAotCompatibility>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <PublishAot>true</PublishAot>
+    <PublishTrimmed>true</PublishTrimmed>
+    <SelfContained>true</SelfContained>
+    <TrimmerSingleWarn>false</TrimmerSingleWarn>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <WarningsAsErrors />
+    <NoWarn>CA1416;CS0649</NoWarn>
   </PropertyGroup>
-  <PropertyGroup>
-    <AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects>
-  </PropertyGroup>
-  <ItemGroup>
-    <Reference Include="JeremyAnsel.BcnSharp, Version=1.0.6.0, Culture=neutral, processorArchitecture=MSIL">
-      <HintPath>packages\JeremyAnsel.BcnSharp.1.0.6\lib\net48\JeremyAnsel.BcnSharp.dll</HintPath>
-    </Reference>
-    <Reference Include="JeremyAnsel.ColorQuant, Version=3.0.70.0, Culture=neutral, processorArchitecture=MSIL">
-      <HintPath>packages\JeremyAnsel.ColorQuant.3.0.70\lib\net48\JeremyAnsel.ColorQuant.dll</HintPath>
-    </Reference>
-    <Reference Include="JeremyAnsel.Xwa.Dat, Version=3.0.22.0, Culture=neutral, processorArchitecture=MSIL">
-      <HintPath>packages\JeremyAnsel.Xwa.Dat.3.0.22\lib\net48\JeremyAnsel.Xwa.Dat.dll</HintPath>
-    </Reference>
-    <Reference Include="System" />
-    <Reference Include="System.Core" />
-    <Reference Include="System.Drawing.Common, Version=7.0.0.0, Culture=neutral, PublicKeyToken=cc7b13ffcd2ddd51, processorArchitecture=MSIL">
-      <HintPath>packages\System.Drawing.Common.7.0.0\lib\net462\System.Drawing.Common.dll</HintPath>
-    </Reference>
-    <Reference Include="System.Xml.Linq" />
-    <Reference Include="System.Data.DataSetExtensions" />
-    <Reference Include="Microsoft.CSharp" />
-    <Reference Include="System.Data" />
-    <Reference Include="System.Net.Http" />
-    <Reference Include="System.Xml" />
-  </ItemGroup>
-  <ItemGroup>
-    <Compile Include="Main.cs" />
-    <Compile Include="Properties\AssemblyInfo.cs" />
-  </ItemGroup>
-  <ItemGroup>
-    <None Include="packages.config" />
-  </ItemGroup>
-  <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
-  <ImportGroup Label=".NET DllExport">
-    <Import Project="$(SolutionDir)packages\DllExport.1.7.4\tools\net.r_eg.DllExport.targets" Condition="Exists($([MSBuild]::Escape('$(SolutionDir)packages\DllExport.1.7.4\tools\net.r_eg.DllExport.targets')))" Label="8337224c9ad9e356" />
-    <Import Project="packages\JeremyAnsel.BcnSharp.1.0.6\build\JeremyAnsel.BcnSharp.targets" Condition="Exists('packages\JeremyAnsel.BcnSharp.1.0.6\build\JeremyAnsel.BcnSharp.targets')" />
-  </ImportGroup>
-  <Target Name="DllExportRestorePkg" BeforeTargets="PrepareForBuild">
-    <Error Condition="!Exists('$(SolutionDir)DllExport.bat')" Text="DllExport.bat is not found. Path: '$(SolutionDir)' - https://github.com/3F/DllExport" />
-    <Exec Condition="('$(DllExportModImported)' != 'true' Or !Exists('$(SolutionDir)packages\DllExport.1.7.4\tools\net.r_eg.DllExport.targets')) And Exists('$(SolutionDir)DllExport.bat')" Command=".\DllExport.bat  -action Restore" WorkingDirectory="$(SolutionDir)" />
-    <MSBuild Condition="'$(DllExportModImported)' != 'true'" Projects="$(SolutionDir)packages\DllExport.1.7.4\tools\net.r_eg.DllExport.targets" Targets="DllExportMetaXBaseTarget" Properties="TargetFramework=$(TargetFramework)">
-      <Output TaskParameter="TargetOutputs" PropertyName="DllExportMetaXBase" />
-    </MSBuild>
-    <ItemGroup>
-      <Reference Include="DllExport, PublicKeyToken=8337224c9ad9e356">
-        <HintPath>$(SolutionDir)packages\DllExport.1.7.4\gcache\$(DllExportMetaXBase)\$(DllExportNamespace)\$(DllExportMetaLibName)</HintPath>
-        <Private>False</Private>
-        <SpecificVersion>False</SpecificVersion>
-      </Reference>
-    </ItemGroup>
+
+  <Target Name="BeforeBeforeBuild" BeforeTargets="BeforeBuild">
+    <SetBuildNumber>
+      <Output TaskParameter="AssemblyVersion" PropertyName="Version" />
+    </SetBuildNumber>
   </Target>
-  <Target Name="DllExportRPkgDynamicImport" BeforeTargets="PostBuildEvent" DependsOnTargets="GetFrameworkPaths" Condition="'$(DllExportModImported)' != 'true' And '$(DllExportRPkgDyn)' != 'false'">
-    <MSBuild BuildInParallel="true" UseResultsCache="true" Projects="$(MSBuildProjectFullPath)" Properties="DllExportRPkgDyn=true" Targets="Build" />
+  <UsingTask TaskName="SetBuildNumber" TaskFactory="CodeTaskFactory" AssemblyFile="$(MSBuildToolsPath)\Microsoft.Build.Tasks.v4.0.dll">
+    <ParameterGroup>
+      <AssemblyVersion ParameterType="System.String" Output="true" />
+    </ParameterGroup>
+    <Task>
+      <Code Type="Fragment" Language="cs">
+        <![CDATA[
+        DateTime date = DateTime.Now;
+        string dateDot = date.ToString("yyyy.MMdd.HHmm.ssfff");
+        AssemblyVersion = dateDot;
+        ]]>
+      </Code>
+    </Task>
+  </UsingTask>
+
+  <ItemGroup>
+    <PackageReference Include="JeremyAnsel.Xwa.Cbm" Version="3.0.22" />
+    <PackageReference Include="JeremyAnsel.Xwa.Dat" Version="3.0.28" />
+    <PackageReference Include="System.Drawing.Common" Version="8.0.8" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Folder Include="Properties\" />
+  </ItemGroup>
+
+  <Target Name="PublishAsBuildAfterTarget" AfterTargets="Build" DependsOnTargets="Publish">
+    <!-- placeholder task to force Publish to happen during build -->
   </Target>
-  <PropertyGroup>
-    <PostBuildEvent>copy /Y $(TargetPath) "C:\Program Files (x86)\GOG Galaxy\Games\Star Wars - X-Wing Alliance 6.0.2"</PostBuildEvent>
-  </PropertyGroup>
-  <Target Name="EnsureNuGetPackageBuildImports" BeforeTargets="PrepareForBuild">
-    <PropertyGroup>
-      <ErrorText>This project references NuGet package(s) that are missing on this computer. Use NuGet Package Restore to download them.  For more information, see http://go.microsoft.com/fwlink/?LinkID=322105. The missing file is {0}.</ErrorText>
-    </PropertyGroup>
-    <Error Condition="!Exists('packages\JeremyAnsel.BcnSharp.1.0.6\build\JeremyAnsel.BcnSharp.targets')" Text="$([System.String]::Format('$(ErrorText)', 'packages\JeremyAnsel.BcnSharp.1.0.6\build\JeremyAnsel.BcnSharp.targets'))" />
-  </Target>
+
 </Project>

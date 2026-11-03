@@ -48,10 +48,6 @@
     <PackageReference Include="System.Drawing.Common" Version="8.0.8" />
   </ItemGroup>
 
-  <ItemGroup>
-    <Folder Include="Properties\" />
-  </ItemGroup>
-
   <Target Name="PublishAsBuildAfterTarget" AfterTargets="Build" DependsOnTargets="Publish">
     <!-- placeholder task to force Publish to happen during build -->
   </Target>

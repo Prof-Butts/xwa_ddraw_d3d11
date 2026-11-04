@@ -134,12 +134,15 @@ struct PixelShaderOutput
 
 float4 main(PixelShaderInput input) : SV_TARGET
 {
+	// The bloom accumulator is stored at reduced resolution in the top-left corner
+	// of bloomTex. amplifyFactor scales the UVs to that region.
+	float2 bloom_uv = input.uv * amplifyFactor;
 #ifdef INSTANCED_RENDERING
 	float4 color = texture0.Sample(sampler0, float3(input.uv, input.viewId));
-	float3 bloom = bloomTex.Sample(bloomSampler, float3(input.uv, input.viewId)).rgb;
+	float3 bloom = bloomTex.Sample(bloomSampler, float3(bloom_uv, input.viewId)).rgb;
 #else
 	float4 color = texture0.Sample(sampler0, input.uv);
-	float3 bloom = bloomTex.Sample(bloomSampler, input.uv).rgb;
+	float3 bloom = bloomTex.Sample(bloomSampler, bloom_uv).rgb;
 #endif
 	color.w = 1.0f;
 

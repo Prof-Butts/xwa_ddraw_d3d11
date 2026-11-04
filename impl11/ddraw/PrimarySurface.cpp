@@ -1687,6 +1687,11 @@ void PrimarySurface::resizeForSteamVR(int iteration, bool is_2D) {
   * For pass 0, the input texture must be resolved already to 
   * _offscreenBufferAsInputReshadeMask, _offscreenBufferAsInputReshadeMaskR
   */
+// The bloom accumulator (pass 4) is rendered at this fraction of the screen resolution,
+// in the top-left corner of _bloomOutputSum/_bloomOutput2. The first pyramid level is
+// already at half resolution, so accumulating at half resolution doesn't lose detail.
+static const float BLOOM_ACCUM_ZOOM_FACTOR = 2.0f;
+
 void PrimarySurface::BloomBasicPass(int pass, float fZoomFactor, int level) {
 
 	//this->_deviceResources->BeginAnnotatedEvent(L"BloomBasicPass");
@@ -1724,6 +1729,9 @@ void PrimarySurface::BloomBasicPass(int pass, float fZoomFactor, int level) {
 	if (pass < 3) {
 		viewport.Width  = screen_res_x / fZoomFactor;
 		viewport.Height = screen_res_y / fZoomFactor;
+	} else if (pass == 4) { // The accumulator is kept at reduced resolution
+		viewport.Width  = screen_res_x / BLOOM_ACCUM_ZOOM_FACTOR;
+		viewport.Height = screen_res_y / BLOOM_ACCUM_ZOOM_FACTOR;
 	} else { // The final pass should be performed at full resolution
 		viewport.Width  = screen_res_x;
 		viewport.Height = screen_res_y;
@@ -1795,17 +1803,18 @@ void PrimarySurface::BloomBasicPass(int pass, float fZoomFactor, int level) {
 				// Odd number of levels: check (level % 2 == 0)
 				// Even number of levels: check (level % 2 == 1)
 				// Either way, on the last level we should be rendering to bloomSum:
+				// No clears are needed here: this pass overwrites the whole accumulator region, and
+				// everything outside it stays at zero from the clear done before the first level.
+				// The combine pass relies on those zeros when it samples the edges of the region.
 				const int modulus = (g_BloomConfig.iNumPasses % 2 == 0) ? 1 : 0;
 				if (level % 2 == modulus)
 				{
 					context->PSSetShaderResources(1, 1, resources->_bloomOutput2SRV.GetAddressOf());
-					context->ClearRenderTargetView(resources->_renderTargetViewBloomSum, bgColor);
 					context->OMSetRenderTargets(1, resources->_renderTargetViewBloomSum.GetAddressOf(), NULL);
 				}
 				else
 				{
 					context->PSSetShaderResources(1, 1, resources->_bloomOutputSumSRV.GetAddressOf());
-					context->ClearRenderTargetView(resources->_renderTargetViewBloom2, bgColor);
 					context->OMSetRenderTargets(1, resources->_renderTargetViewBloom2.GetAddressOf(), NULL);
 				}
 				break;
@@ -11909,16 +11918,20 @@ HRESULT PrimarySurface::Flip(
 
 			// Apply the Bloom effect
 			if (g_bBloomEnabled) {
+				resources->BeginAnnotatedEvent(L"Bloom");
 				// _offscreenBufferAsInputBloomMask is resolved earlier, before the SSAO pass because
 				// SSAO uses that mask to prevent applying SSAO on bright areas
 
 				// We need to set the blend state properly for Bloom, or else we might get
 				// different results when brackets are rendered because they alter the 
-				// blend state
+				// blend state.
+				// All the bloom shaders output alpha = 1, so blending is disabled: the result is
+				// the same, but the GPU doesn't have to read the render targets back.
+				// The alpha blend state is restored after the bloom passes.
 				D3D11_BLEND_DESC blendDesc{};
 				blendDesc.AlphaToCoverageEnable = FALSE;
 				blendDesc.IndependentBlendEnable = FALSE;
-				blendDesc.RenderTarget[0].BlendEnable = TRUE;
+				blendDesc.RenderTarget[0].BlendEnable = FALSE;
 				blendDesc.RenderTarget[0].SrcBlend = D3D11_BLEND_SRC_ALPHA;
 				blendDesc.RenderTarget[0].DestBlend = D3D11_BLEND_INV_SRC_ALPHA;
 				blendDesc.RenderTarget[0].BlendOp = D3D11_BLEND_OP_ADD;
@@ -11983,8 +11996,18 @@ HRESULT PrimarySurface::Flip(
 					// Add the accumulated bloom with the offscreen buffer
 					// Input: _bloomSum, _offscreenBufferAsInput
 					// Output: _offscreenBuffer
+					// The accumulator is at reduced resolution, amplifyFactor maps the UVs to it:
+					g_BloomPSCBuffer.amplifyFactor = 1.0f / BLOOM_ACCUM_ZOOM_FACTOR;
+					resources->InitPSConstantBufferBloom(resources->_bloomConstantBuffer.GetAddressOf(), &g_BloomPSCBuffer);
+					resources->BeginAnnotatedEvent(L"BloomCombinePass");
 					BloomBasicPass(5, 1.0f, 0);
+					resources->EndAnnotatedEvent();
 				//}
+
+				// Restore the alpha blend state, the code after this point expects it.
+				blendDesc.RenderTarget[0].BlendEnable = TRUE;
+				hr = resources->InitBlendState(nullptr, &blendDesc);
+				resources->EndAnnotatedEvent(); // Bloom
 
 				// DEBUG
 				/*if (g_iPresentCounter == 100 || g_bDumpBloomBuffers) {

@@ -197,6 +197,8 @@ float g_fBloomSpread[MAX_BLOOM_PASSES + 1] = {
 int g_iBloomPasses[MAX_BLOOM_PASSES + 1] = {
 	1, 1, 1, 1, 1, 1, 1, 1
 };
+// Measure the bloom's GPU time, see bloom_gpu_timer in Bloom.cfg
+bool g_bBloomGPUTimer = false;
 
 //extern FILE *colorFile, *lightFile;
 
@@ -2041,6 +2043,7 @@ bool LoadBloomParams() {
 	g_BloomConfig.fSkydomeLightStrength = 0.1f;
 	g_BloomConfig.fBracketStrength = 0.0f;
 	g_BloomPSCBuffer.general_bloom_strength = 1.0f;
+	g_bBloomGPUTimer = false;
 	// TODO: Complete the list of default values...
 	while (fgets(buf, 256, file) != NULL) {
 		line++;
@@ -2076,6 +2079,9 @@ bool LoadBloomParams() {
 				if (g_BloomConfig.iNumPasses > MAX_BLOOM_PASSES)
 					g_BloomConfig.iNumPasses = MAX_BLOOM_PASSES;
 				log_debug("[DBG] [Bloom] iNumPasses: %d", g_BloomConfig.iNumPasses);
+			}
+			else if (_stricmp(param, "bloom_gpu_timer") == 0) {
+				g_bBloomGPUTimer = (bool)fValue;
 			}
 			else if (_stricmp(param, "uv_step_size_1") == 0) {
 				g_BloomConfig.uvStepSize1 = fValue;

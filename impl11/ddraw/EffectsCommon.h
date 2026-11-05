@@ -195,6 +195,9 @@ typedef struct BloomConfigStruct {
 	int iNumPasses;
 } BloomConfig;
 
+// Must match MAX_BLOOM_PASSES and MAX_BLOOM_LEVELS in shaders/bloom/BloomCBuffer.h
+#define MAX_BLOOM_LEVELS 9
+
 typedef struct BloomPixelShaderCBStruct {
 	float pixelSizeX, pixelSizeY, general_bloom_strength, amplifyFactor;
 	// 16 bytes
@@ -205,6 +208,21 @@ typedef struct BloomPixelShaderCBStruct {
 	float unused3, depth_weight;
 	int debug;
 	// 48 bytes
+	// The fields below are only used by the bloom shaders. Other shaders share the fields
+	// above, so new bloom fields must be added at the end.
+	// Blur passes: the input is sampled at clamp(input.uv * uvScale, uvMin, uvMax)
+	float uvScaleX, uvScaleY, uvMinX, uvMinY;
+	// 64 bytes
+	float uvMaxX, uvMaxY;
+	int numLevels; // Combine pass: number of bloom levels
+	float unused4;
+	// 80 bytes
+	// Combine pass, one entry per bloom level: xy = UV scale, zw = minimum UV
+	float levelUV[MAX_BLOOM_LEVELS][4];
+	// 224 bytes
+	// Combine pass: strength of each bloom level, packed 4 per float4
+	float levelStrength[12];
+	// 272 bytes
 } BloomPixelShaderCBuffer;
 
 struct SSAOPixelShaderCBuffer {

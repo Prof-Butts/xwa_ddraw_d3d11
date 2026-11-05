@@ -1678,23 +1678,32 @@ void PrimarySurface::resizeForSteamVR(int iteration, bool is_2D) {
 
  /*
   * Applies a single bloom effect pass. Depending on the input:
-  * pass = 0: Initial horizontal blur pass from the bloom mask.
-  * pass = 1: Vertical pass from internal temporary ping-pong buffer.
-  * pass = 2: Horizontal pass from internal temporary ping-pong buffer.
-  * pass = 3: Final combine pass (deprecated, used for 32-bit UNORM mode)
-  * pass = 4: Linear add between current bloom pass and bloomSum
-  * pass = 5: Final combine between bloomSum and offscreenBuffer
+  * pass = 0: Horizontal blur. Input: the bloom mask on the first level, the previous level
+  *           otherwise. Output: _bloomBlurTemp for this level.
+  * pass = 1: Vertical blur. Input: _bloomBlurTemp for this level. Output: _bloomLevel for
+  *           this level.
+  * pass = 5: Final combine between all the bloom levels and the offscreenBuffer.
   *
-  * For pass 0, the input texture must be resolved already to 
+  * level is 1-based. For pass 0, the input texture must be resolved already to
   * _offscreenBufferAsInputReshadeMask, _offscreenBufferAsInputReshadeMaskR
   */
-// The bloom accumulator (pass 4) is rendered at this fraction of the screen resolution,
-// in the top-left corner of _bloomOutputSum/_bloomOutput2. The first pyramid level is
-// already at half resolution, so accumulating at half resolution doesn't lose detail.
-static const float BLOOM_ACCUM_ZOOM_FACTOR = 2.0f;
-
 // Measures the GPU time of the whole bloom effect when bloom_gpu_timer = 1
 static GPUTimer g_BloomGPUTimer;
+
+// Sections of the bloom GPU time, see GPUTimer::Mark()
+enum BloomTimerSection
+{
+	BLOOM_TIMER_SETUP,           // Everything before the first blur pass
+	BLOOM_TIMER_BLUR,            // Blur passes
+	BLOOM_TIMER_COMBINE_RESOLVE, // Resolving the offscreen buffer for the combine pass
+	BLOOM_TIMER_COMBINE,         // Combine pass (pass 5)
+};
+
+static_assert(MAX_BLOOM_LEVELS == MAX_BLOOM_PASSES, "MAX_BLOOM_LEVELS must match MAX_BLOOM_PASSES");
+
+// Used as uvMax when there's no need to clamp the UVs: the bloom sampler returns zero past the
+// right and bottom sides of the bloom level textures.
+static const float BLOOM_NO_UV_LIMIT = 1e9f;
 
 void PrimarySurface::BloomBasicPass(int pass, float fZoomFactor, int level) {
 
@@ -1725,17 +1734,14 @@ void PrimarySurface::BloomBasicPass(int pass, float fZoomFactor, int level) {
 	// Create a new viewport to render the offscreen buffer as a texture
 	float screen_res_x = (float)resources->_backbufferWidth;
 	float screen_res_y = (float)resources->_backbufferHeight;
-	float bgColor[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
 
 	D3D11_VIEWPORT viewport{};
 	viewport.TopLeftX = 0.0f;
 	viewport.TopLeftY = 0.0f;
-	if (pass < 3) {
+	if (pass < 2) {
+		// DeviceResources::CreateBloomLevelBuffers() sizes the level textures from this viewport
 		viewport.Width  = screen_res_x / fZoomFactor;
 		viewport.Height = screen_res_y / fZoomFactor;
-	} else if (pass == 4) { // The accumulator is kept at reduced resolution
-		viewport.Width  = screen_res_x / BLOOM_ACCUM_ZOOM_FACTOR;
-		viewport.Height = screen_res_y / BLOOM_ACCUM_ZOOM_FACTOR;
 	} else { // The final pass should be performed at full resolution
 		viewport.Width  = screen_res_x;
 		viewport.Height = screen_res_y;
@@ -1755,83 +1761,39 @@ void PrimarySurface::BloomBasicPass(int pass, float fZoomFactor, int level) {
 	// _offscreenBufferAsInputReshadeMask, _offscreenBufferAsInputReshadeMaskR
 	switch (pass) {
 		case 0: // Horizontal Gaussian Blur
-			// Input: _offscreenAsInputReshadeSRV
-			// Output _bloomOutput1
+			// Input:  _offscreenAsInputBloomMaskSRV on the first level, the previous level otherwise
+			// Output: _bloomBlurTemp for this level
+			g_BloomGPUTimer.Mark(context, BLOOM_TIMER_BLUR);
 			resources->InitPixelShader(g_bUseSteamVR ? resources->_bloomHGaussPS_VR : resources->_bloomHGaussPS);
-			context->PSSetShaderResources(0, 1, resources->_offscreenAsInputBloomMaskSRV.GetAddressOf());
-			context->ClearRenderTargetView(resources->_renderTargetViewBloom1, bgColor);
-			context->OMSetRenderTargets(1, resources->_renderTargetViewBloom1.GetAddressOf(), NULL);
+			if (level == 1)
+				context->PSSetShaderResources(0, 1, resources->_offscreenAsInputBloomMaskSRV.GetAddressOf());
+			else
+				context->PSSetShaderResources(0, 1, resources->_bloomLevelSRV[level - 2].GetAddressOf());
+			context->OMSetRenderTargets(1, resources->_bloomBlurTempRTV[level - 1].GetAddressOf(), NULL);
 			break;
 		case 1: // Vertical Gaussian Blur
-			// Input:  _bloomOutput1
-			// Output: _offscreenBufferAsInputBloomMask
+			// Input:  _bloomBlurTemp for this level
+			// Output: _bloomLevel for this level
+			g_BloomGPUTimer.Mark(context, BLOOM_TIMER_BLUR);
 			resources->InitPixelShader(g_bUseSteamVR ? resources->_bloomVGaussPS_VR : resources->_bloomVGaussPS);
-			context->PSSetShaderResources(0, 1, resources->_bloomOutput1SRV.GetAddressOf());
-			context->ClearRenderTargetView(resources->_inputBloomMaskRTV, bgColor);
-			context->OMSetRenderTargets(1, resources->_inputBloomMaskRTV.GetAddressOf(), NULL);
+			context->PSSetShaderResources(0, 1, resources->_bloomBlurTempSRV[level - 1].GetAddressOf());
+			context->OMSetRenderTargets(1, resources->_bloomLevelRTV[level - 1].GetAddressOf(), NULL);
 			break;
-		case 2: // Horizontal Gaussian Blur
-			// Input:  _bloomOutput2
-			// Output: _bloomOutput1
-			resources->InitPixelShader(g_bUseSteamVR ? resources->_bloomHGaussPS_VR : resources->_bloomHGaussPS);
-			context->PSSetShaderResources(0, 1, resources->_bloomOutput2SRV.GetAddressOf());
-			context->ClearRenderTargetView(resources->_renderTargetViewBloom1, bgColor);
-			context->OMSetRenderTargets(1, resources->_renderTargetViewBloom1.GetAddressOf(), NULL);
-			break;
-		case 3: // Final pass to combine the bloom texture with the offscreenBuffer
-			// Input:  _bloomOutput2, _offscreenBufferAsInput
-			// Output: _offscreenBuffer (_bloomOutput1?)
-			resources->InitPixelShader(g_bUseSteamVR ? resources->_bloomCombinePS_VR : resources->_bloomCombinePS);
-			context->ResolveSubresource(resources->_offscreenBufferAsInput, 0, resources->_offscreenBuffer,
-				0, BACKBUFFER_FORMAT);
-			if (g_bUseSteamVR) {
-				context->ResolveSubresource(
-					resources->_offscreenBufferAsInput, D3D11CalcSubresource(0, 1, 1),
-					resources->_offscreenBuffer, D3D11CalcSubresource(0, 1, 1), BACKBUFFER_FORMAT);
-			}
-			context->PSSetShaderResources(0, 1, resources->_offscreenAsInputShaderResourceView.GetAddressOf());
-			context->PSSetShaderResources(1, 1, resources->_bloomOutput2SRV.GetAddressOf());
-			context->OMSetRenderTargets(1, resources->_renderTargetView.GetAddressOf(), NULL);
-			break;
-		case 4:
-			{
-				// Input: _bloomInputMask, {_bloomSum|_bloom2}
-				// Output: {_bloom2|_bloomSum}
-				// slot 0: mask
-				// slot 1: accumulator
-				resources->InitPixelShader(g_bUseSteamVR ? resources->_bloomBufferAddPS_VR : resources->_bloomBufferAddPS);
-				context->PSSetShaderResources(0, 1, resources->_offscreenAsInputBloomMaskSRV.GetAddressOf());
-				// We're going to flip-flip between rendering to bloom2 and bloomSum to avoid a CopyResource into
-				// bloomSum (copy operations are expensive).
-				// We need to control for both even and odd number of levels.
-				// Odd number of levels: check (level % 2 == 0)
-				// Even number of levels: check (level % 2 == 1)
-				// Either way, on the last level we should be rendering to bloomSum:
-				// No clears are needed here: this pass overwrites the whole accumulator region, and
-				// everything outside it stays at zero from the clear done before the first level.
-				// The combine pass relies on those zeros when it samples the edges of the region.
-				const int modulus = (g_BloomConfig.iNumPasses % 2 == 0) ? 1 : 0;
-				if (level % 2 == modulus)
-				{
-					context->PSSetShaderResources(1, 1, resources->_bloomOutput2SRV.GetAddressOf());
-					context->OMSetRenderTargets(1, resources->_renderTargetViewBloomSum.GetAddressOf(), NULL);
-				}
-				else
-				{
-					context->PSSetShaderResources(1, 1, resources->_bloomOutputSumSRV.GetAddressOf());
-					context->OMSetRenderTargets(1, resources->_renderTargetViewBloom2.GetAddressOf(), NULL);
-				}
-				break;
-			}
-		case 5: // Final pass to combine the bloom accumulated texture with the offscreenBuffer
-			// Input:  _bloomSum, _offscreenBufferAsInput
+		case 5: // Final pass to combine the bloom levels with the offscreenBuffer
+			// Input:  _bloomLevel, _offscreenBufferAsInput
 			// Output: _offscreenBuffer
 			if (g_bDumpSSAOBuffers)
 			{
-				DirectX::SaveDDSTextureToFile(context, resources->_bloomOutputSum, L"C:\\Temp\\_bloomOutputSum.dds");
+				for (int i = 0; i < g_BloomConfig.iNumPasses; i++)
+				{
+					wchar_t filename[80];
+					swprintf_s(filename, 80, L"C:\\Temp\\_bloomLevel-%d.dds", i + 1);
+					DirectX::SaveDDSTextureToFile(context, resources->_bloomLevel[i], filename);
+				}
 			}
 
 			resources->InitPixelShader(g_bUseSteamVR ? resources->_bloomCombinePS_VR : resources->_bloomCombinePS);
+			g_BloomGPUTimer.Mark(context, BLOOM_TIMER_COMBINE_RESOLVE);
 			context->ResolveSubresource(resources->_offscreenBufferAsInput, 0, resources->_offscreenBuffer,
 				0, BACKBUFFER_FORMAT);
 			if (g_bUseSteamVR) {
@@ -1839,8 +1801,14 @@ void PrimarySurface::BloomBasicPass(int pass, float fZoomFactor, int level) {
 					resources->_offscreenBufferAsInput, D3D11CalcSubresource(0, 1, 1),
 					resources->_offscreenBuffer, D3D11CalcSubresource(0, 1, 1), BACKBUFFER_FORMAT);
 			}
+			g_BloomGPUTimer.Mark(context, BLOOM_TIMER_COMBINE);
 			context->PSSetShaderResources(0, 1, resources->_offscreenAsInputShaderResourceView.GetAddressOf());
-			context->PSSetShaderResources(1, 1, resources->_bloomOutputSumSRV.GetAddressOf());
+			{
+				ID3D11ShaderResourceView* levelSRVs[MAX_BLOOM_LEVELS] = {};
+				for (int i = 0; i < g_BloomConfig.iNumPasses; i++)
+					levelSRVs[i] = resources->_bloomLevelSRV[i];
+				context->PSSetShaderResources(1, MAX_BLOOM_LEVELS, levelSRVs);
+			}
 			context->OMSetRenderTargets(1, resources->_renderTargetView.GetAddressOf(), NULL);
 			break;
 	}
@@ -1848,6 +1816,12 @@ void PrimarySurface::BloomBasicPass(int pass, float fZoomFactor, int level) {
 		context->DrawInstanced(6, 2, 0, 0); // if (g_bUseSteamVR)
 	else
 		context->Draw(6, 0);
+
+	if (pass == 5) {
+		// Unbind the bloom levels: they'll be render targets again on the next frame
+		ID3D11ShaderResourceView* nullSRVs[MAX_BLOOM_LEVELS] = {};
+		context->PSSetShaderResources(1, MAX_BLOOM_LEVELS, nullSRVs);
+	}
 
 	// Restore previous rendertarget, etc
 	// TODO: Is this really needed?
@@ -1862,123 +1836,79 @@ void PrimarySurface::BloomBasicPass(int pass, float fZoomFactor, int level) {
 }
 
 /*
- * Performs a full bloom blur pass to build a pyramidal bloom. This function
- * calls BloomBasicPass internally several times.
- * Input: Bloom mask (_offscreenBufferAsInputReshadeMask, _offscreenBufferAsInputReshadeMaskR)
- * Output: 
- *		_offscreenBuffer (with accumulated bloom)
- *		_offscreenBufferAsInputReshadeMask, _offscreenBufferAsInputReshadeMaskR (blurred and downsampled from this pass)
+ * Blurs one level of the bloom pyramid. This function calls BloomBasicPass internally.
+ * PyramidLevel is 1-based.
+ * Input: Bloom mask (_offscreenBufferAsInputBloomMask) on the first level, the previous
+ *        level (_bloomLevel[PyramidLevel - 2]) otherwise.
+ * Output: _bloomLevel[PyramidLevel - 1], which is also the input for the next level.
  */
 void PrimarySurface::BloomPyramidLevelPass(int PyramidLevel, int AdditionalPasses, float fZoomFactor, bool debug=false) {
 	this->_deviceResources->BeginAnnotatedEvent(L"BloomPyramidLevelPass");
 
 	auto &resources = this->_deviceResources;
-	auto &context = resources->_d3dDeviceContext;
+	const int index = PyramidLevel - 1;
 	float fPixelScale = g_fBloomSpread[PyramidLevel];
 	float fFirstPassZoomFactor = fZoomFactor / 2.0f;
+	const float screenWidth  = (float)resources->_backbufferWidth;
+	const float screenHeight = (float)resources->_backbufferHeight;
+
+	// The pixel sizes below are computed for full-screen textures, and then converted to the
+	// UVs of the actual textures, which are smaller.
+	// The input of the horizontal pass is the bloom mask on the first level, which covers the
+	// whole texture. Otherwise it's the previous level, which only covers inWidth x inHeight
+	// of its texture.
+	float inTexWidth, inTexHeight, inWidth, inHeight;
+	if (PyramidLevel == 1) {
+		inTexWidth  = inWidth  = screenWidth;
+		inTexHeight = inHeight = screenHeight;
+	}
+	else {
+		inTexWidth  = (float)resources->_bloomLevelWidth[index - 1];
+		inTexHeight = (float)resources->_bloomLevelHeight[index - 1];
+		inWidth  = screenWidth  / fFirstPassZoomFactor;
+		inHeight = screenHeight / fFirstPassZoomFactor;
+	}
+	const float outTexWidth  = (float)resources->_bloomLevelWidth[index];
+	const float outTexHeight = (float)resources->_bloomLevelHeight[index];
+	const float outWidth  = screenWidth  / fZoomFactor;
+	const float outHeight = screenHeight / fZoomFactor;
 
 	this->_deviceResources->BeginAnnotatedEvent(L"HorizontalBloomPass");
-
-	// The textures are always going to be g_fCurScreenWidth x g_fCurScreenHeight; but the step
-	// size will be twice as big in the next pass due to the downsample, so we have to compensate
-	// with a zoom factor:
-	g_BloomPSCBuffer.pixelSizeX			= fPixelScale * g_fCurScreenWidthRcp  / fFirstPassZoomFactor;
-	g_BloomPSCBuffer.pixelSizeY			= fPixelScale * g_fCurScreenHeightRcp / fFirstPassZoomFactor;
-	g_BloomPSCBuffer.amplifyFactor		= 1.0f / fFirstPassZoomFactor;
-	g_BloomPSCBuffer.bloomStrength		= g_fBloomLayerMult[PyramidLevel];
+	// The step size will be twice as big in the next pass due to the downsample, so we have to
+	// compensate with a zoom factor:
+	g_BloomPSCBuffer.pixelSizeX			= fPixelScale * g_fCurScreenWidthRcp  / fFirstPassZoomFactor * screenWidth  / inTexWidth;
+	g_BloomPSCBuffer.pixelSizeY			= fPixelScale * g_fCurScreenHeightRcp / fFirstPassZoomFactor * screenHeight / inTexHeight;
 	g_BloomPSCBuffer.saturationStrength = g_BloomConfig.fSaturationStrength;
 	g_BloomPSCBuffer.uvStepSize			= g_BloomConfig.uvStepSize1;
-	//g_BloomPSCBuffer.uvStepSize			= 1.5f;
+	g_BloomPSCBuffer.uvScaleX			= inWidth  / inTexWidth;
+	g_BloomPSCBuffer.uvScaleY			= inHeight / inTexHeight;
+	// Clamping to half a texel replicates the edges of the texture. The bloom mask is clamped on
+	// all sides. The levels are only clamped on the left and top sides: past the right and bottom
+	// sides the bloom sampler returns zero.
+	g_BloomPSCBuffer.uvMinX				= 0.5f / inTexWidth;
+	g_BloomPSCBuffer.uvMinY				= 0.5f / inTexHeight;
+	g_BloomPSCBuffer.uvMaxX				= (PyramidLevel == 1) ? 1.0f - 0.5f / inTexWidth  : BLOOM_NO_UV_LIMIT;
+	g_BloomPSCBuffer.uvMaxY				= (PyramidLevel == 1) ? 1.0f - 0.5f / inTexHeight : BLOOM_NO_UV_LIMIT;
 	resources->InitPSConstantBufferBloom(resources->_bloomConstantBuffer.GetAddressOf(), &g_BloomPSCBuffer);
 
-	// DEBUG
-	/*if (g_bDumpSSAOBuffers) {
-		wchar_t filename[80];
-		swprintf_s(filename, 80, L"c:\\temp\\_offscreenInputBloomMask-%d.dds", PyramidLevel);
-		DirectX::SaveDDSTextureToFile(context, resources->_offscreenBufferAsInputBloomMask, filename);
-	}*/
-	// DEBUG
-
-	// Initial Horizontal Gaussian Blur from Masked Buffer. input: reshade mask, output: bloom1
-	// This pass will downsample the image according to fViewportDivider:
+	// Horizontal Gaussian Blur. This pass will downsample the image by 2.
 	BloomBasicPass(0, fZoomFactor, PyramidLevel);
 	this->_deviceResources->EndAnnotatedEvent();
-	// DEBUG
-	/*if (g_bDumpSSAOBuffers) {
-		wchar_t filename[80];
-		swprintf_s(filename, 80, L"c:\\temp\\_bloom1-pass0-level-%d.dds", PyramidLevel);
-		DirectX::SaveDDSTextureToFile(context, resources->_bloomOutput1, filename);
-	}*/
-	// DEBUG
 
 	this->_deviceResources->BeginAnnotatedEvent(L"VerticalBloomPass");
-	// Second Vertical Gaussian Blur: adjust the pixel size since this image was downsampled in
-	// the previous pass:
-	g_BloomPSCBuffer.pixelSizeX		= fPixelScale * g_fCurScreenWidthRcp / fZoomFactor;
-	g_BloomPSCBuffer.pixelSizeY		= fPixelScale * g_fCurScreenHeightRcp / fZoomFactor;
-	// The UVs should now go to half the original range because the image was downsampled:
-	g_BloomPSCBuffer.amplifyFactor	= 1.0f / fZoomFactor;
+	// Vertical Gaussian Blur: adjust the pixel size since this image was downsampled in the
+	// previous pass
+	g_BloomPSCBuffer.pixelSizeX		= fPixelScale * g_fCurScreenWidthRcp  / fZoomFactor * screenWidth  / outTexWidth;
+	g_BloomPSCBuffer.pixelSizeY		= fPixelScale * g_fCurScreenHeightRcp / fZoomFactor * screenHeight / outTexHeight;
+	g_BloomPSCBuffer.uvScaleX		= outWidth  / outTexWidth;
+	g_BloomPSCBuffer.uvScaleY		= outHeight / outTexHeight;
+	g_BloomPSCBuffer.uvMinX			= 0.5f / outTexWidth;
+	g_BloomPSCBuffer.uvMinY			= 0.5f / outTexHeight;
+	g_BloomPSCBuffer.uvMaxX			= BLOOM_NO_UV_LIMIT;
+	g_BloomPSCBuffer.uvMaxY			= BLOOM_NO_UV_LIMIT;
 	resources->InitPSConstantBufferBloom(resources->_bloomConstantBuffer.GetAddressOf(), &g_BloomPSCBuffer);
-	// Vertical Gaussian Blur. input: bloom1, output: bloom2
 	BloomBasicPass(1, fZoomFactor, PyramidLevel);
 	this->_deviceResources->EndAnnotatedEvent();
-	// DEBUG
-	/*if (g_bDumpSSAOBuffers) {
-		wchar_t filename[80];
-		swprintf_s(filename, 80, L"c:\\temp\\_bloom2-pass1-level-%d.dds", PyramidLevel);
-		DirectX::SaveDDSTextureToFile(context, resources->_bloomOutput2, filename);
-	}*/
-	// DEBUG
-
-#ifdef DISABLED
-	for (int i = 0; i < AdditionalPasses; i++) {
-		this->_deviceResources->BeginAnnotatedEvent(L"AdditionalBloomPass");
-		// Alternating between 2.0 and 1.5 avoids banding artifacts
-		//g_BloomPSCBuffer.uvStepSize = (i % 2 == 0) ? 2.0f : 1.5f;
-		//g_BloomPSCBuffer.uvStepSize = 1.5f + (i % 3) * 0.7f;
-		g_BloomPSCBuffer.uvStepSize = (i % 2 == 0) ? g_BloomConfig.uvStepSize2 : g_BloomConfig.uvStepSize1;
-		resources->InitPSConstantBufferBloom(resources->_bloomConstantBuffer.GetAddressOf(), &g_BloomPSCBuffer);
-		// Horizontal Gaussian Blur. input: bloom2, output: bloom1
-		BloomBasicPass(2, fZoomFactor);
-		// Vertical Gaussian Blur. input: bloom1, output: bloom2
-		BloomBasicPass(1, fZoomFactor);
-		this->_deviceResources->EndAnnotatedEvent();
-	}
-#endif
-	// The output from the blur operation will be in _offscreenAsInputBloomMaskSRV, so it can be re-used to
-	// blur the next pyramid level.
-
-	// DEBUG
-	/*if (g_bDumpSSAOBuffers) {
-		wchar_t filename[80];
-		swprintf_s(filename, 80, L"c:\\temp\\_bloomInput-Level-%d.dds", PyramidLevel);
-		DirectX::SaveDDSTextureToFile(context, resources->_offscreenBufferAsInputBloomMask, filename);
-	}*/
-	// DEBUG
-
-	g_BloomPSCBuffer.amplifyFactor = 1.0f / fZoomFactor;
-	resources->InitPSConstantBufferBloom(resources->_bloomConstantBuffer.GetAddressOf(), &g_BloomPSCBuffer);
-	this->_deviceResources->BeginAnnotatedEvent(L"MergeBloomPass");
-
-	// Accummulate the bloom buffer, input: {bloom2|bloomSum}, bloomMask; output: {bloom2|bloomSum}
-	// The output flip-flops between bloom2 and bloomSum, but it's setup so that the final
-	// pyramid level will render to bloomSum.
-	BloomBasicPass(4, fZoomFactor, PyramidLevel);
-
-	this->_deviceResources->EndAnnotatedEvent();
-	// DEBUG
-	/*if (g_bDumpSSAOBuffers) {
-		wchar_t filename[80];
-		swprintf_s(filename, 80, L"c:\\temp\\_bloomOutputSum-Level-%d.dds", PyramidLevel);
-		DirectX::SaveDDSTextureToFile(context, resources->_bloomOutputSum, filename);
-	}*/
-	// DEBUG
-
-	// To make this step compatible with the rest of the code, we need to copy the results
-	// to offscreenBuffer and offscreenBufferR (in SteamVR mode).
-	/*context->CopyResource(resources->_offscreenBuffer, resources->_bloomOutput1);
-	if (g_bUseSteamVR)
-		context->CopyResource(resources->_offscreenBufferR, resources->_bloomOutput1R);*/
 
 	this->_deviceResources->EndAnnotatedEvent();
 }
@@ -11965,13 +11895,6 @@ HRESULT PrimarySurface::Flip(
 					g_HyperspacePhaseFSM == HS_HYPER_EXIT_ST ||
 					g_HyperspacePhaseFSM == HS_POST_HYPER_EXIT_ST;
 
-				// Initialize the accummulator buffer
-				float bgColor[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
-				context->ClearRenderTargetView(resources->_renderTargetViewBloomSum, bgColor);
-				context->ClearRenderTargetView(resources->_renderTargetViewBloom2, bgColor);
-				/*if (g_bUseSteamVR)
-					context->ClearRenderTargetView(resources->_renderTargetViewBloomSumR, bgColor);*/
-
 				// DEBUG
 				/*if (g_bDumpSSAOBuffers) {
 					log_debug("[DBG] Dumping bloom buffers");
@@ -11982,10 +11905,10 @@ HRESULT PrimarySurface::Flip(
 
 				{
 					float fScale = 2.0f;
-					// Set the _mainSamplerState on the first 2 texture slots. That way we prevent the
+					// The bloom sampler returns zero outside the textures. That way we prevent the
 					// bloom effect from "bleeding" around the edge of the screen.
-					context->PSSetSamplers(0, 1, resources->_mainSamplerState.GetAddressOf());
-					context->PSSetSamplers(1, 1, resources->_mainSamplerState.GetAddressOf());
+					context->PSSetSamplers(0, 1, resources->_bloomSamplerState.GetAddressOf());
+					context->PSSetSamplers(1, 1, resources->_bloomSamplerState.GetAddressOf());
 					for (int i = 1; i <= g_BloomConfig.iNumPasses; i++) {
 						int AdditionalPasses = g_iBloomPasses[i] - 1;
 						// Zoom level 2.0f with only one pass tends to show artifacts unless
@@ -11999,12 +11922,24 @@ HRESULT PrimarySurface::Flip(
 					// TODO: Check the statement below, I'm not sure it's current anymore (?)
 					// If SSAO is not enabled, then we can merge the bloom buffer with the offscreen buffer
 					// here. Otherwise, we'll merge it along with the SSAO buffer later.
-					// Add the accumulated bloom with the offscreen buffer
-					// Input: _bloomSum, _offscreenBufferAsInput
+					// Add all the bloom levels to the offscreen buffer
+					// Input: _bloomLevel, _offscreenBufferAsInput
 					// Output: _offscreenBuffer
-					// The accumulator is at reduced resolution, amplifyFactor maps the UVs to it:
-					g_BloomPSCBuffer.amplifyFactor = 1.0f / BLOOM_ACCUM_ZOOM_FACTOR;
-					resources->InitPSConstantBufferBloom(resources->_bloomConstantBuffer.GetAddressOf(), &g_BloomPSCBuffer);
+					{
+						g_BloomPSCBuffer.numLevels = g_BloomConfig.iNumPasses;
+						float fScale = 2.0f;
+						for (int i = 0; i < MAX_BLOOM_LEVELS; i++, fScale *= 2.0f) {
+							// Each level covers screen / fScale of its texture, see CreateBloomLevelBuffers()
+							const float texWidth  = (float)resources->_bloomLevelWidth[i];
+							const float texHeight = (float)resources->_bloomLevelHeight[i];
+							g_BloomPSCBuffer.levelUV[i][0] = (float)resources->_backbufferWidth  / fScale / texWidth;
+							g_BloomPSCBuffer.levelUV[i][1] = (float)resources->_backbufferHeight / fScale / texHeight;
+							g_BloomPSCBuffer.levelUV[i][2] = 0.5f / texWidth;
+							g_BloomPSCBuffer.levelUV[i][3] = 0.5f / texHeight;
+							g_BloomPSCBuffer.levelStrength[i] = g_fBloomLayerMult[i + 1];
+						}
+						resources->InitPSConstantBufferBloom(resources->_bloomConstantBuffer.GetAddressOf(), &g_BloomPSCBuffer);
+					}
 					resources->BeginAnnotatedEvent(L"BloomCombinePass");
 					BloomBasicPass(5, 1.0f, 0);
 					resources->EndAnnotatedEvent();
@@ -12024,6 +11959,10 @@ HRESULT PrimarySurface::Flip(
 					{
 						log_debug("[DBG] [Bloom] GPU time: avg %0.3f ms, min %0.3f ms, max %0.3f ms, %d frames",
 							stats.avgMs, stats.minMs, stats.maxMs, stats.numFrames);
+						const double* section = stats.sectionAvgMs;
+						log_debug("[DBG] [Bloom]   setup %0.3f, blur %0.3f, combine resolve %0.3f, combine %0.3f ms",
+							section[BLOOM_TIMER_SETUP], section[BLOOM_TIMER_BLUR],
+							section[BLOOM_TIMER_COMBINE_RESOLVE], section[BLOOM_TIMER_COMBINE]);
 						// Shown for a bit longer than the reporting window so the message doesn't flicker
 						DisplayTimedMessageV(6, 2, "Bloom GPU time: %0.3f ms", stats.avgMs);
 					}

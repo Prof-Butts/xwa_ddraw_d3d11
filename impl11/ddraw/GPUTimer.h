@@ -7,9 +7,16 @@
  * Measures the GPU time of a block of D3D11 commands using timestamp queries.
  * The results are read back a few frames later, so measuring never stalls the GPU.
  *
+ * The block can be split into sections with Mark(): the time from one Mark() to the
+ * next one (or to End()) is added to that section. The time before the first Mark()
+ * goes to section 0. A section can be marked many times per frame, its times add up.
+ *
  * Usage, once per frame:
  *   timer.Begin(device, context, tag);
- *   ... commands to measure ...
+ *   timer.Mark(context, SECTION_A);
+ *   ... commands ...
+ *   timer.Mark(context, SECTION_B);
+ *   ... commands ...
  *   timer.End(context);
  *   if (timer.GetReport(5000, &stats, &tag)) { ... log stats ... }
  *
@@ -19,9 +26,12 @@
 class GPUTimer
 {
 public:
+	static const int MAX_SECTIONS = 8;
+
 	struct Stats
 	{
 		double avgMs, minMs, maxMs;
+		double sectionAvgMs[MAX_SECTIONS];
 		int numFrames;
 	};
 
@@ -42,9 +52,22 @@ public:
 			return;
 
 		s.tag = tag;
+		s.numTimestamps = 0;
 		context->Begin(s.disjoint);
-		context->End(s.start);
 		_measuring = true;
+		AddTimestamp(context, 0);
+	}
+
+	// Starts a new section. Does nothing unless Begin() started a measurement.
+	void Mark(ID3D11DeviceContext* context, int section)
+	{
+		// The last timestamp is reserved for End(). If there are too many marks, the
+		// rest of the time is added to the current section.
+		if (!_measuring || section < 0 || section >= MAX_SECTIONS ||
+			_sets[_cur].numTimestamps >= MAX_TIMESTAMPS - 1)
+			return;
+
+		AddTimestamp(context, section);
 	}
 
 	void End(ID3D11DeviceContext* context)
@@ -53,7 +76,8 @@ public:
 			return;
 
 		QuerySet& s = _sets[_cur];
-		context->End(s.end);
+		// This timestamp only closes the last section, so its section doesn't matter
+		AddTimestamp(context, 0);
 		context->End(s.disjoint);
 		s.pending = true;
 		_cur = (_cur + 1) % NUM_QUERY_SETS;
@@ -71,6 +95,8 @@ public:
 		stats->avgMs = _sumMs / _numFrames;
 		stats->minMs = _minMs;
 		stats->maxMs = _maxMs;
+		for (int i = 0; i < MAX_SECTIONS; i++)
+			stats->sectionAvgMs[i] = _sectionSumMs[i] / _numFrames;
 		stats->numFrames = _numFrames;
 		*tag = _windowTag;
 		ResetWindow(_windowTag);
@@ -79,10 +105,15 @@ public:
 
 private:
 	static const int NUM_QUERY_SETS = 4;
+	static const int MAX_TIMESTAMPS = 64;
 
 	struct QuerySet
 	{
-		ComPtr<ID3D11Query> disjoint, start, end;
+		ComPtr<ID3D11Query> disjoint;
+		ComPtr<ID3D11Query> timestamps[MAX_TIMESTAMPS];
+		// sections[i] is the section that starts at timestamps[i]
+		int sections[MAX_TIMESTAMPS];
+		int numTimestamps = 0;
 		bool pending = false;
 		int tag = 0;
 	};
@@ -95,6 +126,7 @@ private:
 	int _windowTag = -1;
 	ULONGLONG _windowStart = 0;
 	double _sumMs = 0.0, _minMs = DBL_MAX, _maxMs = 0.0;
+	double _sectionSumMs[MAX_SECTIONS] = {};
 	int _numFrames = 0;
 
 	bool CreateQueries(ID3D11Device* device)
@@ -108,12 +140,19 @@ private:
 		for (QuerySet& s : _sets)
 		{
 			s.pending = false;
-			if (FAILED(device->CreateQuery(&disjointDesc, &s.disjoint)) ||
-				FAILED(device->CreateQuery(&timestampDesc, &s.start)) ||
-				FAILED(device->CreateQuery(&timestampDesc, &s.end)))
+			s.numTimestamps = 0;
+			if (FAILED(device->CreateQuery(&disjointDesc, &s.disjoint)))
 			{
 				log_debug("[DBG] [GPUTimer] Could not create the timestamp queries");
 				return false;
+			}
+			for (int i = 0; i < MAX_TIMESTAMPS; i++)
+			{
+				if (FAILED(device->CreateQuery(&timestampDesc, &s.timestamps[i])))
+				{
+					log_debug("[DBG] [GPUTimer] Could not create the timestamp queries");
+					return false;
+				}
 			}
 		}
 
@@ -122,32 +161,61 @@ private:
 		return true;
 	}
 
+	void AddTimestamp(ID3D11DeviceContext* context, int section)
+	{
+		QuerySet& s = _sets[_cur];
+		s.sections[s.numTimestamps] = section;
+		context->End(s.timestamps[s.numTimestamps]);
+		s.numTimestamps++;
+	}
+
 	// Reads back every query set that the GPU has finished with.
 	void Collect(ID3D11DeviceContext* context)
 	{
 		const UINT flags = D3D11_ASYNC_GETDATA_DONOTFLUSH;
+		UINT64 t[MAX_TIMESTAMPS];
 		for (QuerySet& s : _sets)
 		{
 			if (!s.pending)
 				continue;
 
 			D3D11_QUERY_DATA_TIMESTAMP_DISJOINT disjoint;
-			UINT64 t0, t1;
-			if (context->GetData(s.disjoint, &disjoint, sizeof(disjoint), flags) != S_OK ||
-				context->GetData(s.start, &t0, sizeof(t0), flags) != S_OK ||
-				context->GetData(s.end, &t1, sizeof(t1), flags) != S_OK)
+			if (context->GetData(s.disjoint, &disjoint, sizeof(disjoint), flags) != S_OK)
+				continue;
+
+			bool ready = true;
+			for (int i = 0; i < s.numTimestamps && ready; i++)
+				ready = context->GetData(s.timestamps[i], &t[i], sizeof(t[i]), flags) == S_OK;
+			if (!ready)
 				continue;
 
 			s.pending = false;
 			// Disjoint means the GPU clock changed during the measurement, so the
 			// timestamps can't be trusted.
-			if (disjoint.Disjoint || disjoint.Frequency == 0 || t1 < t0 || s.tag != _windowTag)
+			if (disjoint.Disjoint || disjoint.Frequency == 0 || s.numTimestamps < 2 || s.tag != _windowTag)
 				continue;
 
-			double ms = (double)(t1 - t0) * 1000.0 / (double)disjoint.Frequency;
+			const double toMs = 1000.0 / (double)disjoint.Frequency;
+			double sectionMs[MAX_SECTIONS] = {};
+			bool valid = true;
+			for (int i = 0; i + 1 < s.numTimestamps; i++)
+			{
+				if (t[i + 1] < t[i])
+				{
+					valid = false;
+					break;
+				}
+				sectionMs[s.sections[i]] += (double)(t[i + 1] - t[i]) * toMs;
+			}
+			if (!valid)
+				continue;
+
+			double ms = (double)(t[s.numTimestamps - 1] - t[0]) * toMs;
 			_sumMs += ms;
 			if (ms < _minMs) _minMs = ms;
 			if (ms > _maxMs) _maxMs = ms;
+			for (int i = 0; i < MAX_SECTIONS; i++)
+				_sectionSumMs[i] += sectionMs[i];
 			_numFrames++;
 		}
 	}
@@ -159,6 +227,8 @@ private:
 		_sumMs = 0.0;
 		_minMs = DBL_MAX;
 		_maxMs = 0.0;
+		for (int i = 0; i < MAX_SECTIONS; i++)
+			_sectionSumMs[i] = 0.0;
 		_numFrames = 0;
 	}
 };

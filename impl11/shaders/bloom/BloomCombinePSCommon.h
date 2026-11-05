@@ -1,4 +1,5 @@
 #include "BloomCommon.fxh"
+#include "BloomCBuffer.h"
 // https://github.com/martymcmodding/qUINT/blob/master/Shaders/qUINT_bloom.fx
 
 // Based on the implementation from:
@@ -9,26 +10,18 @@
 Texture2DArray texture0 : register(t0);
 SamplerState sampler0 : register(s0);
 
-// This texture slot should be the bloom texture
-Texture2DArray bloomTex : register(t1);
+// These texture slots should be the bloom levels, starting at t1
+Texture2DArray bloomLevels[MAX_BLOOM_LEVELS] : register(t1);
 SamplerState bloomSampler : register(s1);
 #else
 // This texture slot should be the original backbuffer SRV
 Texture2D texture0 : register(t0);
 SamplerState sampler0 : register(s0);
 
-// This texture slot should be the bloom texture
-Texture2D bloomTex : register(t1);
+// These texture slots should be the bloom levels, starting at t1
+Texture2D bloomLevels[MAX_BLOOM_LEVELS] : register(t1);
 SamplerState bloomSampler : register(s1);
 #endif
-
-cbuffer ConstantBuffer : register(b2)
-{
-	float pixelSizeX, pixelSizeY, general_bloom_strength, amplifyFactor;
-	// 16 bytes
-	float bloomStrength, uvStepSize, saturationStrength, unused2;
-	// 32 bytes
-};
 
 struct PixelShaderInput
 {
@@ -134,17 +127,31 @@ struct PixelShaderOutput
 
 float4 main(PixelShaderInput input) : SV_TARGET
 {
-	// The bloom accumulator is stored at reduced resolution in the top-left corner
-	// of bloomTex. amplifyFactor scales the UVs to that region.
-	float2 bloom_uv = input.uv * amplifyFactor;
 #ifdef INSTANCED_RENDERING
 	float4 color = texture0.Sample(sampler0, float3(input.uv, input.viewId));
-	float3 bloom = bloomTex.Sample(bloomSampler, float3(bloom_uv, input.viewId)).rgb;
 #else
 	float4 color = texture0.Sample(sampler0, input.uv);
-	float3 bloom = bloomTex.Sample(bloomSampler, bloom_uv).rgb;
 #endif
 	color.w = 1.0f;
+
+	// Add up all the bloom levels. Each level covers the screen, but its texture is
+	// rounded up in size, so levelUV maps the screen UVs to the area it covers.
+	float3 bloom = 0;
+	[unroll]
+	for (int i = 0; i < MAX_BLOOM_LEVELS; i++) {
+		if (i < numLevels) {
+			// Clamping to half a texel replicates the edge on the left and top sides. The
+			// bloom sampler returns zero past the right and bottom sides.
+			float2 uv = max(input.uv * levelUV[i].xy, levelUV[i].zw);
+#ifdef INSTANCED_RENDERING
+			float3 level = bloomLevels[i].SampleLevel(bloomSampler, float3(uv, input.viewId), 0).rgb;
+#else
+			float3 level = bloomLevels[i].SampleLevel(bloomSampler, uv, 0).rgb;
+#endif
+			// Truncate negative values coming from the bloom levels
+			bloom += max(0, levelStrength[i / 4][i % 4] * level);
+		}
+	}
 
 	//float3 HSV = RGBtoHSV(output.bloom.xyz);
 	//float V = HSV.z;

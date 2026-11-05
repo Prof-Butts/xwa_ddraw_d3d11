@@ -1,4 +1,5 @@
 #include "BloomCommon.fxh"
+#include "BloomCBuffer.h"
 
 // Based on the implementation from:
 // https://learnopengl.com/Advanced-Lighting/Bloom
@@ -14,14 +15,6 @@ Texture2D      texture0 : register(t0);
 #endif
 SamplerState   sampler0 : register(s0);
 
-cbuffer ConstantBuffer : register(b2)
-{
-	float pixelSizeX, pixelSizeY, unused1, amplifyFactor;
-	// 16 bytes
-	float bloomStrength, uvStepSize, saturationStrength, unused2;
-	// 32 bytes
-};
-
 struct PixelShaderInput
 {
 	float4 pos : SV_POSITION;
@@ -33,11 +26,11 @@ struct PixelShaderInput
 
 float4 main(PixelShaderInput input) : SV_TARGET
 {
-	float2 input_uv = input.uv * amplifyFactor;
+	float2 input_uv = input.uv * uvScale;
 #ifdef INSTANCED_RENDERING
-	float3 color = texture0.Sample(sampler0, float3(input_uv, input.viewId)).xyz * weight[0];
+	float3 color = texture0.Sample(sampler0, float3(clamp(input_uv, uvMin, uvMax), input.viewId)).xyz * weight[0];
 #else
-	float3 color = texture0.Sample(sampler0, input_uv).xyz * weight[0];
+	float3 color = texture0.Sample(sampler0, clamp(input_uv, uvMin, uvMax)).xyz * weight[0];
 #endif
 	float3 s1, s2;
 	float2 dy = uvStepSize * float2(0, pixelSizeY);
@@ -47,11 +40,11 @@ float4 main(PixelShaderInput input) : SV_TARGET
 	[unroll]
 	for (int i = 1; i < 3; i++) {
 #ifdef INSTANCED_RENDERING
-		s1 = texture0.Sample(sampler0, float3(uv1, input.viewId)).xyz * weight[i];
-		s2 = texture0.Sample(sampler0, float3(uv2, input.viewId)).xyz * weight[i];
+		s1 = texture0.Sample(sampler0, float3(clamp(uv1, uvMin, uvMax), input.viewId)).xyz * weight[i];
+		s2 = texture0.Sample(sampler0, float3(clamp(uv2, uvMin, uvMax), input.viewId)).xyz * weight[i];
 #else
-		s1 = texture0.Sample(sampler0, uv1).xyz * weight[i];
-		s2 = texture0.Sample(sampler0, uv2).xyz * weight[i];
+		s1 = texture0.Sample(sampler0, clamp(uv1, uvMin, uvMax)).xyz * weight[i];
+		s2 = texture0.Sample(sampler0, clamp(uv2, uvMin, uvMax)).xyz * weight[i];
 #endif
 		color += s1 + s2;
 		uv1 += dy;

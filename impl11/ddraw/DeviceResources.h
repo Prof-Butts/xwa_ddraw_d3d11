@@ -154,6 +154,8 @@ public:
 		const float scale, const float brightness, float inv_scale, float techRoomRatio = 1.0f);
 	void InitPSConstantBufferBarrel(ID3D11Buffer** buffer, const float k1, const float k2, const float k3);
 	void InitPSConstantBufferBloom(ID3D11Buffer ** buffer, const BloomPixelShaderCBuffer * psConstants);
+	HRESULT CreateBloomLevelBuffers();
+	void ReleaseBloomLevelBuffers();
 	void InitPSConstantBufferSSAO(ID3D11Buffer ** buffer, const SSAOPixelShaderCBuffer * psConstants);
 	void InitPSConstantBuffer3D(ID3D11Buffer** buffer, const PixelShaderCBuffer *psConstants);
 	void InitPSConstantBufferDC(ID3D11Buffer** buffer, const DCPixelShaderCBuffer * psConstants);
@@ -265,9 +267,14 @@ public:
 	// Bloom
 	ComPtr<ID3D11Texture2D> _offscreenBufferBloomMask;  // Used to render the bloom mask
 	ComPtr<ID3D11Texture2D> _offscreenBufferAsInputBloomMask;  // Used to resolve offscreenBufferBloomMask
-	ComPtr<ID3D11Texture2D> _bloomOutput1; // Output from bloom pass 1
-	ComPtr<ID3D11Texture2D> _bloomOutput2; // Output from bloom pass 2
-	ComPtr<ID3D11Texture2D> _bloomOutputSum; // Bloom accummulator
+	ComPtr<ID3D11Texture2D> _bloomOutput1; // Used as a temporary buffer by SSDO
+	// Bloom pyramid. Level i is rendered at 1/2^(i+1) of the screen resolution: _bloomLevel[i] holds
+	// the blurred result and _bloomBlurTemp[i] the output of its horizontal blur pass. Their sizes
+	// are rounded up, and the texels outside the bloom viewport stay at zero.
+	ComPtr<ID3D11Texture2D> _bloomLevel[MAX_BLOOM_LEVELS];
+	ComPtr<ID3D11Texture2D> _bloomBlurTemp[MAX_BLOOM_LEVELS];
+	UINT _bloomLevelWidth[MAX_BLOOM_LEVELS] = {};
+	UINT _bloomLevelHeight[MAX_BLOOM_LEVELS] = {};
 	// Ambient Occlusion
 	ComPtr<ID3D11Texture2D> _depthBuf;
 	ComPtr<ID3D11Texture2D> _depthBufR;
@@ -343,8 +350,8 @@ public:
 	ComPtr<ID3D11RenderTargetView> _renderTargetViewBloomMask  = NULL; // Renders to _offscreenBufferBloomMask
 	ComPtr<ID3D11RenderTargetView> _inputBloomMaskRTV = NULL;  // Renders to _offscreenBufferAsInputBloomMask
 	ComPtr<ID3D11RenderTargetView> _renderTargetViewBloom1;    // Renders to bloomOutput1
-	ComPtr<ID3D11RenderTargetView> _renderTargetViewBloom2;    // Renders to bloomOutput2
-	ComPtr<ID3D11RenderTargetView> _renderTargetViewBloomSum;  // Renders to bloomOutputSum
+	ComPtr<ID3D11RenderTargetView> _bloomLevelRTV[MAX_BLOOM_LEVELS];
+	ComPtr<ID3D11RenderTargetView> _bloomBlurTempRTV[MAX_BLOOM_LEVELS];
 	// Ambient Occlusion
 	ComPtr<ID3D11RenderTargetView> _renderTargetViewDepthBuf;
 	ComPtr<ID3D11RenderTargetView> _renderTargetViewDepthBufR;
@@ -388,8 +395,8 @@ public:
 	// Bloom
 	ComPtr<ID3D11ShaderResourceView> _offscreenAsInputBloomMaskSRV;
 	ComPtr<ID3D11ShaderResourceView> _bloomOutput1SRV;     // SRV for bloomOutput1
-	ComPtr<ID3D11ShaderResourceView> _bloomOutput2SRV;     // SRV for bloomOutput2
-	ComPtr<ID3D11ShaderResourceView> _bloomOutputSumSRV;   // SRV for bloomOutputSum
+	ComPtr<ID3D11ShaderResourceView> _bloomLevelSRV[MAX_BLOOM_LEVELS];
+	ComPtr<ID3D11ShaderResourceView> _bloomBlurTempSRV[MAX_BLOOM_LEVELS];
 	// Ambient Occlusion
 	ComPtr<ID3D11ShaderResourceView> _depthBufSRV;    // SRV for depthBufAsInput
 	ComPtr<ID3D11ShaderResourceView> _depthBufSRV_R;  // SRV for depthBufAsInputR
@@ -455,8 +462,6 @@ public:
 	ComPtr<ID3D11PixelShader> _bloomVGaussPS_VR;
 	ComPtr<ID3D11PixelShader> _bloomCombinePS;
 	ComPtr<ID3D11PixelShader> _bloomCombinePS_VR;
-	ComPtr<ID3D11PixelShader> _bloomBufferAddPS;
-	ComPtr<ID3D11PixelShader> _bloomBufferAddPS_VR;
 	ComPtr<ID3D11PixelShader> _ssaoPS;
 	ComPtr<ID3D11PixelShader> _ssaoPS_VR;
 	ComPtr<ID3D11PixelShader> _ssaoBlurPS;
@@ -517,6 +522,8 @@ public:
 	ComPtr<ID3D11PixelShader> _singleBarrelPixelShader;
 	ComPtr<ID3D11RasterizerState> _mainRasterizerState;
 	ComPtr<ID3D11SamplerState> _mainSamplerState;
+	// Linear filtering, returns zero outside the texture. Used by the bloom passes
+	ComPtr<ID3D11SamplerState> _bloomSamplerState;
 	ComPtr<ID3D11SamplerState> _mirrorSamplerState;
 	ComPtr<ID3D11BlendState> _mainBlendState;
 	ComPtr<ID3D11DepthStencilState> _mainDepthState;

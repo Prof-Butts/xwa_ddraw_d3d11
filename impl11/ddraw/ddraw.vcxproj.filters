@@ -327,6 +327,9 @@
     <ClInclude Include="EffectsRenderer.h">
       <Filter>Fichiers d%27en-tête</Filter>
     </ClInclude>
+    <ClInclude Include="GPUTimer.h">
+      <Filter>Fichiers d%27en-tête</Filter>
+    </ClInclude>
     <ClInclude Include="SteamVRRenderer.h">
       <Filter>Fichiers d%27en-tête</Filter>
     </ClInclude>

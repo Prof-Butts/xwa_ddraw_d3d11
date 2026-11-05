@@ -204,6 +204,7 @@ copy /Y $(TargetPath) "C:\Program Files (x86)\GOG Galaxy\Games\XWAU2025-Full-1.0
     <ClInclude Include="Effects.h" />
     <ClInclude Include="EffectsCommon.h" />
     <ClInclude Include="EffectsRenderer.h" />
+    <ClInclude Include="GPUTimer.h" />
     <ClInclude Include="embree\include\rtcore.h" />
     <ClInclude Include="embree\include\rtcore_buffer.h" />
     <ClInclude Include="embree\include\rtcore_builder.h" />

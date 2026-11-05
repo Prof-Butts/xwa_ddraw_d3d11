@@ -29,6 +29,7 @@
 #include "D3dRenderer.h"
 #include "EffectsRenderer.h"
 #include "LBVH.h"
+#include "GPUTimer.h"
 
 extern D3dRenderer* g_current_renderer;
 extern LBVH* g_ACTLASTree;
@@ -1691,6 +1692,9 @@ void PrimarySurface::resizeForSteamVR(int iteration, bool is_2D) {
 // in the top-left corner of _bloomOutputSum/_bloomOutput2. The first pyramid level is
 // already at half resolution, so accumulating at half resolution doesn't lose detail.
 static const float BLOOM_ACCUM_ZOOM_FACTOR = 2.0f;
+
+// Measures the GPU time of the whole bloom effect when bloom_gpu_timer = 1
+static GPUTimer g_BloomGPUTimer;
 
 void PrimarySurface::BloomBasicPass(int pass, float fZoomFactor, int level) {
 
@@ -11919,6 +11923,8 @@ HRESULT PrimarySurface::Flip(
 			// Apply the Bloom effect
 			if (g_bBloomEnabled) {
 				resources->BeginAnnotatedEvent(L"Bloom");
+				if (g_bBloomGPUTimer)
+					g_BloomGPUTimer.Begin(device, context, 0);
 				// _offscreenBufferAsInputBloomMask is resolved earlier, before the SSAO pass because
 				// SSAO uses that mask to prevent applying SSAO on bright areas
 
@@ -12007,6 +12013,21 @@ HRESULT PrimarySurface::Flip(
 				// Restore the alpha blend state, the code after this point expects it.
 				blendDesc.RenderTarget[0].BlendEnable = TRUE;
 				hr = resources->InitBlendState(nullptr, &blendDesc);
+
+				if (g_bBloomGPUTimer)
+				{
+					g_BloomGPUTimer.End(context);
+
+					GPUTimer::Stats stats;
+					int tag;
+					if (g_BloomGPUTimer.GetReport(5000, &stats, &tag))
+					{
+						log_debug("[DBG] [Bloom] GPU time: avg %0.3f ms, min %0.3f ms, max %0.3f ms, %d frames",
+							stats.avgMs, stats.minMs, stats.maxMs, stats.numFrames);
+						// Shown for a bit longer than the reporting window so the message doesn't flicker
+						DisplayTimedMessageV(6, 2, "Bloom GPU time: %0.3f ms", stats.avgMs);
+					}
+				}
 				resources->EndAnnotatedEvent(); // Bloom
 
 				// DEBUG

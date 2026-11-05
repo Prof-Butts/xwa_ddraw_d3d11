@@ -47,6 +47,8 @@ extern bool g_bProceduralLava;
 extern float g_fBloomLayerMult[MAX_BLOOM_PASSES + 1];
 extern float g_fBloomSpread[MAX_BLOOM_PASSES + 1];
 extern int g_iBloomPasses[MAX_BLOOM_PASSES + 1];
+// Measure the bloom's GPU time, see bloom_gpu_timer in Bloom.cfg
+extern bool g_bBloomGPUTimer;
 
 extern float g_fHangarAmbient, g_fGlobalAmbient;
 extern float g_fSpecIntensity, g_fSpecBloomIntensity, g_fXWALightsSaturation, g_fXWALightsIntensity;

@@ -42,8 +42,6 @@
 #include "../Debug/BloomVGaussPS_VR.h"
 #include "../Debug/BloomCombinePS.h"
 #include "../Debug/BloomCombinePS_VR.h"
-#include "../Debug/BloomBufferAddPS.h"
-#include "../Debug/BloomBufferAddPS_VR.h"
 #include "../Debug/SSAOPixelShader.h"
 #include "../Debug/SSAOPixelShaderVR.h"
 #include "../Debug/SSAOBlurPixelShader.h"
@@ -132,8 +130,6 @@
 #include "../Release/BloomVGaussPS_VR.h"
 #include "../Release/BloomCombinePS.h"
 #include "../Release/BloomCombinePS_VR.h"
-#include "../Release/BloomBufferAddPS.h"
-#include "../Release/BloomBufferAddPS_VR.h"
 #include "../Release/SSAOPixelShader.h"
 #include "../Release/SSAOPixelShaderVR.h"
 #include "../Release/SSAOBlurPixelShader.h"
@@ -1945,14 +1941,9 @@ HRESULT DeviceResources::OnSizeChanged(HWND hWnd, DWORD dwWidth, DWORD dwHeight)
 		//this->_offscreenAsInputBloomMaskSRV.Release();
 		//this->_renderTargetViewBloomMask.Release();
 		this->_renderTargetViewBloom1.Release();
-		this->_renderTargetViewBloom2.Release();
-		this->_renderTargetViewBloomSum.Release();
 		//this->_bloomOutput1.Release();
-		this->_bloomOutput2.Release();
-		this->_bloomOutputSum.Release();
 		//this->_bloomOutput1SRV.Release();
-		this->_bloomOutput2SRV.Release();
-		this->_bloomOutputSumSRV.Release();
+		ReleaseBloomLevelBuffers();
 		if (g_bUseSteamVR) {
 			/*this->_offscreenBufferBloomMaskR.Release();
 			this->_offscreenBufferAsInputBloomMaskR.Release();
@@ -2718,30 +2709,13 @@ HRESULT DeviceResources::OnSizeChanged(HWND hWnd, DWORD dwWidth, DWORD dwHeight)
 				log_err("Added D3D11_BIND_RENDER_TARGET flag\n");
 				log_err("Flags: 0x%x\n", desc.BindFlags);
 
-				step = "_bloomOutput2";
-				hr = this->_d3dDevice->CreateTexture2D(&desc, nullptr, &this->_bloomOutput2);
+				step = "Bloom level buffers";
+				hr = CreateBloomLevelBuffers();
 				if (FAILED(hr)) {
-					log_err("Failed to create _bloomOutput2\n");
+					log_err("Failed to create the bloom level buffers\n");
 					log_err("GetDeviceRemovedReason: 0x%x\n", this->_d3dDevice->GetDeviceRemovedReason());
 					log_err("dwWidth, Height: %u, %u\n", dwWidth, dwHeight);
-					log_err_desc(step, hWnd, hr, desc);
 					goto out;
-				}
-				else {
-					log_err("Successfully created _bloomOutput2 with combined flags\n");
-				}
-
-				step = "_bloomOutputSum";
-				hr = this->_d3dDevice->CreateTexture2D(&desc, nullptr, &this->_bloomOutputSum);
-				if (FAILED(hr)) {
-					log_err("Failed to create _bloomOutputSum\n");
-					log_err("GetDeviceRemovedReason: 0x%x\n", this->_d3dDevice->GetDeviceRemovedReason());
-					log_err("dwWidth, Height: %u, %u\n", dwWidth, dwHeight);
-					log_err_desc(step, hWnd, hr, desc);
-					goto out;
-				}
-				else {
-					log_err("Successfully created _bloomOutputSum with combined flags\n");
 				}
 
 				//if (g_bUseSteamVR) {
@@ -3280,60 +3254,6 @@ HRESULT DeviceResources::OnSizeChanged(HWND hWnd, DWORD dwWidth, DWORD dwHeight)
 				shaderResourceViewDesc.Format = oldFormat;
 			}
 
-			// Bloom intermediate (bloomOutput1, bloomOutput2) SRVs
-			if (g_bBloomEnabled) {
-				shaderResourceViewDesc.Format = BLOOM_BUFFER_FORMAT;
-				step = "_bloomOutput2SRV";
-				hr = this->_d3dDevice->CreateShaderResourceView(this->_bloomOutput2,
-					&shaderResourceViewDesc, &this->_bloomOutput2SRV);
-				if (FAILED(hr)) {
-					log_err("dwWidth, Height: %u, %u\n", dwWidth, dwHeight);
-					log_shaderres_view(step, hWnd, hr, shaderResourceViewDesc);
-					goto out;
-				}
-
-				step = "_bloomOutputSumSRV";
-				hr = this->_d3dDevice->CreateShaderResourceView(this->_bloomOutputSum,
-					&shaderResourceViewDesc, &this->_bloomOutputSumSRV);
-				if (FAILED(hr)) {
-					log_err("dwWidth, Height: %u, %u\n", dwWidth, dwHeight);
-					log_shaderres_view(step, hWnd, hr, shaderResourceViewDesc);
-					goto out;
-				}
-
-				//if (g_bUseSteamVR) {
-				//	shaderResourceViewDesc.Format = BLOOM_BUFFER_FORMAT;
-
-				//	step = "_bloomOutput1SRV_R";
-				//	hr = this->_d3dDevice->CreateShaderResourceView(this->_bloomOutput1R,
-				//		&shaderResourceViewDesc, &this->_bloomOutput1SRV_R);
-				//	if (FAILED(hr)) {
-				//		log_err("dwWidth, Height: %u, %u\n", dwWidth, dwHeight);
-				//		log_shaderres_view(step, hWnd, hr, shaderResourceViewDesc);
-				//		goto out;
-				//	}
-
-				//	step = "_bloomOutput2SRV_R";
-				//	hr = this->_d3dDevice->CreateShaderResourceView(this->_bloomOutput2R,
-				//		&shaderResourceViewDesc, &this->_bloomOutput2SRV_R);
-				//	if (FAILED(hr)) {
-				//		log_err("dwWidth, Height: %u, %u\n", dwWidth, dwHeight);
-				//		log_shaderres_view(step, hWnd, hr, shaderResourceViewDesc);
-				//		goto out;
-				//	}
-
-				//	step = "_bloomOutputSumSRV_R";
-				//	hr = this->_d3dDevice->CreateShaderResourceView(this->_bloomOutputSumR,
-				//		&shaderResourceViewDesc, &this->_bloomOutputSumSRV_R);
-				//	if (FAILED(hr)) {
-				//		log_err("dwWidth, Height: %u, %u\n", dwWidth, dwHeight);
-				//		log_shaderres_view(step, hWnd, hr, shaderResourceViewDesc);
-				//		goto out;
-				//	}
-				//}
-				shaderResourceViewDesc.Format = oldFormat;
-			}
-
 			// Shading System SRVs
 			if (g_bReshadeEnabled) {
 				DXGI_FORMAT oldFormat = shaderResourceViewDesc.Format;
@@ -3807,14 +3727,6 @@ HRESULT DeviceResources::OnSizeChanged(HWND hWnd, DWORD dwWidth, DWORD dwHeight)
 			// These RTVs render to non-MSAA buffers
 			step = "_renderTargetViewBloom1";
 			hr = this->_d3dDevice->CreateRenderTargetView(this->_bloomOutput1, &GetRtvDesc(false, g_bUseSteamVR, BLOOM_BUFFER_FORMAT), &this->_renderTargetViewBloom1);
-			if (FAILED(hr)) goto out;
-			
-			step = "_renderTargetViewBloom2";
-			hr = this->_d3dDevice->CreateRenderTargetView(this->_bloomOutput2, &GetRtvDesc(false, g_bUseSteamVR, BLOOM_BUFFER_FORMAT), &this->_renderTargetViewBloom2);
-			if (FAILED(hr)) goto out;
-
-			step = "_renderTargetViewBloomSum";
-			hr = this->_d3dDevice->CreateRenderTargetView(this->_bloomOutputSum, &GetRtvDesc(false, g_bUseSteamVR, BLOOM_BUFFER_FORMAT), &this->_renderTargetViewBloomSum);
 			if (FAILED(hr)) goto out;
 
 			//if (g_bUseSteamVR) {
@@ -4373,9 +4285,6 @@ HRESULT DeviceResources::LoadMainResources()
 			if (FAILED(hr = this->_d3dDevice->CreatePixelShader(g_BloomVGaussPS_VR, sizeof(g_BloomVGaussPS_VR), nullptr, &_bloomVGaussPS_VR)))
 				return hr;
 
-			if (FAILED(hr = this->_d3dDevice->CreatePixelShader(g_BloomBufferAddPS_VR, sizeof(g_BloomBufferAddPS_VR), nullptr, &_bloomBufferAddPS_VR)))
-				return hr;
-
 			if (FAILED(hr = this->_d3dDevice->CreatePixelShader(g_BloomCombinePS_VR, sizeof(g_BloomCombinePS_VR), nullptr, &_bloomCombinePS_VR)))
 				return hr;
 		}
@@ -4385,9 +4294,6 @@ HRESULT DeviceResources::LoadMainResources()
 				return hr;
 
 			if (FAILED(hr = this->_d3dDevice->CreatePixelShader(g_BloomVGaussPS, sizeof(g_BloomVGaussPS), nullptr, &_bloomVGaussPS)))
-				return hr;
-
-			if (FAILED(hr = this->_d3dDevice->CreatePixelShader(g_BloomBufferAddPS, sizeof(g_BloomBufferAddPS), nullptr, &_bloomBufferAddPS)))
 				return hr;
 
 			if (FAILED(hr = this->_d3dDevice->CreatePixelShader(g_BloomCombinePS, sizeof(g_BloomCombinePS), nullptr, &_bloomCombinePS)))
@@ -4502,6 +4408,21 @@ HRESULT DeviceResources::LoadMainResources()
 
 	if (FAILED(hr = this->_d3dDevice->CreateSamplerState(&samplerDesc, &this->_mainSamplerState)))
 		return hr;
+
+	// The bloom passes need zeros outside their textures, like the cleared areas around the
+	// bloom viewports used to provide.
+	{
+		D3D11_SAMPLER_DESC bloomSamplerDesc = samplerDesc;
+		bloomSamplerDesc.Filter = D3D11_FILTER_MIN_MAG_MIP_LINEAR;
+		bloomSamplerDesc.MaxAnisotropy = 1;
+		bloomSamplerDesc.AddressU = D3D11_TEXTURE_ADDRESS_BORDER;
+		bloomSamplerDesc.AddressV = D3D11_TEXTURE_ADDRESS_BORDER;
+		bloomSamplerDesc.AddressW = D3D11_TEXTURE_ADDRESS_BORDER;
+		for (int i = 0; i < 4; i++)
+			bloomSamplerDesc.BorderColor[i] = 0.0f;
+		if (FAILED(hr = this->_d3dDevice->CreateSamplerState(&bloomSamplerDesc, &this->_bloomSamplerState)))
+			return hr;
+	}
 
 	// This sampler is used when doing the SSAO/Deferred Pass in PrimarySurface so that samples
 	// can be mirrrored across the boundary of the viewport.
@@ -4818,9 +4739,6 @@ HRESULT DeviceResources::LoadResources()
 			if (FAILED(hr = this->_d3dDevice->CreatePixelShader(g_BloomVGaussPS_VR, sizeof(g_BloomVGaussPS_VR), nullptr, &_bloomVGaussPS_VR)))
 				return hr;
 
-			if (FAILED(hr = this->_d3dDevice->CreatePixelShader(g_BloomBufferAddPS_VR, sizeof(g_BloomBufferAddPS_VR), nullptr, &_bloomBufferAddPS_VR)))
-				return hr;
-
 			if (FAILED(hr = this->_d3dDevice->CreatePixelShader(g_BloomCombinePS_VR, sizeof(g_BloomCombinePS_VR), nullptr, &_bloomCombinePS_VR)))
 				return hr;
 		}
@@ -4830,9 +4748,6 @@ HRESULT DeviceResources::LoadResources()
 				return hr;
 
 			if (FAILED(hr = this->_d3dDevice->CreatePixelShader(g_BloomVGaussPS, sizeof(g_BloomVGaussPS), nullptr, &_bloomVGaussPS)))
-				return hr;
-
-			if (FAILED(hr = this->_d3dDevice->CreatePixelShader(g_BloomBufferAddPS, sizeof(g_BloomBufferAddPS), nullptr, &_bloomBufferAddPS)))
 				return hr;
 
 			if (FAILED(hr = this->_d3dDevice->CreatePixelShader(g_BloomCombinePS, sizeof(g_BloomCombinePS), nullptr, &_bloomCombinePS)))
@@ -5016,8 +4931,8 @@ HRESULT DeviceResources::LoadResources()
 		return hr;
 
 	// Create the constant buffer for the bloom pixel shader
-	constantBufferDesc.ByteWidth = 48;
-	static_assert(sizeof(BloomPixelShaderCBuffer) == 48, "sizeof(BloomPixelShaderCBuffer) must be 48");
+	constantBufferDesc.ByteWidth = 272;
+	static_assert(sizeof(BloomPixelShaderCBuffer) == 272, "sizeof(BloomPixelShaderCBuffer) must be 272");
 	if (FAILED(hr = this->_d3dDevice->CreateBuffer(&constantBufferDesc, nullptr, &this->_bloomConstantBuffer)))
 		return hr;
 
@@ -5433,6 +5348,72 @@ void DeviceResources::InitPSConstantBufferBloom(ID3D11Buffer** buffer, const Blo
 		this->_d3dDeviceContext->PSSetConstantBuffers(2, 1, buffer);
 	}
 	g_LastPSConstantBufferSet = PS_CONSTANT_BUFFER_BLOOM;
+}
+
+/*
+ * Creates the textures for the bloom pyramid. Level i is rendered with a viewport of
+ * 1/2^(i+1) of the backbuffer size. The viewport can have a fractional size, so the
+ * textures are rounded up and cleared once: the texels that the viewport never covers
+ * stay at zero, which is what the bloom shaders expect around the rendered area.
+ */
+HRESULT DeviceResources::CreateBloomLevelBuffers()
+{
+	ReleaseBloomLevelBuffers();
+
+	const float bgColor[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
+	const UINT arraySize = g_bUseSteamVR ? 2 : 1;
+	const D3D11_SRV_DIMENSION srvDimension = g_bUseSteamVR ? D3D11_SRV_DIMENSION_TEXTURE2DARRAY : D3D11_SRV_DIMENSION_TEXTURE2D;
+	const D3D11_RTV_DIMENSION rtvDimension = g_bUseSteamVR ? D3D11_RTV_DIMENSION_TEXTURE2DARRAY : D3D11_RTV_DIMENSION_TEXTURE2D;
+	const CD3D11_SHADER_RESOURCE_VIEW_DESC srvDesc(srvDimension, BLOOM_BUFFER_FORMAT, 0, 1, 0, arraySize);
+	const CD3D11_RENDER_TARGET_VIEW_DESC rtvDesc(rtvDimension, BLOOM_BUFFER_FORMAT, 0, 0, arraySize);
+
+	float zoomFactor = 2.0f;
+	for (int i = 0; i < MAX_BLOOM_LEVELS; i++, zoomFactor *= 2.0f)
+	{
+		// This must match the viewport in PrimarySurface::BloomBasicPass()
+		_bloomLevelWidth[i]  = (UINT)ceilf((float)_backbufferWidth  / zoomFactor);
+		_bloomLevelHeight[i] = (UINT)ceilf((float)_backbufferHeight / zoomFactor);
+		const CD3D11_TEXTURE2D_DESC desc(BLOOM_BUFFER_FORMAT, _bloomLevelWidth[i], _bloomLevelHeight[i],
+			arraySize, 1, D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET);
+
+		auto create = [&](ComPtr<ID3D11Texture2D>& texture, ComPtr<ID3D11ShaderResourceView>& srv,
+			ComPtr<ID3D11RenderTargetView>& rtv)
+		{
+			HRESULT hr;
+			if (FAILED(hr = this->_d3dDevice->CreateTexture2D(&desc, nullptr, &texture)) ||
+				FAILED(hr = this->_d3dDevice->CreateShaderResourceView(texture, &srvDesc, &srv)) ||
+				FAILED(hr = this->_d3dDevice->CreateRenderTargetView(texture, &rtvDesc, &rtv)))
+				return hr;
+			this->_d3dDeviceContext->ClearRenderTargetView(rtv, bgColor);
+			return S_OK;
+		};
+
+		HRESULT hr;
+		if (FAILED(hr = create(_bloomLevel[i], _bloomLevelSRV[i], _bloomLevelRTV[i])) ||
+			FAILED(hr = create(_bloomBlurTemp[i], _bloomBlurTempSRV[i], _bloomBlurTempRTV[i])))
+		{
+			log_debug("[DBG] [Bloom] Could not create the buffers for level %d, size %u x %u",
+				i + 1, _bloomLevelWidth[i], _bloomLevelHeight[i]);
+			ReleaseBloomLevelBuffers();
+			return hr;
+		}
+	}
+	return S_OK;
+}
+
+void DeviceResources::ReleaseBloomLevelBuffers()
+{
+	for (int i = 0; i < MAX_BLOOM_LEVELS; i++)
+	{
+		_bloomLevelRTV[i].Release();
+		_bloomLevelSRV[i].Release();
+		_bloomLevel[i].Release();
+		_bloomBlurTempRTV[i].Release();
+		_bloomBlurTempSRV[i].Release();
+		_bloomBlurTemp[i].Release();
+		_bloomLevelWidth[i] = 0;
+		_bloomLevelHeight[i] = 0;
+	}
 }
 
 void DeviceResources::InitPSConstantBufferSSAO(ID3D11Buffer** buffer, const SSAOPixelShaderCBuffer *psConstants)

@@ -92,8 +92,6 @@
     <FxCompile Include="HyperComposeVR.hlsl" />
     <FxCompile Include="bloom\BloomHGaussPS_VR.hlsl" />
     <FxCompile Include="bloom\BloomVGaussPS_VR.hlsl" />
-    <FxCompile Include="bloom\BloomBufferAddPS_VR.hlsl" />
-    <FxCompile Include="bloom\BloomBufferAddPS.hlsl" />
     <FxCompile Include="bloom\BloomCombinePS_VR.hlsl" />
     <FxCompile Include="SSAO\SSAOBlurPixelShaderVR.hlsl" />
     <FxCompile Include="SSAO\SSAOPixelShaderVR.hlsl" />
@@ -184,7 +182,7 @@
     <ClInclude Include="bloom\BloomVGaussPSCommon.h">
       <Filter>Fichiers d%27en-tête</Filter>
     </ClInclude>
-    <ClInclude Include="bloom\BloomBufferAddPSCommon.h">
+    <ClInclude Include="bloom\BloomCBuffer.h">
       <Filter>Fichiers d%27en-tête</Filter>
     </ClInclude>
     <ClInclude Include="bloom\BloomCombinePSCommon.h">

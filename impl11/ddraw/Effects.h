@@ -254,6 +254,8 @@ typedef int(_cdecl * GetDATGroupImageCountFun)(int GroupId);
 typedef bool(_cdecl * GetDATGroupImageListFun)(int GroupId, short *ImageIds_out, int ImageIds_size);
 typedef int(_cdecl* GetDATGroupCountFun)();
 typedef bool(_cdecl* GetDATGroupListFun)(short* GroupIds_out);
+typedef void(_cdecl* UnloadDATFileFun)();
+typedef float(_cdecl* GetLastCollectionTimeMsFun)();
 
 extern LoadDATFileFun LoadDATFile;
 extern GetDATImageMetadataFun GetDATImageMetadata;
@@ -264,8 +266,15 @@ extern GetDATGroupImageCountFun GetDATGroupImageCount;
 extern GetDATGroupImageListFun GetDATGroupImageList;
 extern GetDATGroupCountFun GetDATGroupCount;
 extern GetDATGroupListFun GetDATGroupList;
+// Optional: older versions of DATReader.dll don't have these, so check for nullptr
+extern UnloadDATFileFun UnloadDATFile;
+extern GetLastCollectionTimeMsFun GetLastCollectionTimeMs;
 
 bool InitDATReader();
+// Logs the state of the address space when LogAddressSpace = 1 in ddraw.cfg
+void LogAddressSpace(const char* format, ...);
+// High-resolution time in milliseconds, for measuring durations
+double GetHiResTimeMs();
 void CloseDATReader();
 std::vector<short> ReadDATImageListFromGroup(const char *sDATFileName, int GroupId);
 // ********************************

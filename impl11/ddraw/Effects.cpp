@@ -232,6 +232,8 @@ GetDATGroupImageCountFun   GetDATGroupImageCount   = nullptr;
 GetDATGroupImageListFun    GetDATGroupImageList    = nullptr;
 GetDATGroupCountFun        GetDATGroupCount        = nullptr;
 GetDATGroupListFun         GetDATGroupList         = nullptr;
+UnloadDATFileFun           UnloadDATFile           = nullptr;
+GetLastCollectionTimeMsFun GetLastCollectionTimeMs = nullptr;
 // **************************
 
 // **************************
@@ -463,6 +465,66 @@ void CycleFOVSetting()
 	}
 }
 
+double GetHiResTimeMs()
+{
+	static LARGE_INTEGER frequency = {};
+	if (frequency.QuadPart == 0)
+		QueryPerformanceFrequency(&frequency);
+	LARGE_INTEGER counter;
+	QueryPerformanceCounter(&counter);
+	return (double)counter.QuadPart * 1000.0 / (double)frequency.QuadPart;
+}
+
+/*
+ * Logs how fragmented the address space is, when LogAddressSpace = 1 in ddraw.cfg.
+ * XWA is a 32-bit process: large allocations fail when there's no single free block big
+ * enough, even if there's plenty of free memory in total.
+ */
+void LogAddressSpace(const char* format, ...)
+{
+	if (!g_config.LogAddressSpace)
+		return;
+
+	char tag[256];
+	va_list args;
+	va_start(args, format);
+	vsnprintf(tag, sizeof(tag), format, args);
+	va_end(args);
+
+	// 64-bit counters: the totals of a large-address-aware process can reach 4 GB
+	const uint64_t MB = 1024 * 1024;
+	uint64_t totalFree = 0, largestFree = 0, committed = 0, reserved = 0;
+	int freeBlocks = 0, bigFreeBlocks = 0;
+	MEMORY_BASIC_INFORMATION mbi;
+	uintptr_t address = 0;
+	while (VirtualQuery((LPCVOID)address, &mbi, sizeof(mbi)) == sizeof(mbi))
+	{
+		const uint64_t size = mbi.RegionSize;
+		if (mbi.State == MEM_FREE)
+		{
+			totalFree += size;
+			largestFree = max(largestFree, size);
+			freeBlocks++;
+			if (size >= 64 * MB)
+				bigFreeBlocks++;
+		}
+		else if (mbi.State == MEM_RESERVE)
+			reserved += size;
+		else
+			committed += size;
+
+		const uintptr_t next = (uintptr_t)mbi.BaseAddress + mbi.RegionSize;
+		// Stop if we wrapped around the end of the address space
+		if (next <= address)
+			break;
+		address = next;
+	}
+
+	log_debug("[DBG] [MEM] %s: largest free block: %llu MB, free: %llu MB in %d blocks (%d >= 64 MB), "
+		"committed: %llu MB, reserved: %llu MB",
+		tag, largestFree / MB, totalFree / MB, freeBlocks, bigFreeBlocks, committed / MB, reserved / MB);
+}
+
 //******************************************************************************************
 // DAT Reader code
 //******************************************************************************************
@@ -488,6 +550,9 @@ bool InitDATReader() {
 	GetDATGroupImageList    = (GetDATGroupImageListFun)GetProcAddress(g_hDATReader, "GetDATGroupImageList");
 	GetDATGroupCount        = (GetDATGroupCountFun)GetProcAddress(g_hDATReader, "GetDATGroupCount");
 	GetDATGroupList         = (GetDATGroupListFun)GetProcAddress(g_hDATReader, "GetDATGroupList");
+	// Optional
+	UnloadDATFile           = (UnloadDATFileFun)GetProcAddress(g_hDATReader, "UnloadDATFile");
+	GetLastCollectionTimeMs = (GetLastCollectionTimeMsFun)GetProcAddress(g_hDATReader, "GetLastCollectionTimeMs");
 	if (LoadDATFile == nullptr || GetDATImageMetadata == nullptr || ReadDATImageData == nullptr ||
 		SetDATVerbosity == nullptr || GetDATGroupImageCount == nullptr || GetDATGroupImageList == nullptr ||
 		GetDATGroupCount == nullptr || GetDATGroupList == nullptr)
@@ -495,8 +560,12 @@ bool InitDATReader() {
 		log_debug("[DBG] Error in InitDATReader: Some functions could not be loaded from DATReader.dll");
 		FreeLibrary(g_hDATReader);
 		g_hDATReader = nullptr;
+		UnloadDATFile = nullptr;
+		GetLastCollectionTimeMs = nullptr;
 		return false;
 	}
+	if (UnloadDATFile == nullptr)
+		log_debug("[DBG] This DATReader.dll can't unload DAT files, update it to save memory");
 
 	if (GetDATReaderVersion != nullptr)
 	{
@@ -526,10 +595,17 @@ std::vector<short> ReadDATImageListFromGroup(const char *sDATFileName, int Group
 		return result;
 	}
 
+	const double loadStartMs = GetHiResTimeMs();
 	if (!LoadDATFile(sDATFileName)) {
 		log_debug("[DBG] Could not load DAT file: %s", sDATFileName);
 		return result;
 	}
+	// LoadDATFile runs a collection when it switches to a different DAT file. Only log
+	// when that happened, this function is called many times for the same file.
+	const float collectionMs = (GetLastCollectionTimeMs != nullptr) ? GetLastCollectionTimeMs() : 0.0f;
+	if (collectionMs > 0.0f)
+		LogAddressSpace("After switching to %s to list group %d (LoadDATFile: %0.1f ms, including a %0.1f ms collection)",
+			sDATFileName, GroupId, GetHiResTimeMs() - loadStartMs, collectionMs);
 
 	int NumImages = GetDATGroupImageCount(GroupId);
 	if (NumImages > 0) {

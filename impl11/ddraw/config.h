@@ -58,6 +58,7 @@ public:
 	bool TechRoomHolograms;
 	bool CullBackFaces;
 	bool FlipDATImages;
+	bool LogAddressSpace; // Debug: log the largest free block of address space while loading
 
 	bool HDConcourseEnabled;
 

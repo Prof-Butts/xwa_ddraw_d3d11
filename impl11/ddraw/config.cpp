@@ -81,6 +81,7 @@ Config::Config()
 	this->TechRoomHolograms = false;
 	this->CullBackFaces = false;
 	this->FlipDATImages = false;
+	this->LogAddressSpace = false;
 
 	this->HDConcourseEnabled = false;
 
@@ -286,6 +287,10 @@ Config::Config()
 			else if (name == "FlipDATImages")
 			{
 				this->FlipDATImages = stoi(value) != 0;
+			}
+			else if (name == "LogAddressSpace")
+			{
+				this->LogAddressSpace = stoi(value) != 0;
 			}
 			else if (name == "HDConcourseEnabled")
 			{

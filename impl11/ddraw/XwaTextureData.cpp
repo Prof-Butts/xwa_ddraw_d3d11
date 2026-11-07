@@ -1089,10 +1089,23 @@ int XwaTextureData::LoadDATImage(const char* sDATFileName, int GroupId, int Imag
 
 	//if (SetDATVerbosity != nullptr) SetDATVerbosity(true);
 
+	// Log the address space each time a different DAT file is loaded (LogAddressSpace = 1 in ddraw.cfg)
+	static std::string lastDATFileName;
+	const bool bNewDATFile = _stricmp(lastDATFileName.c_str(), sDATFileName) != 0;
+	if (bNewDATFile)
+	{
+		LogAddressSpace("Before loading %s", sDATFileName);
+		lastDATFileName = sDATFileName;
+	}
+
+	const double loadStartMs = GetHiResTimeMs();
 	if (!LoadDATFile(sDATFileName)) {
 		log_debug("[DBG] Could not load DAT file: %s", sDATFileName);
 		return -1;
 	}
+	// LoadDATFile runs a collection when it switches to a different DAT file
+	const double loadDATFileMs = GetHiResTimeMs() - loadStartMs;
+	const float collectionMs = (GetLastCollectionTimeMs != nullptr) ? GetLastCollectionTimeMs() : 0.0f;
 
 	if (!GetDATImageMetadata(GroupId, ImageId, &Width, &Height, &Format)) {
 		log_debug("[DBG] [C++] DAT Image not found");
@@ -1124,6 +1137,7 @@ int XwaTextureData::LoadDATImage(const char* sDATFileName, int GroupId, int Imag
 	}
 	buf = g_loadDatImageBuffer->data();
 
+	const double readStartMs = GetHiResTimeMs();
 	if (!isBc7 && g_config.FlipDATImages && ReadFlippedDATImageData != nullptr)
 	{
 		if (ReadFlippedDATImageData(buf, buf_len))
@@ -1138,6 +1152,11 @@ int XwaTextureData::LoadDATImage(const char* sDATFileName, int GroupId, int Imag
 		else
 			log_debug("[DBG] [C++] Failed to read image data");
 	}
+
+	// The first image read loads the image data of the whole DAT file
+	if (bNewDATFile)
+		LogAddressSpace("After reading the first image from %s (LoadDATFile: %0.1f ms, including a %0.1f ms collection; "
+			"first image: %0.1f ms)", sDATFileName, loadDATFileMs, collectionMs, GetHiResTimeMs() - readStartMs);
 
 	//if (buf != nullptr) delete[] buf;
 

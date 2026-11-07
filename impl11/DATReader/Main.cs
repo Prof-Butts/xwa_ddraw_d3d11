@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Runtime;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
@@ -59,10 +60,44 @@ public static class Main
         m_Verbose = Verbose;
     }
 
+    // Returns the memory of the DAT files that are no longer cached. Reading images loads
+    // the image data of the whole DAT file, which can take hundreds of MB. XWA is a 32-bit
+    // process and its own allocations don't trigger a collection, so this garbage can keep
+    // XWA from finding large blocks of free memory unless it's released right away.
+    static void ReleaseUnusedMemory()
+    {
+        long start = Stopwatch.GetTimestamp();
+        GCSettings.LargeObjectHeapCompactionMode = GCLargeObjectHeapCompactionMode.CompactOnce;
+        GC.Collect(GC.MaxGeneration, GCCollectionMode.Forced, true, true);
+        m_LastCollectionMs = (float)Stopwatch.GetElapsedTime(start).TotalMilliseconds;
+    }
+
+    // How long the collection done by the last LoadDATFile or UnloadDATFile call took, in
+    // milliseconds. It's 0 if that call didn't collect. ddraw logs it.
+    static float m_LastCollectionMs = 0;
+
+    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)], EntryPoint = nameof(GetLastCollectionTimeMs))]
+    public static float GetLastCollectionTimeMs()
+    {
+        return m_LastCollectionMs;
+    }
+
+    // Releases the cached DAT file and image. The generic DAT files stay loaded.
+    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)], EntryPoint = nameof(UnloadDATFile))]
+    public static void UnloadDATFile()
+    {
+        m_LastCollectionMs = 0;
+        if (m_Verbose) Trace.WriteLine("[DBG] [C#] Unloading the cached DAT file");
+        m_DATImage = null;
+        m_DATFile = null;
+        ReleaseUnusedMemory();
+    }
+
     [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)], EntryPoint = nameof(LoadDATFile))]
     public static bool LoadDATFile(nint sDatFileNamePtr)
     {
         string sDatFileName = Marshal.PtrToStringAnsi(sDatFileNamePtr);
+        m_LastCollectionMs = 0;
 
         // First, let's check if this DAT file is already loaded:
         if (m_DATFile != null && m_DATFile.FileName.ToLower().Equals(sDatFileName.ToLower()))
@@ -74,9 +109,13 @@ public static class Main
         if (m_Verbose) Trace.WriteLine("[DBG] [C#] Loading File: " + sDatFileName);
         try
         {
+            bool releasePrevious = m_DATFile != null;
             m_DATImage = null; // Release any previous instances
             m_DATFile = null; // Release any previous instances
                               //m_DATFile = DatFile.FromFile(sDatFileName);
+            // Free the previous DAT file before loading the next one
+            if (releasePrevious)
+                ReleaseUnusedMemory();
 
             string name = Path.GetFileNameWithoutExtension(sDatFileName);
 

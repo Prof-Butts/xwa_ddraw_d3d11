@@ -2247,6 +2247,7 @@ ColorConvert g_colorConvert;
 
 std::vector<unsigned char>* g_colorMapBuffer = nullptr;
 std::vector<unsigned char>* g_illumMapBuffer = nullptr;
+void ReleaseLargeTextureBuffer(std::vector<unsigned char>*& buffer);
 
 float FindMipLevel(float texResolution, const float mipResolution)
 {
@@ -2703,6 +2704,17 @@ HRESULT D3dOptCreateTextureColorLight(XwaD3DInfo* d3dInfo, OptNode* textureNode,
 
 	if (g_illumMapBuffer == nullptr)
 		g_illumMapBuffer = new std::vector<unsigned char>();
+
+	// The textures are created before this function returns, so free the buffers then if
+	// they're big
+	struct ReleaseLargeBuffersOnExit
+	{
+		~ReleaseLargeBuffersOnExit()
+		{
+			ReleaseLargeTextureBuffer(g_colorMapBuffer);
+			ReleaseLargeTextureBuffer(g_illumMapBuffer);
+		}
+	} releaseLargeBuffersOnExit;
 
 	int size = textureDescription->Width * textureDescription->Height;
 

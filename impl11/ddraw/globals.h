@@ -191,6 +191,13 @@ extern std::vector<uint8_t>* g_loadDatImageBuffer;
 extern std::vector<unsigned char>* g_colorMapBuffer;
 extern std::vector<unsigned char>* g_illumMapBuffer;
 void ClearTextureBuffers();
+// Logs the largest size each texture buffer reached since the last call (LogAddressSpace = 1)
+void LogTextureBufferPeaks(const char* tag);
+// Frees a texture buffer once its texture has been created, if it's bigger than 16 MB.
+// Smaller buffers are kept for the next texture. XWA is a 32-bit process, and keeping
+// big blocks around fragments its address space.
+void ReleaseLargeTextureBuffer(std::vector<char>*& buffer);
+void ReleaseLargeTextureBuffer(std::vector<unsigned char>*& buffer);
 
 // DS2 Effects
 extern int g_iReactorExplosionCount;

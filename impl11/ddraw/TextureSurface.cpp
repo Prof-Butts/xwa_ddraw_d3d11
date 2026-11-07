@@ -8,8 +8,110 @@
 
 std::vector<char>* g_textureSurfaceBuffer = nullptr;
 
+// Measurements for LogTextureBufferPeaks(): the largest size each texture buffer reached and
+// how many times the buffers were freed, since the last log. The buffers only grow until
+// ClearTextureBuffers() frees them, so sampling them before they're freed is enough.
+static size_t s_textureBufferPeaks[5] = {};
+static int s_textureBufferFrees = 0;
+static int s_largeTextureBufferReleases = 0;
+// The buffers as they were when the last log was written, so they aren't counted again
+static const void* s_loggedBufferData[5] = {};
+static size_t s_loggedBufferSize[5] = {};
+
+static void GetTextureBuffers(const void* data[5], size_t sizes[5])
+{
+	data[0] = g_textureSurfaceBuffer != nullptr ? g_textureSurfaceBuffer->data() : nullptr;
+	data[1] = g_d3dTextureBuffer     != nullptr ? g_d3dTextureBuffer->data()     : nullptr;
+	data[2] = g_colorMapBuffer       != nullptr ? g_colorMapBuffer->data()       : nullptr;
+	data[3] = g_illumMapBuffer       != nullptr ? g_illumMapBuffer->data()       : nullptr;
+	data[4] = g_loadDatImageBuffer   != nullptr ? g_loadDatImageBuffer->data()   : nullptr;
+	sizes[0] = g_textureSurfaceBuffer != nullptr ? g_textureSurfaceBuffer->capacity() : 0;
+	sizes[1] = g_d3dTextureBuffer     != nullptr ? g_d3dTextureBuffer->capacity()     : 0;
+	sizes[2] = g_colorMapBuffer       != nullptr ? g_colorMapBuffer->capacity()       : 0;
+	sizes[3] = g_illumMapBuffer       != nullptr ? g_illumMapBuffer->capacity()       : 0;
+	sizes[4] = g_loadDatImageBuffer   != nullptr ? g_loadDatImageBuffer->capacity()   : 0;
+}
+
+static void UpdateTextureBufferPeaks()
+{
+	const void* data[5];
+	size_t sizes[5];
+	GetTextureBuffers(data, sizes);
+	for (int i = 0; i < 5; i++)
+	{
+		// Skip the buffers that haven't changed since the last log: they were already reported
+		if (data[i] != nullptr && data[i] == s_loggedBufferData[i] && sizes[i] == s_loggedBufferSize[i])
+			continue;
+		if (sizes[i] > s_textureBufferPeaks[i])
+			s_textureBufferPeaks[i] = sizes[i];
+	}
+}
+
+void LogTextureBufferPeaks(const char* tag)
+{
+	UpdateTextureBufferPeaks();
+	const void* data[5];
+	size_t sizes[5];
+	GetTextureBuffers(data, sizes);
+	if (g_config.LogAddressSpace)
+	{
+		const double MB = 1024.0 * 1024.0;
+		log_debug("[DBG] [MEM] %s: texture buffer peaks: surface %0.1f MB, D3D texture %0.1f MB, "
+			"color map %0.1f MB, illum map %0.1f MB, DAT image %0.1f MB; freed %d times, big buffers freed after use %d times",
+			tag, s_textureBufferPeaks[0] / MB, s_textureBufferPeaks[1] / MB, s_textureBufferPeaks[2] / MB,
+			s_textureBufferPeaks[3] / MB, s_textureBufferPeaks[4] / MB, s_textureBufferFrees, s_largeTextureBufferReleases);
+		log_debug("[DBG] [MEM] %s: texture buffers allocated now: surface %0.1f MB, D3D texture %0.1f MB, "
+			"color map %0.1f MB, illum map %0.1f MB, DAT image %0.1f MB",
+			tag, sizes[0] / MB, sizes[1] / MB, sizes[2] / MB, sizes[3] / MB, sizes[4] / MB);
+	}
+	for (int i = 0; i < 5; i++)
+	{
+		s_textureBufferPeaks[i] = 0;
+		s_loggedBufferData[i] = data[i];
+		s_loggedBufferSize[i] = sizes[i];
+	}
+	s_textureBufferFrees = 0;
+	s_largeTextureBufferReleases = 0;
+}
+
+template<typename T>
+static void ReleaseLargeTextureBufferImpl(std::vector<T>*& buffer)
+{
+	const size_t LARGE_TEXTURE_BUFFER_SIZE = 16 * 1024 * 1024;
+	if (buffer == nullptr || buffer->capacity() <= LARGE_TEXTURE_BUFFER_SIZE)
+		return;
+
+	// Record the size before the buffer goes away
+	UpdateTextureBufferPeaks();
+	for (int i = 0; i < 5; i++)
+		if (s_loggedBufferData[i] == buffer->data())
+			s_loggedBufferData[i] = nullptr;
+
+	delete buffer;
+	buffer = nullptr;
+	s_largeTextureBufferReleases++;
+}
+
+void ReleaseLargeTextureBuffer(std::vector<char>*& buffer)
+{
+	ReleaseLargeTextureBufferImpl(buffer);
+}
+
+void ReleaseLargeTextureBuffer(std::vector<unsigned char>*& buffer)
+{
+	ReleaseLargeTextureBufferImpl(buffer);
+}
+
 void ClearTextureBuffers()
 {
+	UpdateTextureBufferPeaks();
+	if (g_textureSurfaceBuffer != nullptr || g_d3dTextureBuffer != nullptr || g_colorMapBuffer != nullptr ||
+		g_illumMapBuffer != nullptr || g_loadDatImageBuffer != nullptr)
+		s_textureBufferFrees++;
+	// The buffers are freed below, their memory can be reused by new buffers
+	for (int i = 0; i < 5; i++)
+		s_loggedBufferData[i] = nullptr;
+
 	if (g_textureSurfaceBuffer != nullptr)
 		delete g_textureSurfaceBuffer;
 	if (g_loadDatImageBuffer != nullptr)
@@ -844,6 +946,8 @@ HRESULT TextureSurface::Unlock(
 			this->_width = 0;
 			this->_height = 0;
 		}
+		// The texture is loaded, so the shared buffer isn't needed anymore
+		ReleaseLargeTextureBuffer(g_textureSurfaceBuffer);
 	}
 
 	return DD_OK;

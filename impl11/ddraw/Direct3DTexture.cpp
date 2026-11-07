@@ -374,6 +374,8 @@ HRESULT Direct3DTexture::Load(
 		//{
 		//	delete[] data;
 		//}
+		// CreateTexture2D copied the decoded data, so the buffer isn't needed anymore
+		ReleaseLargeTextureBuffer(g_d3dTextureBuffer);
 
 		if (FAILED(hr))
 		{

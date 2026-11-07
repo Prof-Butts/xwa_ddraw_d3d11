@@ -2348,7 +2348,12 @@ void EffectsRenderer::SceneBegin(DeviceResources* deviceResources)
 		const ULONGLONG now = GetTickCount64();
 		if (now - lastSceneTime > 2000)
 		{
-			LogAddressSpace("Loading finished");
+			// The time without frames is roughly how long the loading took
+			LogAddressSpace("Loading finished (%0.1f s without frames)",
+				lastSceneTime == 0 ? 0.0 : (now - lastSceneTime) / 1000.0);
+			LogTextureBufferPeaks("Loading finished");
+			// The texture buffers are only needed while textures are created
+			ClearTextureBuffers();
 			if (UnloadDATFile != nullptr)
 			{
 				const double startMs = GetHiResTimeMs();

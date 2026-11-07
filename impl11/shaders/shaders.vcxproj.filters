@@ -101,6 +101,8 @@
     <FxCompile Include="SSDO\SSDOBlurVR.hlsl" />
     <FxCompile Include="SSDO\SSDOAddVR.hlsl" />
     <FxCompile Include="PBRAddVR.hlsl" />
+    <FxCompile Include="PBRAddV2.hlsl" />
+    <FxCompile Include="PBRAddV2VR.hlsl" />
     <FxCompile Include="RT\RTShadowMaskPS_VR.hlsl" />
     <FxCompile Include="SSDO\SSDODirectVR.hlsl" />
     <FxCompile Include="SunFlareShaderVR.hlsl" />
@@ -162,6 +164,12 @@
       <Filter>Fichiers d%27en-tête</Filter>
     </ClInclude>
     <ClInclude Include="PBRShading.h">
+      <Filter>Fichiers d%27en-tête</Filter>
+    </ClInclude>
+    <ClInclude Include="PBRShadingV2.h">
+      <Filter>Fichiers d%27en-tête</Filter>
+    </ClInclude>
+    <ClInclude Include="PBRAddV2Common.h">
       <Filter>Fichiers d%27en-tête</Filter>
     </ClInclude>
     <ClInclude Include="MainVertexShaderCommon.h">

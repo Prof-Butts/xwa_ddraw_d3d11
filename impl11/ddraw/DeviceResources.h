@@ -474,6 +474,8 @@ public:
 	ComPtr<ID3D11PixelShader> _ssdoAddPS_VR;
 	ComPtr<ID3D11PixelShader> _pbrAddPS;
 	ComPtr<ID3D11PixelShader> _pbrAddPS_VR;
+	ComPtr<ID3D11PixelShader> _pbrAddV2PS;    // ssao_type = PBR
+	ComPtr<ID3D11PixelShader> _pbrAddV2PS_VR; // ssao_type = PBR
 	ComPtr<ID3D11PixelShader> _headLightsPS;
 	ComPtr<ID3D11PixelShader> _headLightsPS_VR;
 	ComPtr<ID3D11PixelShader> _headLightsSSAOPS;

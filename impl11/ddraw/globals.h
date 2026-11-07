@@ -113,9 +113,15 @@ extern bool g_bFXAAEnabled;
 
 // SSAO
 extern SSAOTypeEnum g_SSAO_Type;
+extern bool g_bPBRShadingV2;
+extern float g_fPBRExposure, g_fPBRMinAlbedo;
+extern Vector3 g_PBRAmbientColor;
 extern float g_fSSAOZoomFactor, g_fSSAOZoomFactor2, g_fSSAOWhitePoint, g_fNormWeight, g_fNormalBlurRadius;
 extern int g_iSSDODebug, g_iSSAOBlurPasses;
 extern bool g_bBlurSSAO, g_bDepthBufferResolved, g_bOverrideLightPos;
+extern Vector4 g_OverrideLightDir;
+extern int g_iOverrideLightIdx;
+extern bool g_bOverrideLightInitialized;
 extern bool g_bShowSSAODebug, g_bEnableIndirectSSDO, g_bFNEnable, g_bSpecularMappingEnabled;
 extern bool g_bDumpSSAOBuffers, g_bEnableSSAOInShader, g_bEnableBentNormalsInShader;
 extern Vector4 g_LightVector[2];

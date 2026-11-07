@@ -208,6 +208,12 @@ bool g_bKeepMouseInsideWindow = false;
 // SSAO
 float g_fMoireOffsetDir = 0.02f, g_fMoireOffsetInd = 0.1f;
 SSAOTypeEnum g_SSAO_Type = SSO_AMBIENT;
+// When g_SSAO_Type is SSO_PBR, this selects the new PBR shading (ssao_type = PBR) instead of
+// the legacy one. Ctrl+Alt+M switches between them.
+bool g_bPBRShadingV2 = false;
+float g_fPBRExposure = 1.0f;
+float g_fPBRMinAlbedo = 0.0f;
+Vector3 g_PBRAmbientColor = Vector3(1.0f, 1.0f, 1.0f);
 float g_fHangarAmbient = 0.05f, g_fGlobalAmbient = 0.005f;
 
 extern float g_fMoireOffsetDir, g_fMoireOffsetInd;
@@ -232,6 +238,12 @@ float g_fCockpitTranslationScale = 0.0025f; // 1.0f / 400.0f;
 float g_fGlowMarkZOfs = -1.0f; // Small offset to make the hit effects more visible (avoids Z-Fighting a little bit)
 int g_iSpeedShaderMaxParticles = MAX_SPEED_PARTICLES;
 Vector4 g_LightVector[2], g_TempLightVector[2];
+// Debug sun override, enabled with override_game_light_pos = 1. When it's enabled, the
+// brightest XWA light uses g_OverrideLightDir (world space) instead of its own direction,
+// and the MOVE_LIGHTS_KEY_SET hotkeys move it. See GetXwaLightDir().
+Vector4 g_OverrideLightDir;
+int g_iOverrideLightIdx = -1;
+bool g_bOverrideLightInitialized = false;
 Vector4 g_LightColor[2], g_TempLightColor[2];
 int g_iHyperStyle = 1; // 0 = Regular, 1 = Disney style, 2 = Interdiction
 bool g_bInterdictionActive; // If true, then the current hyperjump must render an interdiction
@@ -2263,6 +2275,15 @@ bool LoadSSAOParams() {
 	g_SSAO_PSCBuffer.moire_scale = 0.5f; // Previous: 0.1f
 	g_fSSAOAlphaOfs = 0.5;
 	g_SSAO_Type = SSO_PBR;
+	g_bPBRShadingV2 = false;
+	g_fPBRExposure = 1.0f;
+	g_fPBRMinAlbedo = 0.0f;
+	g_PBRAmbientColor = Vector3(1.0f, 1.0f, 1.0f);
+	// The sun override is off unless override_game_light_pos = 1 is in the file
+	g_bOverrideLightPos = false;
+	g_bOverrideLightInitialized = false;
+	if (g_KeySet == MOVE_LIGHTS_KEY_SET)
+		g_KeySet = CHANGE_FOV_KEY_SET;
 	// Default position of the global light (the sun)
 	g_LightVector[0].x = 0;
 	g_LightVector[0].y = 1;
@@ -2371,9 +2392,23 @@ bool LoadSSAOParams() {
 				}
 				else if (_stricmp(svalue, "PBR") == 0)
 				{
+					// The new PBR shading. raytracing_enabled also sets SSO_PBR, but it doesn't
+					// change g_bPBRShadingV2, so this setting is kept when RT is enabled.
 					g_SSAO_Type = SSO_PBR;
+					g_bPBRShadingV2 = true;
 					SetHDRState(true);
 				}
+			}
+			else if (_stricmp(param, "pbr_exposure") == 0) {
+				g_fPBRExposure = fValue;
+			}
+			else if (_stricmp(param, "pbr_min_albedo") == 0) {
+				g_fPBRMinAlbedo = fValue;
+			}
+			else if (_stricmp(param, "pbr_ambient_color") == 0) {
+				float x, y, z;
+				LoadGeneric3DCoords(buf, &x, &y, &z);
+				g_PBRAmbientColor = Vector3(x, y, z);
 			}
 
 			if (_stricmp(param, "raytracing_enabled_in_tech_room") == 0) {
@@ -2603,6 +2638,13 @@ bool LoadSSAOParams() {
 			}
 			else if (_stricmp(param, "override_game_light_pos") == 0) {
 				g_bOverrideLightPos = (bool)fValue;
+				// Start again from the game's sun direction
+				g_bOverrideLightInitialized = false;
+				// The arrow-key hotkeys move the sun while the override is enabled
+				if (g_bOverrideLightPos)
+					g_KeySet = MOVE_LIGHTS_KEY_SET;
+				else if (g_KeySet == MOVE_LIGHTS_KEY_SET)
+					g_KeySet = CHANGE_FOV_KEY_SET;
 			}
 			else if (_stricmp(param, "alpha_to_solid_offset") == 0) {
 				g_fSSAOAlphaOfs = fValue;

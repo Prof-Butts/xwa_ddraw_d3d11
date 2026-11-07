@@ -1153,6 +1153,9 @@ int XwaTextureData::LoadDATImage(const char* sDATFileName, int GroupId, int Imag
 			log_debug("[DBG] [C++] Failed to read image data");
 	}
 
+	// CreateSRVFromBuffer copied the image, so the buffer isn't needed anymore
+	ReleaseLargeTextureBuffer(g_loadDatImageBuffer);
+
 	// Logged after the first image is read, so the log shows what reading from this DAT costs
 	if (bNewDATFile)
 		LogAddressSpace("After reading the first image from %s (LoadDATFile: %0.1f ms, including a %0.1f ms collection; "

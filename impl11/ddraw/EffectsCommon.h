@@ -394,6 +394,13 @@ typedef struct PSShadingSystemCBStruct {
 	float ambient, headlights_angle_cos, HDR_white_point;
 	uint32_t HDREnabled;
 	// 1120 bytes
+	// The following settings are only used when ssao_type = PBR
+	float PBR_exposure;          // Overall brightness
+	float PBR_ambient_color[3];  // Multiplies the ambient light
+	// 1136 bytes
+	float PBR_min_albedo;        // The albedo of black areas: dark colors are lifted to this
+	float unused_ss0, unused_ss1, unused_ss2;
+	// 1152 bytes
 } PSShadingSystemCB;
 
 typedef struct RTConstantsBufferStruct {

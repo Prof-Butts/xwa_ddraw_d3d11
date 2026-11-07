@@ -2438,6 +2438,53 @@ Matrix4 GetPlayerCraftMatrix(Vector4& Rs, Vector4& Us, Vector4& Fs, float scaleF
 /*
  * Sets the lights in the constant buffer used in the New Shading System.
  */
+/*
+ * Debug sun override (override_game_light_pos = 1 in SSAO.cfg).
+ * The first time it's needed, this picks the brightest XWA light (the sun) and copies its
+ * world-space direction to g_OverrideLightDir, so the hotkeys start from the game's sun.
+ */
+static void InitOverrideLight()
+{
+	const int numLights = min(MAX_XWA_LIGHTS, *s_XwaGlobalLightsCount);
+	if (!g_bOverrideLightPos || numLights <= 0)
+		return;
+	// Pick the sun again if the lights changed, for instance after a region change
+	if (g_bOverrideLightInitialized && g_iOverrideLightIdx < numLights)
+		return;
+
+	int idx = 0;
+	for (int i = 1; i < numLights; i++)
+		if (s_XwaGlobalLights[i].Intensity > s_XwaGlobalLights[idx].Intensity)
+			idx = i;
+
+	g_iOverrideLightIdx = idx;
+	g_OverrideLightDir = Vector4(
+		s_XwaGlobalLights[idx].PositionX / 32768.0f,
+		s_XwaGlobalLights[idx].PositionY / 32768.0f,
+		s_XwaGlobalLights[idx].PositionZ / 32768.0f,
+		0.0f);
+	g_OverrideLightDir.normalize();
+	g_bOverrideLightInitialized = true;
+	log_debug("[DBG] [Sun] Overriding light %d, direction: %0.3f, %0.3f, %0.3f",
+		idx, g_OverrideLightDir.x, g_OverrideLightDir.y, g_OverrideLightDir.z);
+}
+
+/*
+ * Returns the world-space direction of XWA's global light idx. When the sun override is
+ * enabled, the sun uses g_OverrideLightDir instead. Otherwise this is the game's light.
+ */
+static Vector4 GetXwaLightDir(int idx)
+{
+	if (g_bOverrideLightPos && g_bOverrideLightInitialized && idx == g_iOverrideLightIdx)
+		return g_OverrideLightDir;
+
+	return Vector4(
+		s_XwaGlobalLights[idx].PositionX / 32768.0f,
+		s_XwaGlobalLights[idx].PositionY / 32768.0f,
+		s_XwaGlobalLights[idx].PositionZ / 32768.0f,
+		0.0f);
+}
+
 void SetLights(DeviceResources *resources, float fSSDOEnabled) {
 	Vector4 light;
 	int i;
@@ -2557,16 +2604,14 @@ void SetLights(DeviceResources *resources, float fSSDOEnabled) {
 
 	if (g_HyperspacePhaseFSM != HS_HYPER_TUNNEL_ST)
 	{
+		InitOverrideLight();
 		for (int i = 0; i < maxLights; i++)
 		{
 			Vector4 col;
 			float intensity, value;
 
-			Vector4 xwaLight = Vector4(
-				s_XwaGlobalLights[i].PositionX / 32768.0f,
-				s_XwaGlobalLights[i].PositionY / 32768.0f,
-				s_XwaGlobalLights[i].PositionZ / 32768.0f,
-				0.0f);
+			// World-space direction. This is the game's light unless the sun override is enabled
+			Vector4 xwaLight = GetXwaLightDir(i);
 
 			if (g_bUseSteamVR)
 			{
@@ -2899,8 +2944,25 @@ void SetLights(DeviceResources *resources, float fSSDOEnabled) {
 	g_ShadingSys_PSBuffer.sso_disable = g_bEnableSSAOInShader ? 0.0f : 1.0f;
 	g_ShadingSys_PSBuffer.HDREnabled = g_bHDREnabled;
 	g_ShadingSys_PSBuffer.HDR_white_point = g_fHDRWhitePoint;
+	g_ShadingSys_PSBuffer.PBR_exposure = g_fPBRExposure;
+	g_ShadingSys_PSBuffer.PBR_ambient_color[0] = g_PBRAmbientColor.x;
+	g_ShadingSys_PSBuffer.PBR_ambient_color[1] = g_PBRAmbientColor.y;
+	g_ShadingSys_PSBuffer.PBR_ambient_color[2] = g_PBRAmbientColor.z;
+	g_ShadingSys_PSBuffer.PBR_min_albedo = g_fPBRMinAlbedo;
 	if (g_bEnableHeadLights) g_ShadingSys_PSBuffer.ambient = cur_ambient;
 	resources->InitPSConstantShadingSystem(resources->_shadingSysBuffer.GetAddressOf(), &g_ShadingSys_PSBuffer);
+}
+
+// Returns the pixel shader that combines the lighting in the SSDO and Deferred passes
+static ID3D11PixelShader* GetDeferredShadingPS(DeviceResources* resources)
+{
+	if (g_SSAO_Type == SSO_PBR)
+	{
+		if (g_bPBRShadingV2)
+			return g_bUseSteamVR ? resources->_pbrAddV2PS_VR : resources->_pbrAddV2PS;
+		return g_bUseSteamVR ? resources->_pbrAddPS_VR : resources->_pbrAddPS;
+	}
+	return g_bUseSteamVR ? resources->_ssdoAddPS_VR : resources->_ssdoAddPS;
 }
 
 void PrimarySurface::SSAOPass(float fZoomFactor) {
@@ -3554,10 +3616,7 @@ void PrimarySurface::SSDOPass(float fZoomFactor, float fZoomFactor2) {
 #endif
 		if (!g_bEnableHeadLights)
 		{
-			if (g_bUseSteamVR)
-				resources->InitPixelShader(g_SSAO_Type == SSO_PBR ? resources->_pbrAddPS_VR : resources->_ssdoAddPS_VR); // VR path
-			else
-				resources->InitPixelShader(g_SSAO_Type == SSO_PBR ? resources->_pbrAddPS : resources->_ssdoAddPS); // Non-VR path
+			resources->InitPixelShader(GetDeferredShadingPS(resources));
 		}
 		else
 		{
@@ -3752,10 +3811,7 @@ void PrimarySurface::DeferredPass()
 
 	if (!g_bEnableHeadLights)
 	{
-		if (g_bUseSteamVR)
-			resources->InitPixelShader(g_SSAO_Type == SSO_PBR ? resources->_pbrAddPS_VR : resources->_ssdoAddPS_VR); // VR path
-		else
-			resources->InitPixelShader(g_SSAO_Type == SSO_PBR ? resources->_pbrAddPS : resources->_ssdoAddPS); // Non-VR path
+		resources->InitPixelShader(GetDeferredShadingPS(resources));
 	}
 	else
 	{
@@ -7769,11 +7825,8 @@ Matrix4 ComputeLightViewMatrix(int idx, Matrix4 &Heading, bool invert)
 	Matrix4 L;
 	L.identity();
 
-	Vector4 xwaLight = Vector4(
-		s_XwaGlobalLights[idx].PositionX / 32768.0f,
-		s_XwaGlobalLights[idx].PositionY / 32768.0f,
-		s_XwaGlobalLights[idx].PositionZ / 32768.0f,
-		0.0f);
+	// Use the same light direction as SetLights(), so the shadow maps follow the sun override
+	Vector4 xwaLight = GetXwaLightDir(idx);
 
 	xwaLight = Heading * xwaLight;
 	xwaLight.normalize();

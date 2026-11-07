@@ -100,6 +100,8 @@
 #include "../Debug/RTShadowMaskPS_VR.h"
 #include "../Debug/PBRAdd.h"
 #include "../Debug/PBRAddVR.h"
+#include "../Debug/PBRAddV2.h"
+#include "../Debug/PBRAddV2VR.h"
 #include "../Debug/PixelShaderVRGeom.h"
 #else
 #include "../Release/MainVertexShader.h"
@@ -188,6 +190,8 @@
 #include "../Release/RTShadowMaskPS_VR.h"
 #include "../Release/PBRAdd.h"
 #include "../Release/PBRAddVR.h"
+#include "../Release/PBRAddV2.h"
+#include "../Release/PBRAddV2VR.h"
 #include "../Release/PixelShaderVRGeom.h"
 #endif
 
@@ -4323,6 +4327,9 @@ HRESULT DeviceResources::LoadMainResources()
 
 			if (FAILED(hr = this->_d3dDevice->CreatePixelShader(g_PBRAddVR, sizeof(g_PBRAddVR), nullptr, &_pbrAddPS_VR)))
 				return hr;
+
+			if (FAILED(hr = this->_d3dDevice->CreatePixelShader(g_PBRAddV2VR, sizeof(g_PBRAddV2VR), nullptr, &_pbrAddV2PS_VR)))
+				return hr;
 		}
 		else
 		{
@@ -4342,6 +4349,9 @@ HRESULT DeviceResources::LoadMainResources()
 				return hr;
 
 			if (FAILED(hr = this->_d3dDevice->CreatePixelShader(g_PBRAdd, sizeof(g_PBRAdd), nullptr, &_pbrAddPS)))
+				return hr;
+
+			if (FAILED(hr = this->_d3dDevice->CreatePixelShader(g_PBRAddV2, sizeof(g_PBRAddV2), nullptr, &_pbrAddV2PS)))
 				return hr;
 		}
 
@@ -4776,6 +4786,9 @@ HRESULT DeviceResources::LoadResources()
 
 			if (FAILED(hr = this->_d3dDevice->CreatePixelShader(g_PBRAddVR, sizeof(g_PBRAddVR), nullptr, &_pbrAddPS_VR)))
 				return hr;
+
+			if (FAILED(hr = this->_d3dDevice->CreatePixelShader(g_PBRAddV2VR, sizeof(g_PBRAddV2VR), nullptr, &_pbrAddV2PS_VR)))
+				return hr;
 		}
 		else
 		{
@@ -4795,6 +4808,9 @@ HRESULT DeviceResources::LoadResources()
 				return hr;
 
 			if (FAILED(hr = this->_d3dDevice->CreatePixelShader(g_PBRAdd, sizeof(g_PBRAdd), nullptr, &_pbrAddPS)))
+				return hr;
+
+			if (FAILED(hr = this->_d3dDevice->CreatePixelShader(g_PBRAddV2, sizeof(g_PBRAddV2), nullptr, &_pbrAddV2PS)))
 				return hr;
 		}
 
@@ -4954,8 +4970,8 @@ HRESULT DeviceResources::LoadResources()
 	if (FAILED(hr = this->_d3dDevice->CreateBuffer(&constantBufferDesc, nullptr, &this->_ssaoConstantBuffer)))
 		return hr;
 
-	constantBufferDesc.ByteWidth = 1120;
-	static_assert(sizeof(PSShadingSystemCB) == 1120, "sizeof(PSShadingSystemCB) must be 1120");
+	constantBufferDesc.ByteWidth = 1152;
+	static_assert(sizeof(PSShadingSystemCB) == 1152, "sizeof(PSShadingSystemCB) must be 1152");
 	if (FAILED(hr = this->_d3dDevice->CreateBuffer(&constantBufferDesc, nullptr, &this->_shadingSysBuffer)))
 		return hr;
 

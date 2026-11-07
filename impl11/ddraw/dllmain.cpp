@@ -80,6 +80,22 @@ void PrintVector(const Vector4 &Vector) {
 		Vector.x, Vector.y, Vector.z);
 }
 
+// Moves the sun when override_game_light_pos = 1 in SSAO.cfg. The direction is in XWA's
+// world coordinates, and it's normalized after each step.
+void MoveOverrideLight(float dx, float dy, float dz) {
+	if (!g_bOverrideLightPos || !g_bOverrideLightInitialized) {
+		DisplayTimedMessage(3, 0, "Set override_game_light_pos = 1 to move the sun");
+		return;
+	}
+	g_OverrideLightDir.x += dx;
+	g_OverrideLightDir.y += dy;
+	g_OverrideLightDir.z += dz;
+	g_OverrideLightDir.normalize();
+	PrintVector(g_OverrideLightDir);
+	DisplayTimedMessageV(3, 0, "Sun: %0.2f, %0.2f, %0.2f",
+		g_OverrideLightDir.x, g_OverrideLightDir.y, g_OverrideLightDir.z);
+}
+
 inline bool InGunnerTurret()
 {
 	return (g_iPresentCounter > PLAYERDATATABLE_MIN_SAFE_FRAME) ?
@@ -344,9 +360,7 @@ LRESULT CALLBACK MyWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam
 			case VK_RIGHT:
 				switch (g_KeySet) {
 				case MOVE_LIGHTS_KEY_SET:
-					g_LightVector[0].x += 0.1f;
-					g_LightVector[0].normalize();
-					PrintVector(g_LightVector[0]);
+					MoveOverrideLight(0.1f, 0.0f, 0.0f);
 					break;
 				case CHANGE_FOV_KEY_SET:
 					IncreaseFOV(50.0f);
@@ -425,9 +439,7 @@ LRESULT CALLBACK MyWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam
 			case VK_LEFT:
 				switch (g_KeySet) {
 				case MOVE_LIGHTS_KEY_SET:
-					g_LightVector[0].x -= 0.1f;
-					g_LightVector[0].normalize();
-					PrintVector(g_LightVector[0]);
+					MoveOverrideLight(-0.1f, 0.0f, 0.0f);
 					break;
 				case CHANGE_FOV_KEY_SET:
 					IncreaseFOV(-50.0f);
@@ -511,9 +523,7 @@ LRESULT CALLBACK MyWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam
 			case VK_UP:
 				switch (g_KeySet) {
 				case MOVE_LIGHTS_KEY_SET:
-					g_LightVector[0].y += 0.1f;
-					g_LightVector[0].normalize();
-					PrintVector(g_LightVector[0]);
+					MoveOverrideLight(0.0f, 0.1f, 0.0f);
 					break;
 				case MOVE_POINT_LIGHT_KEY_SET:
 					g_LaserPointDebug.y += 0.1f;
@@ -553,9 +563,7 @@ LRESULT CALLBACK MyWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam
 			case VK_DOWN:
 				switch (g_KeySet) {
 				case MOVE_LIGHTS_KEY_SET:
-					g_LightVector[0].y -= 0.1f;
-					g_LightVector[0].normalize();
-					PrintVector(g_LightVector[0]);
+					MoveOverrideLight(0.0f, -0.1f, 0.0f);
 					break;
 				case MOVE_POINT_LIGHT_KEY_SET:
 					g_LaserPointDebug.y -= 0.1f;
@@ -783,6 +791,16 @@ LRESULT CALLBACK MyWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam
 			case 'S':
 				SaveVRParams();
 				DisplayTimedMessage(3, 0, "VRParams.cfg Saved");
+				return 0;
+			// Ctrl+Alt+M: Switch between the new and the legacy PBR shading, for comparisons
+			case 'M':
+				if (g_SSAO_Type == SSO_PBR)
+				{
+					g_bPBRShadingV2 = !g_bPBRShadingV2;
+					DisplayTimedMessage(3, 0, g_bPBRShadingV2 ? "PBR shading: new" : "PBR shading: legacy");
+				}
+				else
+					DisplayTimedMessage(3, 0, "PBR shading needs ssao_type = PBR");
 				return 0;
 			//case 'T':
 			//	g_bToggleSkipDC = !g_bToggleSkipDC;
@@ -1077,9 +1095,7 @@ LRESULT CALLBACK MyWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam
 			case VK_UP:
 				switch (g_KeySet) {
 				case MOVE_LIGHTS_KEY_SET:
-					g_LightVector[0].z += 0.1f;
-					g_LightVector[0].normalize();
-					PrintVector(g_LightVector[0]);
+					MoveOverrideLight(0.0f, 0.0f, 0.1f);
 					break;
 				case MOVE_POINT_LIGHT_KEY_SET:
 					g_LaserPointDebug.z += 0.1f;
@@ -1111,9 +1127,7 @@ LRESULT CALLBACK MyWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam
 			case VK_DOWN:
 				switch (g_KeySet) {
 				case MOVE_LIGHTS_KEY_SET:
-					g_LightVector[0].z -= 0.1f;
-					g_LightVector[0].normalize();
-					PrintVector(g_LightVector[0]);
+					MoveOverrideLight(0.0f, 0.0f, -0.1f);
 					break;
 				case MOVE_POINT_LIGHT_KEY_SET:
 					g_LaserPointDebug.z -= 0.1f;

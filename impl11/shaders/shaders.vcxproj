@@ -201,6 +201,18 @@
       <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">4.1</ShaderModel>
       <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">4.1</ShaderModel>
     </FxCompile>
+    <FxCompile Include="PBRAddV2.hlsl">
+      <ShaderType Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">Pixel</ShaderType>
+      <ShaderType Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">Pixel</ShaderType>
+      <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">4.1</ShaderModel>
+      <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">4.1</ShaderModel>
+    </FxCompile>
+    <FxCompile Include="PBRAddV2VR.hlsl">
+      <ShaderType Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">Pixel</ShaderType>
+      <ShaderType Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">Pixel</ShaderType>
+      <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">4.1</ShaderModel>
+      <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">4.1</ShaderModel>
+    </FxCompile>
     <FxCompile Include="PixelShaderAnim.hlsl">
       <ShaderType Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">Pixel</ShaderType>
       <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">4.0</ShaderModel>
@@ -648,7 +660,9 @@
     <ClInclude Include="metric_common.h" />
     <ClInclude Include="NormalMapping.h" />
     <ClInclude Include="PBRAddCommon.h" />
+    <ClInclude Include="PBRAddV2Common.h" />
     <ClInclude Include="PBRShading.h" />
+    <ClInclude Include="PBRShadingV2.h" />
     <ClInclude Include="PixelShaderTextureCommon.h" />
     <ClInclude Include="RT\RTCommon.h" />
     <ClInclude Include="RT\RTShadowMaskPSCommon.h" />

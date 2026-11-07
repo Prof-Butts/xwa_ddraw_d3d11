@@ -1153,7 +1153,7 @@ int XwaTextureData::LoadDATImage(const char* sDATFileName, int GroupId, int Imag
 			log_debug("[DBG] [C++] Failed to read image data");
 	}
 
-	// The first image read loads the image data of the whole DAT file
+	// Logged after the first image is read, so the log shows what reading from this DAT costs
 	if (bNewDATFile)
 		LogAddressSpace("After reading the first image from %s (LoadDATFile: %0.1f ms, including a %0.1f ms collection; "
 			"first image: %0.1f ms)", sDATFileName, loadDATFileMs, collectionMs, GetHiResTimeMs() - readStartMs);

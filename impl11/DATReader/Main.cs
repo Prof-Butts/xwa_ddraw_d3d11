@@ -25,19 +25,106 @@ namespace DATReader;
 
  */
 
+/*
+ * A DAT file whose images are read one at a time. It holds the metadata of all the images
+ * and where the data of each image is in the file, so reading an image doesn't load the
+ * rest of the file. XWA is a 32-bit process and some DAT files take more than 100 MB.
+ */
+sealed class IndexedDatFile
+{
+    // The groups and images, without their image data
+    public DatFile Metadata { get; private set; }
+    public string FileName => Metadata.FileName;
+
+    // (GroupId, ImageId) --> where the image data is in the file
+    readonly Dictionary<int, (long Offset, int Length)> m_Index = new Dictionary<int, (long, int)>();
+
+    static int Key(short groupId, short imageId) => (groupId << 16) | (ushort)imageId;
+
+    public static IndexedDatFile FromFile(string fileName)
+    {
+        var datFile = new IndexedDatFile();
+        datFile.Metadata = DatFile.FromFile(fileName, false);
+        datFile.BuildIndex(fileName);
+        return datFile;
+    }
+
+    // Walks the image headers to find where the data of each image is. This follows the same
+    // layout as JeremyAnsel.Xwa.Dat's DatFile.FromStream.
+    void BuildIndex(string fileName)
+    {
+        using var stream = new FileStream(fileName, FileMode.Open, FileAccess.Read, FileShare.Read);
+        using var reader = new BinaryReader(stream);
+        if (reader.ReadInt64() != 6197554890949403479L)
+            throw new InvalidDataException("Not a DAT file: " + fileName);
+
+        short version = reader.ReadInt16();
+        short groupsCount = reader.ReadInt16();
+        reader.ReadInt16();
+        reader.ReadInt32();
+        if (version != 0)
+            stream.Position += 12;
+        stream.Position += 4;
+
+        int imagesCount = 0;
+        for (int i = 0; i < groupsCount; i++)
+        {
+            reader.ReadInt16(); // GroupId
+            imagesCount += reader.ReadInt16();
+            reader.ReadInt32();
+            if (version != 0)
+                stream.Position += 12;
+            reader.ReadInt32();
+        }
+
+        for (int i = 0; i < imagesCount; i++)
+        {
+            stream.Position += 10; // Format, Width, Height and two unknown fields
+            short groupId = reader.ReadInt16();
+            short imageId = reader.ReadInt16();
+            // The size includes the rest of the header (44 bytes) and the image data
+            int size = reader.ReadInt32();
+            if (size < 44)
+                throw new InvalidDataException("Invalid image size in " + fileName);
+            long dataOffset = stream.Position + 44;
+            // Keep the first image when an id is repeated, like DatFile.GetImageById
+            m_Index.TryAdd(Key(groupId, imageId), (dataOffset, size - 44));
+            stream.Position = dataOffset + size - 44;
+        }
+    }
+
+    // Reads the data of one image. metadata must come from this file's Metadata.
+    public DatImage ReadImage(DatImage metadata)
+    {
+        if (!m_Index.TryGetValue(Key(metadata.GroupId, metadata.ImageId), out var entry))
+            return null;
+
+        byte[] rawData = new byte[entry.Length];
+        using (var stream = new FileStream(FileName, FileMode.Open, FileAccess.Read, FileShare.Read, 1))
+        {
+            stream.Position = entry.Offset;
+            stream.ReadExactly(rawData);
+        }
+        // The metadata already has the final format (for instance, Format25 with 2 colors is BC3)
+        return DatImage.FromMemory(metadata.GroupId, metadata.ImageId, metadata.Format,
+            metadata.Width, metadata.Height, metadata.ColorsCount, rawData);
+    }
+}
+
 public static class Main
 {
-    static Dictionary<string, DatFile> m_GenericDatFiles = new Dictionary<string, DatFile>(StringComparer.OrdinalIgnoreCase);
+    // The generic DAT files are used all the time, so their index stays loaded
+    static Dictionary<string, IndexedDatFile> m_GenericDatFiles = new Dictionary<string, IndexedDatFile>(StringComparer.OrdinalIgnoreCase);
     static HashSet<string> m_GenericDatNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
             "GenericDamage",
             "RubbleEffects",
         };
 
-    // Cached DatFile var. This must be loaded before we start inspecting the file
-    static DatFile m_DATFile = null;
-    // Cached image var. This must be loaded before accessing raw image data.
-    // This var is loaded in GetDATImageMetadata below
+    // Cached DAT file. This must be loaded before we start inspecting the file
+    static IndexedDatFile m_DATFile = null;
+    // Metadata of the cached image (without its image data). This must be loaded before
+    // accessing raw image data. This var is loaded in GetDATImageMetadata below
     static DatImage m_DATImage = null;
     // Enable verbosity
     static bool m_Verbose = false;
@@ -60,10 +147,9 @@ public static class Main
         m_Verbose = Verbose;
     }
 
-    // Returns the memory of the DAT files that are no longer cached. Reading images loads
-    // the image data of the whole DAT file, which can take hundreds of MB. XWA is a 32-bit
-    // process and its own allocations don't trigger a collection, so this garbage can keep
-    // XWA from finding large blocks of free memory unless it's released right away.
+    // Returns the memory that's no longer used, mostly the buffers of the images read so far.
+    // XWA is a 32-bit process and its own allocations don't trigger a collection, so this
+    // garbage can keep XWA from finding large blocks of free memory unless it's released.
     static void ReleaseUnusedMemory()
     {
         long start = Stopwatch.GetTimestamp();
@@ -82,7 +168,7 @@ public static class Main
         return m_LastCollectionMs;
     }
 
-    // Releases the cached DAT file and image. The generic DAT files stay loaded.
+    // Releases the cached DAT file and image. The index of the generic DAT files stays loaded.
     [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)], EntryPoint = nameof(UnloadDATFile))]
     public static void UnloadDATFile()
     {
@@ -121,16 +207,10 @@ public static class Main
 
             if (!m_GenericDatFiles.TryGetValue(name, out m_DATFile))
             {
+                // Only the metadata and the index are loaded, the images are read when needed
+                m_DATFile = IndexedDatFile.FromFile(sDatFileName);
                 if (m_GenericDatNames.Contains(name))
-                {
-                    m_DATFile = DatFile.FromFile(sDatFileName, true);
-                    //m_DATFile.ConvertToFormat25();
                     m_GenericDatFiles.Add(name, m_DATFile);
-                }
-                else
-                {
-                    m_DATFile = DatFile.FromFile(sDatFileName, false);
-                }
             }
 
             if (m_DATFile == null)
@@ -157,7 +237,7 @@ public static class Main
             return false;
         }
 
-        DatImage image = m_DATFile.GetImageById((short)GroupId, (short)ImageId);
+        DatImage image = m_DATFile.Metadata.GetImageById((short)GroupId, (short)ImageId);
 
         if (image != null)
         {
@@ -192,26 +272,25 @@ public static class Main
             return false;
         }
 
-        if (!m_DATFile.HasImagesData)
-        {
-            m_DATFile = DatFile.FromFile(m_DATFile.FileName, true);
-            m_DATImage = m_DATFile.GetImageById(m_DATImage.GroupId, m_DATImage.ImageId);
-        }
+        // Read only this image from the file. Its data isn't kept after this call.
+        DatImage image = ReadCachedImage();
+        if (image == null)
+            return false;
 
-        short W = m_DATImage.Width;
-        short H = m_DATImage.Height;
+        short W = image.Width;
+        short H = image.Height;
         byte[] data;
 
-        if (RawData_size == W * H || m_DATImage.Format == DatImageFormat.Format25)
+        if (RawData_size == W * H || image.Format == DatImageFormat.Format25)
         {
-            data = m_DATImage.GetRawData();
+            data = image.GetRawData();
         }
         else
         {
-            data = m_DATImage.GetImageData();
+            data = image.GetImageData();
         }
 
-        if (m_DATImage.Format == DatImageFormat.FormatBc5)
+        if (image.Format == DatImageFormat.FormatBc5)
         {
             // Format is BGRA with B = 0 and A = 255 (for opaque colors).
             // For this format, we assume it's a normal map, so we reconstruct
@@ -231,11 +310,28 @@ public static class Main
 
         if (m_Verbose)
         {
-            Trace.WriteLine("[DBG] [C#] RawData, W*H*4 = " + (W * H * 4) + ", len: " + data.Length + ", Format: " + m_DATImage.Format);
+            Trace.WriteLine("[DBG] [C#] RawData, W*H*4 = " + (W * H * 4) + ", len: " + data.Length + ", Format: " + image.Format);
         }
 
         Marshal.Copy(data, 0, new IntPtr(RawData_out), data.Length);
         return true;
+    }
+
+    // Reads the data of the image selected by GetDATImageMetadata
+    static DatImage ReadCachedImage()
+    {
+        try
+        {
+            DatImage image = m_DATFile.ReadImage(m_DATImage);
+            if (image == null)
+                Trace.WriteLine("[DBG] [C#] Image " + m_DATImage.GroupId + "-" + m_DATImage.ImageId + " not found in " + m_DATFile.FileName);
+            return image;
+        }
+        catch (Exception e)
+        {
+            Trace.WriteLine("[DBG] [C#] Exception " + e + " when reading an image from " + m_DATFile.FileName);
+            return null;
+        }
     }
 
     // Legacy function. Deprecated. To be used only with old DAT files.
@@ -248,29 +344,26 @@ public static class Main
             return false;
         }
 
-        //m_DATImage = DatFile.GetImageDataById(m_DATFile.FileName, m_DATImage.GroupId, m_DATImage.ImageId);
+        // Read only this image from the file. Its data isn't kept after this call.
+        DatImage image = ReadCachedImage();
+        if (image == null)
+            return false;
 
-        if (!m_DATFile.HasImagesData)
-        {
-            m_DATFile = DatFile.FromFile(m_DATFile.FileName, true);
-            m_DATImage = m_DATFile.GetImageById(m_DATImage.GroupId, m_DATImage.ImageId);
-        }
-
-        //m_DATImage.ConvertToFormat25(); // Looks like there's no need to do any conversion
-        short W = m_DATImage.Width;
-        short H = m_DATImage.Height;
+        //image.ConvertToFormat25(); // Looks like there's no need to do any conversion
+        short W = image.Width;
+        short H = image.Height;
 
         if (RawData_size == W * H)
         {
-            Marshal.Copy(m_DATImage.GetRawData(), 0, new IntPtr(RawData_out), m_DATImage.GetRawData().Length);
+            Marshal.Copy(image.GetRawData(), 0, new IntPtr(RawData_out), image.GetRawData().Length);
             return true;
         }
 
-        byte[] data = m_DATImage.Format == DatImageFormat.Format25 ? m_DATImage.GetRawData() : m_DATImage.GetImageData();
+        byte[] data = image.Format == DatImageFormat.Format25 ? image.GetRawData() : image.GetImageData();
 
         int len = data.Length;
         if (m_Verbose)
-            Trace.WriteLine("[DBG] [C#] RawData, W*H*4 = " + (W * H * 4) + ", len: " + len + ", Format: " + m_DATImage.Format);
+            Trace.WriteLine("[DBG] [C#] RawData, W*H*4 = " + (W * H * 4) + ", len: " + len + ", Format: " + image.Format);
 
         if (RawData_out == null)
         {
@@ -321,7 +414,7 @@ public static class Main
             return 0;
         }
 
-        DatGroup group = m_DATFile.GetGroupById((short)GroupId);
+        DatGroup group = m_DATFile.Metadata.GetGroupById((short)GroupId);
 
         if (group != null)
         {
@@ -340,7 +433,7 @@ public static class Main
             return false;
         }
 
-        DatGroup group = m_DATFile.GetGroupById((short)GroupId);
+        DatGroup group = m_DATFile.Metadata.GetGroupById((short)GroupId);
 
         if (group != null)
         {
@@ -367,7 +460,7 @@ public static class Main
             return -1;
         }
 
-        return m_DATFile.Groups.Count;
+        return m_DATFile.Metadata.Groups.Count;
     }
 
     [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)], EntryPoint = nameof(GetDATGroupList))]
@@ -380,7 +473,7 @@ public static class Main
         }
 
         int i = 0;
-        foreach (var group in m_DATFile.Groups)
+        foreach (var group in m_DATFile.Metadata.Groups)
         {
             GroupIds_out[i++] = group.GroupId;
         }

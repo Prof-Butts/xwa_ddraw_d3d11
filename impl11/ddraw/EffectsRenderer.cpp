@@ -2340,6 +2340,27 @@ void EffectsRenderer::SceneBegin(DeviceResources* deviceResources)
 {
 	D3dRenderer::SceneBegin(deviceResources);
 
+	// When more than two seconds have passed since the last frame, a mission or a region has
+	// just finished loading. Release the DAT file cached by DATReader: XWA is a 32-bit
+	// process, so its address space is better returned to the game.
+	{
+		static ULONGLONG lastSceneTime = 0;
+		const ULONGLONG now = GetTickCount64();
+		if (now - lastSceneTime > 2000)
+		{
+			LogAddressSpace("Loading finished");
+			if (UnloadDATFile != nullptr)
+			{
+				const double startMs = GetHiResTimeMs();
+				UnloadDATFile();
+				const double unloadMs = GetHiResTimeMs() - startMs;
+				LogAddressSpace("After unloading the cached DAT file (%0.1f ms, including a %0.1f ms collection)",
+					unloadMs, (GetLastCollectionTimeMs != nullptr) ? GetLastCollectionTimeMs() : 0.0f);
+			}
+		}
+		lastSceneTime = now;
+	}
+
 	ProcessKeyboard();
 
 #ifdef DISABLED

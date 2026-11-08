@@ -49,8 +49,9 @@ the output keeps the same folder structure. The output is always PNG.
 A ZIP file (like the ones XWA reads DAT images from, with GROUP/IMAGE.png entries) is
 extracted to OUTPUT/unzipped, a temporary folder that's deleted afterwards. Its images are
 processed into OUTPUT/ZIPNAME, and a new ZIP with the same name as the original is saved in
-OUTPUT. The new ZIP only has the processed images, at the same paths: no normal maps,
-height maps, layers or folder entries, which XWA would count as images.
+OUTPUT. The new ZIP only has the processed images (indexed with --indexed), at the same
+paths: no normal maps, height maps, layers or folder entries, which XWA would count as
+images.
 
 Images named NAME_alpha or NAME_illum are the alpha and illumination maps of the texture
 NAME, as XwaOptEditor exports them. They're only resized (with Lanczos), so they still
@@ -68,6 +69,7 @@ import zipfile
 import numpy as np
 from PIL import Image
 from scipy import ndimage
+from scipy.spatial import cKDTree
 
 DEFAULT_EXTENSIONS = ".png,.bmp,.jpg,.jpeg,.tga"
 # Alpha and illumination maps, named like XwaOptEditor exports them. They're only resized.
@@ -505,6 +507,58 @@ def resize_map(image, scale):
     return image.resize((image.width * scale, image.height * scale), Image.LANCZOS)
 
 
+def make_palette(image, colors=256, iterations=15):
+    """
+    A palette of up to `colors` colors for an RGB image. It starts from Pillow's max coverage
+    palette and refines it with k-means over the image's colors, each one weighted by the
+    square root of its pixel count. Pillow's median cut gives the rare colors (like thin
+    dark lines) too little weight and can tint them with a nearby common color; this keeps
+    them close to their own color.
+    """
+    pixels = np.asarray(image, dtype=np.uint8).reshape(-1, 3)
+    packed = (pixels[:, 0].astype(np.int32) << 16) | (pixels[:, 1].astype(np.int32) << 8) | pixels[:, 2]
+    unique, counts = np.unique(packed, return_counts=True)
+    points = np.stack([(unique >> 16) & 255, (unique >> 8) & 255, unique & 255], axis=1).astype(np.float32)
+    if len(points) <= colors:
+        return points
+    weights = np.sqrt(counts).astype(np.float32)
+    start = image.quantize(colors=colors, method=Image.Quantize.MAXCOVERAGE, dither=Image.Dither.NONE)
+    centers = np.asarray(start.getpalette()[:colors * 3], dtype=np.float32).reshape(-1, 3)
+    for _ in range(iterations):
+        _, nearest = cKDTree(centers).query(points)
+        sums = np.zeros_like(centers)
+        np.add.at(sums, nearest, points * weights[:, None])
+        totals = np.bincount(nearest, weights=weights, minlength=len(centers))
+        used = totals > 0
+        centers[used] = sums[used] / totals[used, None]
+        # Unused palette entries go to the colors that are represented worst
+        if not used.all():
+            error = np.linalg.norm(points - centers[nearest], axis=1)
+            centers[~used] = points[np.argsort(error)[-int((~used).sum()):]]
+    return centers
+
+
+def to_indexed(image):
+    """
+    Converts an image to indexed color (a palette of up to 256 colors), with Floyd-Steinberg
+    dithering so smooth gradients don't band. Images with 256 colors or less keep their
+    exact colors. Opaque images use make_palette(); images with transparency use Pillow's
+    fast octree, the only one of its methods that keeps the alpha.
+    """
+    if image.mode == "P":
+        return image
+    if image.mode in ("RGBA", "LA"):
+        image = image.convert("RGBA")
+        if image.getextrema()[3][0] < 255:
+            return image.quantize(colors=256, method=Image.Quantize.FASTOCTREE,
+                                  dither=Image.Dither.FLOYDSTEINBERG)
+    image = image.convert("RGB")
+    colors = np.clip(np.round(make_palette(image)), 0, 255).astype(np.uint8)
+    palette = Image.new("P", (1, 1))
+    palette.putpalette(colors.ravel().tolist())
+    return image.quantize(palette=palette, dither=Image.Dither.FLOYDSTEINBERG)
+
+
 def save_layer(channel, path, scale_to_max=False):
     data = channel / max(channel.max(), 1e-6) if scale_to_max else channel
     Image.fromarray((np.clip(data, 0, 1) * 255 + 0.5).astype(np.uint8), "L").save(path)
@@ -559,6 +613,8 @@ def process_batch(images, output_root, args, counts):
                 else:
                     result, exported, layers = process_image(image, args)
             os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
+            if args.indexed:
+                result = to_indexed(result)
             result.save(out_path)
             stem = os.path.splitext(out_path)[0]
             for name, layer in exported.items():
@@ -776,6 +832,11 @@ def main():
     parser.add_argument("--recursive", action="store_true", help="Also process subdirectories")
     parser.add_argument("--extensions", default=DEFAULT_EXTENSIONS,
                         help="Comma-separated extensions to process in directories (default: %s)" % DEFAULT_EXTENSIONS)
+    parser.add_argument("--indexed", action="store_true",
+                        help="Save the upscaled images (and their _alpha and _illum maps) as indexed PNGs, with a "
+                             "palette of up to 256 colors and dithering. They're much smaller, and they're also "
+                             "what goes into the new ZIP of a ZIP input. Images with 256 colors or less keep "
+                             "their exact colors. Normal maps, height maps and layers keep their full colors")
     parser.add_argument("--overwrite", action="store_true", help="Replace existing output files")
     parser.add_argument("--save-layers", action="store_true",
                         help="Also save the intermediate layers of the line extraction, to tune the parameters")

@@ -12,8 +12,13 @@ left as they are.
 The OPT is read and written with JeremyAnsel.Xwa.Opt.dll, the library XwaOptEditor uses,
 so the result is the same as replacing the textures one by one in the editor:
 - Mipmaps are generated when the original texture had them.
-- 32-bit images that only use 256 colors or less are stored as 8-bit textures, without
-  loss, when the original texture was 8-bit. -Convert8 stores all of them as 8-bit.
+- Indexed images (like the ones XwaOptEditor exports or upscale_textures.py --indexed
+  makes) stay 8-bit with their own palette, rounded to RGB565 like every 8-bit OPT
+  texture. Their mipmaps use the same palette. Indexed images with alpha or illumination
+  can't stay 8-bit: they're stored as 32-bit, and there's a warning.
+- 32-bit images that only use 256 colors or less (in RGB565) are stored as 8-bit, without
+  loss, when the original texture was 8-bit. -Convert8 stores all of them as 8-bit, with a
+  palette made by the OPT library.
 - If the original texture has alpha or illumination and there's no image for it (a
   NAME_alpha or NAME_illum image, or for alpha, an alpha channel in the image), the
   texture is skipped, so they aren't lost.
@@ -82,10 +87,100 @@ foreach ($dll in @("JeremyAnsel.ColorQuant.dll", "JeremyAnsel.Xwa.Opt.dll")) {
     Add-Type -Path $path
 }
 
+# Mipmaps for 8-bit textures that keep their palette. The OPT library can only make
+# mipmaps in 32-bit (and then picks a new palette when converting back to 8-bit), so
+# indexed images would lose their palette. Each mip level of an 8-bit texture is just
+# more palette indices after the base level, so they're made here: each level is the
+# average of 2x2 pixels of the previous one, mapped to the nearest palette color.
+Add-Type -Language CSharp -TypeDefinition @"
+using System;
+using System.Collections.Generic;
+
+public static class OptMipmaps8
+{
+    // The colors of an 8-bit OPT texture: RGB565 at full brightness (the palette has 16
+    // brightness levels, this is the one XwaOptEditor uses), expanded like the OPT library.
+    static void GetColors(byte[] palette, int[] r, int[] g, int[] b)
+    {
+        for (int i = 0; i < 256; i++)
+        {
+            int c = BitConverter.ToUInt16(palette, 4096 + i * 2);
+            r[i] = (((c & 0xF800) >> 11) * 510 + 31) / 62;
+            g[i] = (((c & 0x07E0) >> 5) * 510 + 63) / 126;
+            b[i] = ((c & 0x001F) * 510 + 31) / 62;
+        }
+    }
+
+    public static byte[] Generate(byte[] imageData, byte[] palette, int width, int height)
+    {
+        int[] pr = new int[256], pg = new int[256], pb = new int[256];
+        GetColors(palette, pr, pg, pb);
+        int count = width * height;
+        float[] r = new float[count], g = new float[count], b = new float[count];
+        List<byte> levels = new List<byte>(count * 4 / 3 + 16);
+        for (int i = 0; i < count; i++)
+        {
+            int k = imageData[i];
+            r[i] = pr[k]; g[i] = pg[k]; b[i] = pb[k];
+            levels.Add(imageData[i]);
+        }
+
+        Dictionary<int, byte> nearest = new Dictionary<int, byte>();
+        int w = width, h = height;
+        while (w > 1 || h > 1)
+        {
+            int nw = w <= 1 ? 1 : w / 2, nh = h <= 1 ? 1 : h / 2;
+            float[] r2 = new float[nw * nh], g2 = new float[nw * nh], b2 = new float[nw * nh];
+            for (int y = 0; y < nh; y++)
+            {
+                for (int x = 0; x < nw; x++)
+                {
+                    float sr = 0, sg = 0, sb = 0;
+                    int n = 0;
+                    for (int dy = 0; dy < 2; dy++)
+                    {
+                        int sy = Math.Min(y * 2 + dy, h - 1);
+                        for (int dx = 0; dx < 2; dx++)
+                        {
+                            int sx = Math.Min(x * 2 + dx, w - 1);
+                            int s = sy * w + sx;
+                            sr += r[s]; sg += g[s]; sb += b[s]; n++;
+                        }
+                    }
+                    int d = y * nw + x;
+                    r2[d] = sr / n; g2[d] = sg / n; b2[d] = sb / n;
+
+                    int ir = (int)(r2[d] + 0.5f), ig = (int)(g2[d] + 0.5f), ib = (int)(b2[d] + 0.5f);
+                    int key = (ir << 16) | (ig << 8) | ib;
+                    byte index;
+                    if (!nearest.TryGetValue(key, out index))
+                    {
+                        int best = int.MaxValue;
+                        for (int k = 0; k < 256; k++)
+                        {
+                            int er = ir - pr[k], eg = ig - pg[k], eb = ib - pb[k];
+                            int e = er * er + eg * eg + eb * eb;
+                            if (e < best) { best = e; index = (byte)k; }
+                        }
+                        nearest[key] = index;
+                    }
+                    levels.Add(index);
+                }
+            }
+            r = r2; g = g2; b = b2;
+            w = nw; h = nh;
+        }
+        return levels.ToArray();
+    }
+}
+"@
+
 Write-Host "Reading $Opt"
 $optFile = [JeremyAnsel.Xwa.Opt.OptFile]::FromFile($Opt)
 
 $replaced = 0; $skipped = 0; $missing = 0; $failed = 0
+# Indexed images that can't stay 8-bit (see the warning at the end)
+$repalettized = @()
 $used = @{}
 foreach ($name in @($optFile.Textures.Keys | Sort-Object)) {
     $old = $optFile.Textures[$name]
@@ -121,18 +216,35 @@ foreach ($name in @($optFile.Textures.Keys | Sort-Object)) {
             Write-Warning "$name is $($new.Width)x$($new.Height), which isn't a power of two"
         }
 
-        # Like XwaOptEditor: the mipmaps are generated in 32-bit, and then the texture is
-        # converted to 8-bit if needed. Whether it fits in 256 colors is checked before the
-        # mipmaps, which add blended colors.
-        if ($new.BitsPerPixel -eq 8) {
-            $new.Convert8To32()
+        if ($new.BitsPerPixel -eq 8 -and -not $new.HasAlpha -and -not $new.IsIlluminated) {
+            # An indexed image stays 8-bit with its own palette (rounded to RGB565, like
+            # every 8-bit OPT texture), and its mipmaps use the same palette
+            if ($old.MipmapsCount -gt 1) {
+                $new.ImageData = [OptMipmaps8]::Generate($new.ImageData, $new.Palette, $new.Width, $new.Height)
+            }
         }
-        $fitsIn8 = $new.CanBeConvertedWithoutLoss()
-        if ($old.MipmapsCount -gt 1) {
-            $new.GenerateMipmaps()
-        }
-        if ($Convert8 -or ($old.BitsPerPixel -eq 8 -and $fitsIn8)) {
-            $new.Convert32To8()
+        else {
+            # Like XwaOptEditor: the mipmaps are made in 32-bit, and then the texture is
+            # converted to 8-bit if needed. Whether it fits in 256 colors is checked first,
+            # because the mipmaps add blended colors. (Convert8To32 also makes mipmaps.)
+            if ($new.BitsPerPixel -eq 8) {
+                # Indexed, with alpha or illumination: the library can't keep it 8-bit
+                $repalettized += $name
+                $new.Convert8To32()
+                $fitsIn8 = $false
+            }
+            else {
+                $fitsIn8 = $new.CanBeConvertedWithoutLoss()
+            }
+            if ($old.MipmapsCount -gt 1) {
+                $new.GenerateMipmaps()
+            }
+            elseif ($new.MipmapsCount -gt 1) {
+                $new.RemoveMipmaps()
+            }
+            if ($Convert8 -or ($old.BitsPerPixel -eq 8 -and $fitsIn8)) {
+                $new.Convert32To8()
+            }
         }
 
         $flags = @()
@@ -156,6 +268,13 @@ $unused = @(Get-ChildItem -LiteralPath $TexturesDir -File |
     ForEach-Object { $_.Name })
 if ($unused.Count -gt 0) {
     Write-Host "Images that don't match any texture: $($unused -join ', ')"
+}
+
+if ($repalettized.Count -gt 0) {
+    $what = if ($Convert8) { "-Convert8 makes a new palette for them, so their colors are reduced twice" }
+            else { "they're stored as 32-bit, so they don't make the OPT smaller" }
+    Write-Warning ("{0} indexed image(s) with alpha or illumination can't keep their palette in the OPT: {1}. For these textures, use images that aren't indexed. Textures: {2}" -f
+        $repalettized.Count, $what, ($repalettized -join ", "))
 }
 
 Write-Host ("Replaced {0}, skipped {1}, failed {2}, without an image {3} (of {4} textures)" -f

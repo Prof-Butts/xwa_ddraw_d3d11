@@ -116,6 +116,10 @@ extern SSAOTypeEnum g_SSAO_Type;
 extern bool g_bPBRShadingV2;
 extern float g_fPBRExposure, g_fPBRMinAlbedo;
 extern Vector3 g_PBRAmbientColor, g_PBRLightsColor;
+// The equivalents of pbr_exposure, pbr_min_albedo, pbr_ambient_color and pbr_lights_color
+// for the other shading modes
+extern float g_fExposure, g_fMinAlbedo;
+extern Vector3 g_AmbientColor, g_LightsColor;
 extern float g_fPBRAmbient, g_fPBRHangarAmbient, g_fPBRLightsIntensity, g_fPBRLaserLightIntensity;
 extern float g_fLaserLightIntensity;
 extern float g_fSSAOZoomFactor, g_fSSAOZoomFactor2, g_fSSAOWhitePoint, g_fNormWeight, g_fNormalBlurRadius;

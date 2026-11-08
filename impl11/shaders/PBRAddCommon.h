@@ -392,6 +392,9 @@ PixelShaderOutput main(PixelShaderInput input)
 	//shadeless = saturate(lerp(shadeless, 1.0, distance_fade));
 
 	color = color * color; // Gamma correction (approx pow 2.2)
+	// min_albedo: the dark colors are lifted to albedo_floor and the rest are scaled to keep
+	// white at 1, so black areas don't look like holes. Shadeless surfaces keep their color.
+	color = lerp(albedo_floor + (1.0 - albedo_floor) * color, color, shadeless);
 
 	float3 N = normalize(Normal.xyz);
 	//float3 N = blendAlpha * Normal.xyz;
@@ -659,8 +662,9 @@ PixelShaderOutput main(PixelShaderInput input)
 			lerp(LightColor[i].rgb, skyBoxReflCol * LightColor[i].rgb, cubeMapSpecInt) :
 			LightColor[i].rgb;
 		//const float3 finalAmbient = lerp(ambient, skyBoxNormalCol, cubeMapAmbientInt);
-		const float3 finalAmbient = cubeMappingEnabled ?
-			max(cubeMapAmbientMin, cubeMapAmbientInt * skyBoxNormalCol) : ambient;
+		// ambient_tint (ambient_color) tints the ambient light
+		const float3 finalAmbient = ambient_tint * (cubeMappingEnabled ?
+			max(cubeMapAmbientMin, cubeMapAmbientInt * skyBoxNormalCol) : ambient);
 
 		float3 col = addPBR(
 			P, N_PBR, N_PBR, -eye_vec, color.rgb, L,
@@ -774,6 +778,8 @@ PixelShaderOutput main(PixelShaderInput input)
 	tmp_color += laser_light_intensity * laser_light_sum;
 
 	// For PBR shading, HDR is nonoptional:
+	// exposure: overall brightness, applied before the tone mapping
+	tmp_color *= exposure_mult;
 	tmp_color = tmp_color / (HDR_white_point + tmp_color);
 	//output.color = float4(sqrt(tmp_color /* * exposure*/), 1); // Invert gamma approx
 	output.color.rgb = sqrt(tmp_color /* * exposure*/); // Invert gamma approx

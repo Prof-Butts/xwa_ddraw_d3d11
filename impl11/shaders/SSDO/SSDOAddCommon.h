@@ -424,6 +424,9 @@ PixelShaderOutput main(PixelShaderInput input)
 	//shadeless = saturate(lerp(shadeless, 1.0, distance_fade));
 
 	color = color * color; // Gamma correction (approx pow 2.2)
+	// min_albedo: the dark colors are lifted to albedo_floor and the rest are scaled to keep
+	// white at 1, so black areas don't look like holes. Shadeless surfaces keep their color.
+	color = lerp(albedo_floor + (1.0 - albedo_floor) * color, color, shadeless);
 
 	float3 N = normalize(Normal.xyz);
 	const float3 smoothN = N;
@@ -700,7 +703,9 @@ PixelShaderOutput main(PixelShaderInput input)
 		*/
 		diffuse = max(dot(N, L), 0.0);
 		//diffuse = /* min(shadow, ssdo.x) */ ssdo.x * diff_int * diffuse + ambient;
-		diffuse = total_shadow_factor * ssdo.x * diff_int * diffuse + ambient;
+		diffuse = total_shadow_factor * ssdo.x * diff_int * diffuse;
+		// The ambient light, tinted by ambient_tint (ambient_color)
+		float3 diffuseCol = diffuse + ambient * ambient_tint;
 
 		// Default case
 		//diffuse = ssdo.x * diff_int * diffuse + ambient; // ORIGINAL
@@ -717,7 +722,7 @@ PixelShaderOutput main(PixelShaderInput input)
 
 		// Avoid harsh transitions:
 		// shadeless surfaces should still receive some amount of shadows
-		diffuse = lerp(diffuse, min(total_shadow_factor + 0.5, 1.0), shadeless);
+		diffuseCol = lerp(diffuseCol, min(total_shadow_factor + 0.5, 1.0), shadeless);
 		contactShadow = lerp(contactShadow, 1.0, shadeless);
 		//ssdoInd = lerp(ssdoInd, 0.0, shadeless);
 
@@ -743,7 +748,7 @@ PixelShaderOutput main(PixelShaderInput input)
 
 		//color = color * ssdo + ssdoInd + ssdo * spec_col * spec;
 		tmp_color += LightColor[i].rgb * saturate(
-			color * diffuse +
+			color * diffuseCol +
 			global_spec_intensity * spec_col * spec
 			/* + diffuse_difference * */ /* color * */ /* ssdoInd */); // diffuse_diff makes it look cartoonish, and mult by color destroys the effect
 		//tmp_bloom += /* min(shadow, contactShadow) */ contactShadow * float4(LightIntensity * spec_col * spec_bloom, spec_bloom);
@@ -830,6 +835,9 @@ PixelShaderOutput main(PixelShaderInput input)
 	//laser_light_alpha = saturate(laser_light_alpha);
 	//tmp_bloom += float4(laser_light_sum, laser_light_alpha);
 	////tmp_bloom.a = max(tmp_bloom.a, laser_light_alpha); // Modifying the alpha fades the bloom too -- not a good idea
+
+	// exposure: overall brightness, applied before the tone mapping
+	tmp_color *= exposure_mult;
 
 	// Reinhard tone mapping:
 	if (HDREnabled) {

@@ -2785,6 +2785,14 @@ void SetLights(DeviceResources *resources, float fSSDOEnabled) {
 				}
 			}
 
+			// pbr_lights_color tints the lights in the new PBR shading. It's applied after the
+			// normalization, so it isn't undone by it.
+			if (bPBRShadingV2) {
+				g_ShadingSys_PSBuffer.LightColor[i].x *= g_PBRLightsColor.x;
+				g_ShadingSys_PSBuffer.LightColor[i].y *= g_PBRLightsColor.y;
+				g_ShadingSys_PSBuffer.LightColor[i].z *= g_PBRLightsColor.z;
+			}
+
 			// Keep track of the light with the highest intensity
 			if (intensity > maxIntensity) {
 				maxIntensity = intensity;

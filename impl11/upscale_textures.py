@@ -37,6 +37,8 @@ top of gray with the Color blend mode makes the color layer.
 layer: the thin panel lines become grooves. Optionally, the lighting painted on raised
 details can be turned back into shape (a highlight next to a shadow becomes a bump), and
 the fine surface texture can be added too. The grime is paint, so it's always left out.
+The normal maps and height maps are saved in NormalMaps and HeightMaps subfolders, next
+to the upscaled images.
 
 Usage:
     python upscale_textures.py INPUT [INPUT ...] -o OUTPUT_DIR [options]
@@ -62,6 +64,9 @@ from scipy import ndimage
 DEFAULT_EXTENSIONS = ".png,.bmp,.jpg,.jpeg,.tga"
 # Alpha and illumination maps, named like XwaOptEditor exports them. They're only resized.
 MAP_SUFFIXES = ("_alpha", "_illum")
+# Outputs saved in a subfolder of their image's output folder, so they don't get mixed
+# with the textures
+LAYER_SUBFOLDERS = {"normal": "NormalMaps", "height": "HeightMaps"}
 
 
 # ------------------------------------------------------------------------------------
@@ -574,8 +579,9 @@ def main():
         "raised details (relief) and the fine surface texture (detail) can be added too. Heights are in "
         "pixels of the original image.")
     normals.add_argument("--normal-map", action="store_true",
-                         help="Also save a tangent-space normal map (NAME_normal.png) and the height map it's "
-                              "made from (NAME_height.png, 16-bit)")
+                         help="Also save a tangent-space normal map (NormalMaps/NAME_normal.png) and the height "
+                              "map it's made from (HeightMaps/NAME_height.png, 16-bit). The subfolders are made "
+                              "next to the upscaled image")
     normals.add_argument("--slope-map", action="store_true",
                          help="Also save a grayscale slope map (NAME_slope.png): white where the surface is flat, "
                               "darker the more it tilts, black at 90 degrees. Uses the same settings as the "
@@ -631,16 +637,24 @@ def main():
     extensions = {e.strip().lower() if e.strip().startswith(".") else "." + e.strip().lower()
                   for e in args.extensions.split(",") if e.strip()}
 
+    # Find all the images first, so the progress can be shown as a percentage
+    images = list(find_images(args.inputs, extensions, args.recursive))
+    total = len(images)
+    print("Found %d image%s" % (total, "" if total == 1 else "s"), flush=True)
+
     processed = skipped = failed = 0
     start = time.time()
-    for path, relative in find_images(args.inputs, extensions, args.recursive):
+    for index, (path, relative) in enumerate(images, start=1):
+        # The lines are flushed right away, so they show up even when the output isn't a
+        # console (for instance when it's piped or redirected to a file)
+        progress = "[%*d/%d %3d%%]" % (len(str(total)), index, total, 100 * index // total)
         out_path = os.path.join(args.output, os.path.splitext(relative)[0] + ".png")
         if os.path.abspath(out_path) == os.path.abspath(path):
-            print("Skipped (output would replace the input): " + path)
+            print("%s Skipped (output would replace the input): %s" % (progress, path), flush=True)
             skipped += 1
             continue
         if os.path.exists(out_path) and not args.overwrite:
-            print("Skipped (exists, use --overwrite): " + out_path)
+            print("%s Skipped (exists, use --overwrite): %s" % (progress, out_path), flush=True)
             skipped += 1
             continue
         try:
@@ -655,16 +669,21 @@ def main():
             result.save(out_path)
             stem = os.path.splitext(out_path)[0]
             for name, layer in exported.items():
-                layer.save("%s_%s.png" % (stem, name))
+                layer_dir = os.path.dirname(out_path)
+                if name in LAYER_SUBFOLDERS:
+                    layer_dir = os.path.join(layer_dir, LAYER_SUBFOLDERS[name])
+                    os.makedirs(layer_dir, exist_ok=True)
+                layer.save(os.path.join(layer_dir, "%s_%s.png" % (os.path.basename(stem), name)))
             if args.save_layers and layers:
                 save_layer(layers["brightness"], stem + "_layer_brightness.png")
                 save_layer(layers["base"], stem + "_layer_base.png")
                 save_layer(layers["lines"], stem + "_layer_lines.png", scale_to_max=True)
                 save_layer(layers["lines_thin"], stem + "_layer_lines_thin.png", scale_to_max=True)
-            print("%s -> %s (%dx%d, %.1f s)" % (path, out_path, result.width, result.height, time.time() - t))
+            print("%s %s -> %s (%dx%d, %.1f s)" % (progress, path, out_path, result.width, result.height,
+                                                   time.time() - t), flush=True)
             processed += 1
         except Exception as e:
-            print("FAILED: %s: %s" % (path, e), file=sys.stderr)
+            print("%s FAILED: %s: %s" % (progress, path, e), file=sys.stderr, flush=True)
             failed += 1
 
     print("Done: %d processed, %d skipped, %d failed in %.1f s" % (processed, skipped, failed, time.time() - start))

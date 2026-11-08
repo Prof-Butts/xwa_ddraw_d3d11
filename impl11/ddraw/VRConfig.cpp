@@ -214,6 +214,8 @@ bool g_bPBRShadingV2 = false;
 float g_fPBRExposure = 1.0f;
 float g_fPBRMinAlbedo = 0.0f;
 Vector3 g_PBRAmbientColor = Vector3(1.0f, 1.0f, 1.0f);
+// Tints the XWA lights (the suns) in the new PBR shading. See SetLights().
+Vector3 g_PBRLightsColor = Vector3(1.0f, 1.0f, 1.0f);
 float g_fHangarAmbient = 0.05f, g_fGlobalAmbient = 0.005f;
 // The PBR shading reads these instead of ambient, hangar_ambient, HDR_lights_intensity and
 // laser_light_intensity, so both shadings can be tuned separately. See SetLights().
@@ -2283,6 +2285,7 @@ bool LoadSSAOParams() {
 	g_fPBRExposure = 1.0f;
 	g_fPBRMinAlbedo = 0.0f;
 	g_PBRAmbientColor = Vector3(1.0f, 1.0f, 1.0f);
+	g_PBRLightsColor = Vector3(1.0f, 1.0f, 1.0f);
 	// The sun override is off unless override_game_light_pos = 1 is in the file
 	g_bOverrideLightPos = false;
 	g_bOverrideLightInitialized = false;
@@ -2426,6 +2429,11 @@ bool LoadSSAOParams() {
 			}
 			else if (_stricmp(param, "pbr_lights_intensity") == 0) {
 				g_fPBRLightsIntensity = fValue;
+			}
+			else if (_stricmp(param, "pbr_lights_color") == 0) {
+				float x, y, z;
+				LoadGeneric3DCoords(buf, &x, &y, &z);
+				g_PBRLightsColor = Vector3(x, y, z);
 			}
 			else if (_stricmp(param, "pbr_laser_light_intensity") == 0) {
 				// Doubled like laser_light_intensity, so the same value gives the same light

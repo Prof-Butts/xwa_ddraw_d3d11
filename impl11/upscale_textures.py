@@ -23,7 +23,8 @@ The result is put together from three layers that multiply each other:
     output = color x grime x lines
 
 - color: the clean surface, in color.
-- grime: white where the surface is clean, darker where there's grime.
+- grime: white where the surface is clean, darker where there's grime. It's gray, or
+  tinted with --grime-color.
 - lines: white everywhere except on the (thinned) panel lines.
 
 Each layer's brightness and contrast can be adjusted (--color-*, --grime-*, --lines-*), and
@@ -43,6 +44,10 @@ Usage:
 INPUT can be image files or directories. Directories are processed in batch, and the
 output keeps the same folder structure. The output is always PNG.
 
+Images named NAME_alpha or NAME_illum are the alpha and illumination maps of the texture
+NAME, as XwaOptEditor exports them. They're only resized (with Lanczos), so they still
+match their texture. update_opt_textures.ps1 puts the results back into the OPT.
+
 Requires numpy, scipy and Pillow.
 """
 import argparse
@@ -55,6 +60,8 @@ from PIL import Image
 from scipy import ndimage
 
 DEFAULT_EXTENSIONS = ".png,.bmp,.jpg,.jpeg,.tga"
+# Alpha and illumination maps, named like XwaOptEditor exports them. They're only resized.
+MAP_SUFFIXES = ("_alpha", "_illum")
 
 
 # ------------------------------------------------------------------------------------
@@ -236,6 +243,20 @@ def adjust_multiply_layer(factor, brightness, contrast):
     return np.clip(1 - darkness, 0, 1)
 
 
+def tint_multiply_layer(factor, color):
+    """
+    Turns a grayscale multiply layer into a colored one that darkens toward color, with the
+    same brightness: each channel darkens in proportion to how far color is from white in
+    that channel. Returns an RGB layer, or factor itself when color is gray or white.
+    """
+    color = np.asarray(color, dtype=np.float32)
+    lum = float(color @ np.array([0.299, 0.587, 0.114], dtype=np.float32))
+    if lum >= 0.999 or np.ptp(color) < 1e-3:
+        return factor
+    weights = (1 - color) / (1 - lum)
+    return np.clip(1 - (1 - factor)[..., None] * weights, 0, 1)
+
+
 # ------------------------------------------------------------------------------------
 # Height and normal maps
 # ------------------------------------------------------------------------------------
@@ -409,8 +430,11 @@ def process_image(image, args):
     # Adjust the layers and combine them
     color = adjust_color(color, args.color_brightness, args.color_contrast)
     grime = adjust_multiply_layer(grime, args.grime_brightness, args.grime_contrast)
+    grime = tint_multiply_layer(grime, args.grime_color)
     lines = adjust_multiply_layer(lines, args.lines_brightness, args.lines_contrast)
-    rgb_hi = np.clip(color * (grime * lines)[..., None], 0, 1)
+    if grime.ndim == 2:
+        grime = grime[..., None]
+    rgb_hi = np.clip(color * grime * lines[..., None], 0, 1)
 
     mode = "RGB"
     if has_alpha:
@@ -436,7 +460,7 @@ def process_image(image, args):
             chroma = np.concatenate([chroma, alpha_hi[..., None]], axis=-1)
         exported["color_gray"] = to_image(gray, "LA" if has_alpha else "L")
         exported["color_chroma"] = to_image(chroma, mode)
-        exported["grime"] = to_image(grime, "L")
+        exported["grime"] = to_image(grime, "RGB") if grime.shape[-1] == 3 else to_image(grime[..., 0], "L")
         exported["lines"] = to_image(lines, "L")
     debug_layers = {
         "brightness": y,
@@ -445,6 +469,23 @@ def process_image(image, args):
         "lines_thin": dark_thin,
     }
     return result, exported, debug_layers
+
+
+def is_texture_map(path):
+    """True for the alpha and illumination maps that XwaOptEditor exports with the textures."""
+    return os.path.splitext(path)[0].lower().endswith(MAP_SUFFIXES)
+
+
+def resize_map(image, scale):
+    """
+    Plain Lanczos upscale, for alpha and illumination maps. They have no panel lines or
+    grime, and they must stay the same size as their texture.
+    """
+    if image.mode == "P":
+        image = image.convert("RGBA" if "transparency" in image.info else "RGB")
+    elif image.mode not in ("L", "LA", "RGB", "RGBA"):
+        image = image.convert("RGBA")
+    return image.resize((image.width * scale, image.height * scale), Image.LANCZOS)
 
 
 def save_layer(channel, path, scale_to_max=False):
@@ -515,6 +556,11 @@ def main():
                             help="Brightness of the %s layer (default: 0)" % name)
         layers.add_argument("--%s-contrast" % name, type=float, default=1.0, metavar="C",
                             help="Contrast of the %s layer (default: 1)" % name)
+    layers.add_argument("--grime-color", default="1,1,1", metavar="R,G,B",
+                        help="Color of the dirt, 0..1 per channel: the grime darkens toward it instead of "
+                             "toward gray, with the same brightness. For instance 0.6,0.45,0.3 for brown. "
+                             "The further it is from gray, the stronger the tint. Gray or white keeps the "
+                             "grime gray (default: %(default)s)")
     parser.add_argument("--export-layers", action="store_true",
                         help="Also save the color, grime and lines layers (NAME_color.png, NAME_grime.png, "
                              "NAME_lines.png), after the adjustments, so they can be combined by hand: "
@@ -569,6 +615,12 @@ def main():
         if getattr(args, name + "_contrast") < 0:
             parser.error("--%s-contrast can't be negative" % name)
     try:
+        args.grime_color = [float(v) for v in args.grime_color.split(",")]
+        if len(args.grime_color) != 3 or not all(0 <= v <= 1 for v in args.grime_color):
+            raise ValueError
+    except ValueError:
+        parser.error("--grime-color must be three numbers between 0 and 1, like 0.6,0.45,0.3")
+    try:
         light = [float(v) for v in args.light_dir.split(",")]
         if len(light) != 2 or np.hypot(light[0], light[1]) == 0:
             raise ValueError
@@ -595,13 +647,16 @@ def main():
             t = time.time()
             with Image.open(path) as image:
                 image.load()
-                result, exported, layers = process_image(image, args)
+                if is_texture_map(path):
+                    result, exported, layers = resize_map(image, args.scale), {}, None
+                else:
+                    result, exported, layers = process_image(image, args)
             os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
             result.save(out_path)
             stem = os.path.splitext(out_path)[0]
             for name, layer in exported.items():
                 layer.save("%s_%s.png" % (stem, name))
-            if args.save_layers:
+            if args.save_layers and layers:
                 save_layer(layers["brightness"], stem + "_layer_brightness.png")
                 save_layer(layers["base"], stem + "_layer_base.png")
                 save_layer(layers["lines"], stem + "_layer_lines.png", scale_to_max=True)

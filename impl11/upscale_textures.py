@@ -43,8 +43,14 @@ to the upscaled images.
 Usage:
     python upscale_textures.py INPUT [INPUT ...] -o OUTPUT_DIR [options]
 
-INPUT can be image files or directories. Directories are processed in batch, and the
-output keeps the same folder structure. The output is always PNG.
+INPUT can be image files, directories or ZIP files. Directories are processed in batch, and
+the output keeps the same folder structure. The output is always PNG.
+
+A ZIP file (like the ones XWA reads DAT images from, with GROUP/IMAGE.png entries) is
+extracted to OUTPUT/unzipped, a temporary folder that's deleted afterwards. Its images are
+processed into OUTPUT/ZIPNAME, and a new ZIP with the same name as the original is saved in
+OUTPUT. The new ZIP only has the processed images, at the same paths: no normal maps,
+height maps, layers or folder entries, which XWA would count as images.
 
 Images named NAME_alpha or NAME_illum are the alpha and illumination maps of the texture
 NAME, as XwaOptEditor exports them. They're only resized (with Lanczos), so they still
@@ -54,8 +60,10 @@ Requires numpy, scipy and Pillow.
 """
 import argparse
 import os
+import shutil
 import sys
 import time
+import zipfile
 
 import numpy as np
 from PIL import Image
@@ -67,6 +75,10 @@ MAP_SUFFIXES = ("_alpha", "_illum")
 # Outputs saved in a subfolder of their image's output folder, so they don't get mixed
 # with the textures
 LAYER_SUBFOLDERS = {"normal": "NormalMaps", "height": "HeightMaps"}
+# ZIP inputs are extracted to this temporary subfolder of the output directory. The marker
+# file tells it apart from a folder with the same name that this script didn't make.
+UNZIP_DIR = "unzipped"
+UNZIP_MARKER = ".upscale_textures_temp"
 
 
 # ------------------------------------------------------------------------------------
@@ -515,10 +527,166 @@ def find_images(inputs, extensions, recursive):
             print("Not found: " + item, file=sys.stderr)
 
 
+def process_batch(images, output_root, args, counts):
+    """
+    Processes the (path, relative path) images into output_root, keeping their relative
+    paths, and updates counts. Returns {relative path: output path} for the images that
+    have an output afterwards: the processed ones, and the ones skipped because their
+    output already exists.
+    """
+    total = len(images)
+    outputs = {}
+    for index, (path, relative) in enumerate(images, start=1):
+        # The lines are flushed right away, so they show up even when the output isn't a
+        # console (for instance when it's piped or redirected to a file)
+        progress = "[%*d/%d %3d%%]" % (len(str(total)), index, total, 100 * index // total)
+        out_path = os.path.join(output_root, os.path.splitext(relative)[0] + ".png")
+        if os.path.abspath(out_path) == os.path.abspath(path):
+            print("%s Skipped (output would replace the input): %s" % (progress, path), flush=True)
+            counts["skipped"] += 1
+            continue
+        if os.path.exists(out_path) and not args.overwrite:
+            print("%s Skipped (exists, use --overwrite): %s" % (progress, out_path), flush=True)
+            counts["skipped"] += 1
+            outputs[relative] = out_path
+            continue
+        try:
+            t = time.time()
+            with Image.open(path) as image:
+                image.load()
+                if is_texture_map(path):
+                    result, exported, layers = resize_map(image, args.scale), {}, None
+                else:
+                    result, exported, layers = process_image(image, args)
+            os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
+            result.save(out_path)
+            stem = os.path.splitext(out_path)[0]
+            for name, layer in exported.items():
+                layer_dir = os.path.dirname(out_path)
+                if name in LAYER_SUBFOLDERS:
+                    layer_dir = os.path.join(layer_dir, LAYER_SUBFOLDERS[name])
+                    os.makedirs(layer_dir, exist_ok=True)
+                layer.save(os.path.join(layer_dir, "%s_%s.png" % (os.path.basename(stem), name)))
+            if args.save_layers and layers:
+                save_layer(layers["brightness"], stem + "_layer_brightness.png")
+                save_layer(layers["base"], stem + "_layer_base.png")
+                save_layer(layers["lines"], stem + "_layer_lines.png", scale_to_max=True)
+                save_layer(layers["lines_thin"], stem + "_layer_lines_thin.png", scale_to_max=True)
+            print("%s %s -> %s (%dx%d, %.1f s)" % (progress, path, out_path, result.width, result.height,
+                                                   time.time() - t), flush=True)
+            counts["processed"] += 1
+            outputs[relative] = out_path
+        except Exception as e:
+            print("%s FAILED: %s: %s" % (progress, path, e), file=sys.stderr, flush=True)
+            counts["failed"] += 1
+    return outputs
+
+
+def prepare_unzip_dir(unzip_dir):
+    """
+    Creates the temporary folder the ZIP files are extracted to. A folder left behind by an
+    earlier run is emptied, but a folder with that name that this script didn't make is
+    left alone, so nothing of the user's is deleted.
+    """
+    marker = os.path.join(unzip_dir, UNZIP_MARKER)
+    if os.path.isdir(unzip_dir):
+        if os.listdir(unzip_dir) and not os.path.exists(marker):
+            raise RuntimeError("%s already exists and wasn't made by this script. Move it or use "
+                               "another output directory" % unzip_dir)
+        shutil.rmtree(unzip_dir)
+    os.makedirs(unzip_dir)
+    open(marker, "w").close()
+
+
+def extract_zip(zip_file, unzip_dir):
+    """Extracts the files of the ZIP. Entries that would land outside unzip_dir are skipped."""
+    root = os.path.abspath(unzip_dir)
+    for info in zip_file.infolist():
+        if info.is_dir():
+            continue
+        target = os.path.abspath(os.path.join(root, info.filename))
+        if not target.startswith(root + os.sep):
+            print("Skipped unsafe ZIP entry: " + info.filename, file=sys.stderr)
+            continue
+        os.makedirs(os.path.dirname(target), exist_ok=True)
+        with zip_file.open(info) as src, open(target, "wb") as dst:
+            shutil.copyfileobj(src, dst)
+
+
+def process_zip(zip_path, extensions, args, counts):
+    """
+    Processes the images in a ZIP file and writes a ZIP with the same name in the output
+    directory. The images are extracted to OUTPUT/unzipped (deleted afterwards), and
+    processed into OUTPUT/ZIPNAME, where the normal maps, height maps and other extra
+    outputs also stay. The new ZIP only has the processed images, at the same paths as in
+    the original ZIP (as PNG), and no folder entries: XWA's ZIP reader counts every entry
+    in a group folder as an image.
+    """
+    zip_name = os.path.basename(zip_path)
+    out_zip = os.path.join(args.output, zip_name)
+    if os.path.normcase(os.path.abspath(out_zip)) == os.path.normcase(os.path.abspath(zip_path)):
+        print("FAILED: %s: the new ZIP would replace it, use another output directory" % zip_path,
+              file=sys.stderr, flush=True)
+        counts["failed"] += 1
+        return
+    if os.path.exists(out_zip) and not args.overwrite:
+        print("Skipped (exists, use --overwrite): " + out_zip, flush=True)
+        counts["skipped"] += 1
+        return
+
+    unzip_dir = os.path.join(args.output, UNZIP_DIR)
+    try:
+        prepare_unzip_dir(unzip_dir)
+        with zipfile.ZipFile(zip_path) as zip_file:
+            extract_zip(zip_file, unzip_dir)
+            other_files = sum(1 for info in zip_file.infolist() if not info.is_dir() and
+                              os.path.splitext(info.filename)[1].lower() not in extensions)
+        images = list(find_images([unzip_dir], extensions, recursive=True))
+        print("Found %d image%s in %s" % (len(images), "" if len(images) == 1 else "s", zip_path), flush=True)
+        if other_files:
+            print("Left out of the new ZIP: %d file%s that %s images" % (
+                other_files, "" if other_files == 1 else "s", "isn't" if other_files == 1 else "aren't"),
+                flush=True)
+
+        if not images:
+            print("Not creating %s: there are no images in the ZIP" % out_zip, flush=True)
+            return
+
+        failed_before = counts["failed"]
+        outputs = process_batch(images, os.path.join(args.output, os.path.splitext(zip_name)[0]), args, counts)
+        if counts["failed"] > failed_before:
+            print("Not creating %s: some images failed" % out_zip, file=sys.stderr, flush=True)
+            return
+
+        # Write to a temporary file first, so a failure doesn't leave a broken ZIP behind
+        names = set()
+        temp_zip = out_zip + ".tmp"
+        with zipfile.ZipFile(temp_zip, "w", zipfile.ZIP_DEFLATED) as new_zip:
+            for relative in sorted(outputs):
+                name = os.path.splitext(relative)[0].replace(os.sep, "/") + ".png"
+                if name.lower() in names:
+                    print("Warning: %s is in the ZIP twice (with different extensions), only the "
+                          "first one is kept" % name, file=sys.stderr, flush=True)
+                    continue
+                names.add(name.lower())
+                new_zip.write(outputs[relative], name)
+        os.replace(temp_zip, out_zip)
+        print("Created %s (%d images)" % (out_zip, len(names)), flush=True)
+    except Exception as e:
+        print("FAILED: %s: %s" % (zip_path, e), file=sys.stderr, flush=True)
+        counts["failed"] += 1
+    finally:
+        if os.path.exists(os.path.join(unzip_dir, UNZIP_MARKER)):
+            shutil.rmtree(unzip_dir, ignore_errors=True)
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Upscale textures while making their panel lines thinner.")
-    parser.add_argument("inputs", nargs="+", help="Image files or directories")
+    parser.add_argument("inputs", nargs="+",
+                        help="Image files, directories or ZIP files. The images in a ZIP file are processed "
+                             "into OUTPUT/ZIPNAME, and a new ZIP with the same name and only the processed "
+                             "images is saved in OUTPUT")
     parser.add_argument("-o", "--output", required=True,
                         help="Output directory. The folder structure of the inputs is kept.")
     parser.add_argument("--scale", type=int, default=4, help="Scale factor (default: 4)")
@@ -637,57 +805,23 @@ def main():
     extensions = {e.strip().lower() if e.strip().startswith(".") else "." + e.strip().lower()
                   for e in args.extensions.split(",") if e.strip()}
 
-    # Find all the images first, so the progress can be shown as a percentage
-    images = list(find_images(args.inputs, extensions, args.recursive))
-    total = len(images)
-    print("Found %d image%s" % (total, "" if total == 1 else "s"), flush=True)
-
-    processed = skipped = failed = 0
+    os.makedirs(args.output, exist_ok=True)
+    counts = {"processed": 0, "skipped": 0, "failed": 0}
     start = time.time()
-    for index, (path, relative) in enumerate(images, start=1):
-        # The lines are flushed right away, so they show up even when the output isn't a
-        # console (for instance when it's piped or redirected to a file)
-        progress = "[%*d/%d %3d%%]" % (len(str(total)), index, total, 100 * index // total)
-        out_path = os.path.join(args.output, os.path.splitext(relative)[0] + ".png")
-        if os.path.abspath(out_path) == os.path.abspath(path):
-            print("%s Skipped (output would replace the input): %s" % (progress, path), flush=True)
-            skipped += 1
-            continue
-        if os.path.exists(out_path) and not args.overwrite:
-            print("%s Skipped (exists, use --overwrite): %s" % (progress, out_path), flush=True)
-            skipped += 1
-            continue
-        try:
-            t = time.time()
-            with Image.open(path) as image:
-                image.load()
-                if is_texture_map(path):
-                    result, exported, layers = resize_map(image, args.scale), {}, None
-                else:
-                    result, exported, layers = process_image(image, args)
-            os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
-            result.save(out_path)
-            stem = os.path.splitext(out_path)[0]
-            for name, layer in exported.items():
-                layer_dir = os.path.dirname(out_path)
-                if name in LAYER_SUBFOLDERS:
-                    layer_dir = os.path.join(layer_dir, LAYER_SUBFOLDERS[name])
-                    os.makedirs(layer_dir, exist_ok=True)
-                layer.save(os.path.join(layer_dir, "%s_%s.png" % (os.path.basename(stem), name)))
-            if args.save_layers and layers:
-                save_layer(layers["brightness"], stem + "_layer_brightness.png")
-                save_layer(layers["base"], stem + "_layer_base.png")
-                save_layer(layers["lines"], stem + "_layer_lines.png", scale_to_max=True)
-                save_layer(layers["lines_thin"], stem + "_layer_lines_thin.png", scale_to_max=True)
-            print("%s %s -> %s (%dx%d, %.1f s)" % (progress, path, out_path, result.width, result.height,
-                                                   time.time() - t), flush=True)
-            processed += 1
-        except Exception as e:
-            print("%s FAILED: %s: %s" % (progress, path, e), file=sys.stderr, flush=True)
-            failed += 1
 
-    print("Done: %d processed, %d skipped, %d failed in %.1f s" % (processed, skipped, failed, time.time() - start))
-    return 1 if failed else 0
+    zip_inputs = [item for item in args.inputs if os.path.isfile(item) and item.lower().endswith(".zip")]
+    other_inputs = [item for item in args.inputs if item not in zip_inputs]
+    if other_inputs:
+        # Find all the images first, so the progress can be shown as a percentage
+        images = list(find_images(other_inputs, extensions, args.recursive))
+        print("Found %d image%s" % (len(images), "" if len(images) == 1 else "s"), flush=True)
+        process_batch(images, args.output, args, counts)
+    for zip_path in zip_inputs:
+        process_zip(zip_path, extensions, args, counts)
+
+    print("Done: %d processed, %d skipped, %d failed in %.1f s" % (
+        counts["processed"], counts["skipped"], counts["failed"], time.time() - start))
+    return 1 if counts["failed"] else 0
 
 
 if __name__ == "__main__":

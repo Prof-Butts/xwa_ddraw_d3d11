@@ -2785,13 +2785,12 @@ void SetLights(DeviceResources *resources, float fSSDOEnabled) {
 				}
 			}
 
-			// pbr_lights_color tints the lights in the new PBR shading. It's applied after the
-			// normalization, so it isn't undone by it.
-			if (bPBRShadingV2) {
-				g_ShadingSys_PSBuffer.LightColor[i].x *= g_PBRLightsColor.x;
-				g_ShadingSys_PSBuffer.LightColor[i].y *= g_PBRLightsColor.y;
-				g_ShadingSys_PSBuffer.LightColor[i].z *= g_PBRLightsColor.z;
-			}
+			// lights_color (pbr_lights_color in the new PBR shading) tints the lights. It's
+			// applied after the normalization, so it isn't undone by it.
+			const Vector3 &lightsColor = bPBRShadingV2 ? g_PBRLightsColor : g_LightsColor;
+			g_ShadingSys_PSBuffer.LightColor[i].x *= lightsColor.x;
+			g_ShadingSys_PSBuffer.LightColor[i].y *= lightsColor.y;
+			g_ShadingSys_PSBuffer.LightColor[i].z *= lightsColor.z;
 
 			// Keep track of the light with the highest intensity
 			if (intensity > maxIntensity) {
@@ -2973,11 +2972,13 @@ void SetLights(DeviceResources *resources, float fSSDOEnabled) {
 	g_ShadingSys_PSBuffer.sso_disable = g_bEnableSSAOInShader ? 0.0f : 1.0f;
 	g_ShadingSys_PSBuffer.HDREnabled = g_bHDREnabled;
 	g_ShadingSys_PSBuffer.HDR_white_point = g_fHDRWhitePoint;
-	g_ShadingSys_PSBuffer.PBR_exposure = g_fPBRExposure;
-	g_ShadingSys_PSBuffer.PBR_ambient_color[0] = g_PBRAmbientColor.x;
-	g_ShadingSys_PSBuffer.PBR_ambient_color[1] = g_PBRAmbientColor.y;
-	g_ShadingSys_PSBuffer.PBR_ambient_color[2] = g_PBRAmbientColor.z;
-	g_ShadingSys_PSBuffer.PBR_min_albedo = g_fPBRMinAlbedo;
+	// The Deferred and PBR shading read the same fields, filled with the active mode's settings
+	const Vector3 &ambientColor = bPBRShadingV2 ? g_PBRAmbientColor : g_AmbientColor;
+	g_ShadingSys_PSBuffer.exposure_mult = bPBRShadingV2 ? g_fPBRExposure : g_fExposure;
+	g_ShadingSys_PSBuffer.ambient_tint[0] = ambientColor.x;
+	g_ShadingSys_PSBuffer.ambient_tint[1] = ambientColor.y;
+	g_ShadingSys_PSBuffer.ambient_tint[2] = ambientColor.z;
+	g_ShadingSys_PSBuffer.albedo_floor = bPBRShadingV2 ? g_fPBRMinAlbedo : g_fMinAlbedo;
 	if (g_bEnableHeadLights) g_ShadingSys_PSBuffer.ambient = cur_ambient;
 	resources->InitPSConstantShadingSystem(resources->_shadingSysBuffer.GetAddressOf(), &g_ShadingSys_PSBuffer);
 }

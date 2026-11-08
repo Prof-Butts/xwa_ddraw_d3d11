@@ -33,11 +33,12 @@ cbuffer ConstantBuffer : register(b4)
 	float ambient, headlights_angle_cos, HDR_white_point;
 	uint HDREnabled;
 	// 1120 bytes
-	// The following settings are only used when ssao_type = PBR
-	float PBR_exposure;       // Overall brightness
-	float3 PBR_ambient_color; // Multiplies the ambient light
+	// Read by the Deferred and PBR shading. SetLights() fills them with the settings of the
+	// active mode: exposure, ambient_color and min_albedo, or their pbr_* versions.
+	float exposure_mult;      // Overall brightness
+	float3 ambient_tint;      // Multiplies the ambient light
 	// 1136 bytes
-	float PBR_min_albedo;     // The albedo of black areas: dark colors are lifted to this
+	float albedo_floor;       // The albedo of black areas (linear): dark colors are lifted to this
 	float3 unused_ss0;
 	// 1152 bytes
 };

@@ -288,9 +288,9 @@ PixelShaderOutput main(PixelShaderInput input)
 	// The textures are in sRGB, lighting is done in linear space
 	color = SRGBToLinear(color);
 	// The albedo used for lighting. Real materials are rarely darker than ~0.03, so the dark
-	// colors are lifted to PBR_min_albedo and the rest are scaled to keep white at 1. This
+	// colors are lifted to albedo_floor (pbr_min_albedo) and the rest are scaled to keep white at 1. This
 	// keeps dark details instead of flattening them. The shadeless mask still uses color.
-	const float3 albedo = PBR_min_albedo + (1.0 - PBR_min_albedo) * color;
+	const float3 albedo = albedo_floor + (1.0 - albedo_floor) * color;
 
 	float3 N = normalize(Normal.xyz);
 
@@ -493,10 +493,10 @@ PixelShaderOutput main(PixelShaderInput input)
 		skyBoxReflCol   = illumSkybox.SampleLevel(sampColor, skyBoxReflected.xyz, cubeMapMipLevel).rgb;
 		skyBoxNormalCol = illumSkybox.SampleLevel(sampColor, skyBoxNormal.xyz, cubeMapMipLevel).rgb;
 	}
-	// The ambient light is pbr_ambient everywhere, tinted by PBR_ambient_color (for instance to
-	// make shadows bluish). When there's a cubemap, its light is added on top: it lights the
-	// surfaces from all directions (diffuse) and it's reflected by them (specular).
-	const float3 baseAmbient = PBR_ambient_color * ambient;
+	// The ambient light is pbr_ambient everywhere, tinted by ambient_tint (pbr_ambient_color),
+	// for instance to make shadows bluish. When there's a cubemap, its light is added on top:
+	// it lights the surfaces from all directions (diffuse) and it's reflected by them (specular).
+	const float3 baseAmbient = ambient_tint * ambient;
 	const float3 envDiffuse  = cubeMappingEnabled ? cubeMapAmbientInt * skyBoxNormalCol : 0.0;
 	const float3 envSpecular = cubeMappingEnabled ? cubeMapSpecInt * skyBoxReflCol : 0.0;
 
@@ -616,7 +616,7 @@ PixelShaderOutput main(PixelShaderInput input)
 	tmp_color += laser_light_intensity * laser_light_sum;
 
 	// Tonemap and convert back to sRGB
-	tmp_color = ACESFitted(PBR_exposure * tmp_color);
+	tmp_color = ACESFitted(exposure_mult * tmp_color);
 	output.color.rgb = LinearToSRGB(tmp_color);
 	output.color = float4(lerp(background, output.color.rgb, blendAlpha), 1);
 

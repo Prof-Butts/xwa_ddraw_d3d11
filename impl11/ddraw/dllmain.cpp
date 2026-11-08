@@ -797,10 +797,11 @@ LRESULT CALLBACK MyWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam
 				if (g_SSAO_Type == SSO_PBR)
 				{
 					g_bPBRShadingV2 = !g_bPBRShadingV2;
+					const bool tempShading = g_bPBRShadingV2;
+					LoadSSAOParams();
+					g_bPBRShadingV2 = tempShading;
 					DisplayTimedMessage(3, 0, g_bPBRShadingV2 ? "PBR shading: new" : "PBR shading: legacy");
 				}
-				else
-					DisplayTimedMessage(3, 0, "PBR shading needs ssao_type = PBR");
 				return 0;
 			//case 'T':
 			//	g_bToggleSkipDC = !g_bToggleSkipDC;

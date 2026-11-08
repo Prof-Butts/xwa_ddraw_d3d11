@@ -116,6 +116,8 @@ extern SSAOTypeEnum g_SSAO_Type;
 extern bool g_bPBRShadingV2;
 extern float g_fPBRExposure, g_fPBRMinAlbedo;
 extern Vector3 g_PBRAmbientColor;
+extern float g_fPBRAmbient, g_fPBRHangarAmbient, g_fPBRLightsIntensity, g_fPBRLaserLightIntensity;
+extern float g_fLaserLightIntensity;
 extern float g_fSSAOZoomFactor, g_fSSAOZoomFactor2, g_fSSAOWhitePoint, g_fNormWeight, g_fNormalBlurRadius;
 extern int g_iSSDODebug, g_iSSAOBlurPasses;
 extern bool g_bBlurSSAO, g_bDepthBufferResolved, g_bOverrideLightPos;

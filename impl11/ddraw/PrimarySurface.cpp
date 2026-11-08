@@ -2485,6 +2485,14 @@ static Vector4 GetXwaLightDir(int idx)
 		0.0f);
 }
 
+// True when the deferred pass uses the new PBR shading (ssao_type = PBR). It reads the
+// pbr_* versions of ambient, hangar_ambient, HDR_lights_intensity and laser_light_intensity.
+// The headlights have their own pass, which keeps using the original settings.
+static bool IsPBRShadingV2Active()
+{
+	return g_SSAO_Type == SSO_PBR && g_bPBRShadingV2 && !g_bEnableHeadLights;
+}
+
 void SetLights(DeviceResources *resources, float fSSDOEnabled) {
 	Vector4 light;
 	int i;
@@ -2568,6 +2576,10 @@ void SetLights(DeviceResources *resources, float fSSDOEnabled) {
 			g_bEnableHeadLights = false;
 		}
 	}
+
+	// The new PBR shading has its own light and ambient settings
+	const bool bPBRShadingV2 = IsPBRShadingV2Active();
+	const float lightsMultiplier = bPBRShadingV2 ? g_fPBRLightsIntensity : g_fHDRLightsMultiplier;
 
 	/*
 	if (g_bOverrideLightPos) {
@@ -2739,9 +2751,9 @@ void SetLights(DeviceResources *resources, float fSSDOEnabled) {
 
 			// Light normalization does not look great in the DS2 mission
 			if (g_ShadingSys_PSBuffer.HDREnabled && !bDS2Mission) {
-				g_ShadingSys_PSBuffer.LightColor[i].x *= g_fHDRLightsMultiplier;
-				g_ShadingSys_PSBuffer.LightColor[i].y *= g_fHDRLightsMultiplier;
-				g_ShadingSys_PSBuffer.LightColor[i].z *= g_fHDRLightsMultiplier;
+				g_ShadingSys_PSBuffer.LightColor[i].x *= lightsMultiplier;
+				g_ShadingSys_PSBuffer.LightColor[i].y *= lightsMultiplier;
+				g_ShadingSys_PSBuffer.LightColor[i].z *= lightsMultiplier;
 			}
 
 			// Normalize low-intensity lights
@@ -2761,7 +2773,7 @@ void SetLights(DeviceResources *resources, float fSSDOEnabled) {
 					if (g_bDumpSSAOBuffers)
 						log_debug("[DBG] Normalizing light %d, col:[%0.3f, %0.3f, %0.3f]", i, col.x, col.y, col.z);
 					if (!bDS2Mission)
-						col = 0.9f * g_fHDRLightsMultiplier * col.normalize();
+						col = 0.9f * lightsMultiplier * col.normalize();
 					else
 						col = 0.9f * col.normalize();
 					if (g_bDumpSSAOBuffers)
@@ -2939,7 +2951,16 @@ void SetLights(DeviceResources *resources, float fSSDOEnabled) {
 	}
 
 	// TODO:
-	g_ShadingSys_PSBuffer.ambient = *g_playerInHangar ? g_fHangarAmbient : g_fGlobalAmbient;
+	if (bPBRShadingV2)
+	{
+		g_ShadingSys_PSBuffer.ambient = *g_playerInHangar ? g_fPBRHangarAmbient : g_fPBRAmbient;
+		g_ShadingSys_PSBuffer.laser_light_intensity = g_fPBRLaserLightIntensity;
+	}
+	else
+	{
+		g_ShadingSys_PSBuffer.ambient = *g_playerInHangar ? g_fHangarAmbient : g_fGlobalAmbient;
+		g_ShadingSys_PSBuffer.laser_light_intensity = g_fLaserLightIntensity;
+	}
 	g_ShadingSys_PSBuffer.ssdo_enabled = fSSDOEnabled;
 	g_ShadingSys_PSBuffer.sso_disable = g_bEnableSSAOInShader ? 0.0f : 1.0f;
 	g_ShadingSys_PSBuffer.HDREnabled = g_bHDREnabled;

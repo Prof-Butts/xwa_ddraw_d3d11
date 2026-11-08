@@ -215,6 +215,10 @@ float g_fPBRExposure = 1.0f;
 float g_fPBRMinAlbedo = 0.0f;
 Vector3 g_PBRAmbientColor = Vector3(1.0f, 1.0f, 1.0f);
 float g_fHangarAmbient = 0.05f, g_fGlobalAmbient = 0.005f;
+// The PBR shading reads these instead of ambient, hangar_ambient, HDR_lights_intensity and
+// laser_light_intensity, so both shadings can be tuned separately. See SetLights().
+float g_fPBRAmbient = 0.005f, g_fPBRHangarAmbient = 0.05f, g_fPBRLightsIntensity = 2.8f;
+float g_fPBRLaserLightIntensity = 6.0f, g_fLaserLightIntensity = 6.0f;
 
 extern float g_fMoireOffsetDir, g_fMoireOffsetInd;
 bool g_bAOEnabled = DEFAULT_AO_ENABLED_STATE;
@@ -2309,7 +2313,7 @@ bool LoadSSAOParams() {
 	g_ShadingSys_PSBuffer.saturation_boost = 0.75f;
 	g_ShadingSys_PSBuffer.lightness_boost = 2.0f;
 	g_ShadingSys_PSBuffer.sqr_attenuation = 0.001f; // Smaller numbers fade less
-	g_ShadingSys_PSBuffer.laser_light_intensity = 6.0f;
+	g_fLaserLightIntensity = 6.0f;
 	g_bHDREnabled = false;
 	g_fHDRWhitePoint = 1.0f;
 	g_fHDRLightsMultiplier = 2.8f;
@@ -2317,6 +2321,10 @@ bool LoadSSAOParams() {
 	g_ShadingSys_PSBuffer.HDR_white_point = g_fHDRWhitePoint;
 	g_fGlobalAmbient = 0.005f;
 	g_fHangarAmbient = 0.05f;
+	g_fPBRAmbient = 0.005f;
+	g_fPBRHangarAmbient = 0.05f;
+	g_fPBRLightsIntensity = 2.8f;
+	g_fPBRLaserLightIntensity = 6.0f;
 
 	g_ShadertoyBuffer.flare_intensity = 2.0f;
 
@@ -2409,6 +2417,19 @@ bool LoadSSAOParams() {
 				float x, y, z;
 				LoadGeneric3DCoords(buf, &x, &y, &z);
 				g_PBRAmbientColor = Vector3(x, y, z);
+			}
+			else if (_stricmp(param, "pbr_ambient") == 0) {
+				g_fPBRAmbient = fValue;
+			}
+			else if (_stricmp(param, "pbr_hangar_ambient") == 0) {
+				g_fPBRHangarAmbient = fValue;
+			}
+			else if (_stricmp(param, "pbr_lights_intensity") == 0) {
+				g_fPBRLightsIntensity = fValue;
+			}
+			else if (_stricmp(param, "pbr_laser_light_intensity") == 0) {
+				// Doubled like laser_light_intensity, so the same value gives the same light
+				g_fPBRLaserLightIntensity = 2.0f * fValue;
 			}
 
 			if (_stricmp(param, "raytracing_enabled_in_tech_room") == 0) {
@@ -2994,7 +3015,7 @@ bool LoadSSAOParams() {
 				// barycentric coords. I believe the old method may have attached two lights per laser
 				// so the new method now looks too dim. To compensate, we probably need to double the
 				// laser light intensity here.
-				g_ShadingSys_PSBuffer.laser_light_intensity = 2.0f * fValue;
+				g_fLaserLightIntensity = 2.0f * fValue;
 			}
 			else if (_stricmp(param, "headlights_pos") == 0) {
 				float x, y, z;

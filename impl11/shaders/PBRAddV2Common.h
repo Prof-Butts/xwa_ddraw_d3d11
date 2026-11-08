@@ -15,6 +15,9 @@
  *   a filmic (ACES) curve. pbr_exposure controls the brightness.
  * - pbr_min_albedo lifts the dark colors of the textures, and pbr_ambient_color tints
  *   the ambient light.
+ * - pbr_ambient is always the base ambient light. A cubemap adds its own light on top
+ *   (AmbientInt) and its reflections (Specular), instead of replacing the ambient and
+ *   tinting the lights.
  * The shadows, the material heuristics and the composition with the background and the
  * transparent layers are the same as in PBRAddCommon.h.
  */
@@ -490,9 +493,12 @@ PixelShaderOutput main(PixelShaderInput input)
 		skyBoxReflCol   = illumSkybox.SampleLevel(sampColor, skyBoxReflected.xyz, cubeMapMipLevel).rgb;
 		skyBoxNormalCol = illumSkybox.SampleLevel(sampColor, skyBoxNormal.xyz, cubeMapMipLevel).rgb;
 	}
-	// PBR_ambient_color tints the ambient light, for instance to make shadows bluish
-	const float3 finalAmbient = PBR_ambient_color * (cubeMappingEnabled ?
-		max(cubeMapAmbientMin, cubeMapAmbientInt * skyBoxNormalCol) : ambient);
+	// The ambient light is pbr_ambient everywhere, tinted by PBR_ambient_color (for instance to
+	// make shadows bluish). When there's a cubemap, its light is added on top: it lights the
+	// surfaces from all directions (diffuse) and it's reflected by them (specular).
+	const float3 baseAmbient = PBR_ambient_color * ambient;
+	const float3 envDiffuse  = cubeMappingEnabled ? cubeMapAmbientInt * skyBoxNormalCol : 0.0;
+	const float3 envSpecular = cubeMappingEnabled ? cubeMapSpecInt * skyBoxReflCol : 0.0;
 
 	// Direct light from the XWA lights
 	float3 direct = 0.0;
@@ -528,9 +534,8 @@ PixelShaderOutput main(PixelShaderInput input)
 		L.xy = -L.xy;
 		L = normalize(L);
 
-		const float3 lightColor = light_modulation * (cubeMappingEnabled ?
-			lerp(LightColor[i].rgb, skyBoxReflCol * LightColor[i].rgb, cubeMapSpecInt) :
-			LightColor[i].rgb);
+		// The cubemap doesn't tint the lights: its reflections are added with the ambient light
+		const float3 lightColor = light_modulation * LightColor[i].rgb;
 
 		float3 diffuseBRDF, specularBRDF;
 		EvaluateDirectBRDF(N_PBR, V_PBR, L, albedo, metallicity, F0, roughness, diffuseBRDF, specularBRDF);
@@ -556,8 +561,8 @@ PixelShaderOutput main(PixelShaderInput input)
 
 	// Ambient light, added once. It's treated as uniform light coming from all directions,
 	// so it has a diffuse and a specular component.
-	const float3 ambientDiffuse  = finalAmbient * albedo * (1.0 - metallicity);
-	const float3 ambientSpecular = finalAmbient * EnvBRDFApprox(F0, roughness, dotNV);
+	const float3 ambientDiffuse  = (baseAmbient + envDiffuse) * albedo * (1.0 - metallicity);
+	const float3 ambientSpecular = (baseAmbient + envSpecular) * EnvBRDFApprox(F0, roughness, dotNV);
 	float3 tmp_color = ambientDiffuse + ambientSpecular + direct;
 
 	// Apply the shadeless mask: shadeless surfaces show their own color

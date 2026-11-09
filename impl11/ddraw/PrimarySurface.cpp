@@ -2981,6 +2981,7 @@ void SetLights(DeviceResources *resources, float fSSDOEnabled) {
 	g_ShadingSys_PSBuffer.albedo_floor = bPBRShadingV2 ? g_fPBRMinAlbedo : g_fMinAlbedo;
 	// GTAO: DeferredPass() runs GTAOPass() and binds its buffer when this is set
 	g_ShadingSys_PSBuffer.gtao_enabled = (g_bAOEnabled && g_bGTAOEnabled && bPBRShadingV2) ? 1.0f : 0.0f;
+	g_ShadingSys_PSBuffer.gtao_scale = g_bGTAOHalfRes ? 2.0f : 1.0f;
 	// Color grading (only the PBR shading reads it)
 	g_ShadingSys_PSBuffer.grade_contrast = g_fPBRGradeContrast;
 	g_ShadingSys_PSBuffer.grade_saturation = g_fPBRGradeSaturation;
@@ -3795,11 +3796,14 @@ void PrimarySurface::GTAOPass()
 	desc.StencilEnable = FALSE;
 	resources->InitDepthStencilState(depthState, &desc);
 
+	// At half resolution, both passes render to the top-left quarter of their buffers
+	// (rounded up, so every full-resolution pixel has a GTAO pixel)
+	const int scale = g_bGTAOHalfRes ? 2 : 1;
 	const float screen_res_x = (float)resources->_backbufferWidth;
 	const float screen_res_y = (float)resources->_backbufferHeight;
 	D3D11_VIEWPORT viewport{};
-	viewport.Width    = screen_res_x;
-	viewport.Height   = screen_res_y;
+	viewport.Width    = (float)((resources->_backbufferWidth + scale - 1) / scale);
+	viewport.Height   = (float)((resources->_backbufferHeight + scale - 1) / scale);
 	viewport.MaxDepth = D3D11_MAX_DEPTH;
 	viewport.MinDepth = D3D11_MIN_DEPTH;
 	resources->InitViewport(&viewport);
@@ -3819,6 +3823,7 @@ void PrimarySurface::GTAOPass()
 	cb.steps          = g_iGTAOSteps;
 	cb.falloff        = 0.615f; // XeGTAO's default
 	cb.denoise_depth  = 0.05f;  // Neighbors within 5% of the depth are blended
+	cb.scale          = (float)scale;
 	resources->InitPSConstantBufferGTAO(&cb);
 
 	// GTAO

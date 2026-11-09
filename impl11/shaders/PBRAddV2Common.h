@@ -146,6 +146,60 @@ struct PixelShaderOutput
 	float4 bloom : SV_TARGET1;
 };
 
+// The GTAO result (bent normal, AO) for a full-resolution pixel. At half resolution
+// (gtao_scale = 2), the four nearest GTAO pixels are blended with bilinear weights, skipping
+// the ones at a different depth so the occlusion doesn't bleed across the edges of objects.
+// Each GTAO pixel was computed at the top-left pixel of its 2x2 block.
+float4 LoadGTAO(int2 px, uint viewId, float z)
+{
+#ifdef INSTANCED_RENDERING
+#define GTAO_LOAD(p) texGTAO.Load(int4(p, viewId, 0))
+#define GTAO_DEPTH(p) texPos.Load(int4(p, viewId, 0)).z
+	uint width, height, elements;
+	texGTAO.GetDimensions(width, height, elements);
+#else
+#define GTAO_LOAD(p) texGTAO.Load(int3(p, 0))
+#define GTAO_DEPTH(p) texPos.Load(int3(p, 0)).z
+	uint width, height;
+	texGTAO.GetDimensions(width, height);
+#endif
+	float4 result;
+	[branch]
+	if (gtao_scale < 1.5)
+	{
+		result = GTAO_LOAD(px);
+	}
+	else
+	{
+		// The GTAO pixel h sits on the full-resolution pixel 2h, so pixel px is at px / 2
+		const int2 maxPx = int2((width + 1) / 2, (height + 1) / 2) - 1;
+		const float2 pos = px * 0.5;
+		const int2 base = int2(floor(pos));
+		const float2 f = pos - base;
+		const float tolerance = max(z * 0.05, 1e-3);
+		float4 sum = 0;
+		float weightSum = 0;
+		[unroll]
+		for (int y = 0; y < 2; y++)
+		{
+			[unroll]
+			for (int x = 0; x < 2; x++)
+			{
+				const int2 h = min(base + int2(x, y), maxPx);
+				float w = (x ? f.x : 1.0 - f.x) * (y ? f.y : 1.0 - f.y);
+				w *= saturate(1.0 - abs(GTAO_DEPTH(h * 2) - z) / tolerance);
+				sum += w * GTAO_LOAD(h);
+				weightSum += w;
+			}
+		}
+		result = weightSum > 1e-4 ? sum / weightSum : GTAO_LOAD(min(base, maxPx));
+		result.xyz = length(result.xyz) > 1e-4 ? normalize(result.xyz) : result.xyz;
+	}
+	return result;
+#undef GTAO_LOAD
+#undef GTAO_DEPTH
+}
+
 // From https://www.gamedev.net/tutorials/programming/graphics/effect-area-light-shadows-part-1-pcss-r4971/
 /*
  * We expect Q.xy to be 2D coords; but Q.z must be a depth stencil value in the range 0...1
@@ -232,7 +286,7 @@ PixelShaderOutput main(PixelShaderInput input)
 	float4 texelColor     = texColor.Sample(sampColor, float3(input.uv, input.viewId));
 	float4 Normal         = texNormal.Sample(samplerNormal, float3(input.uv, input.viewId));
 	float3 pos3D          = texPos.Sample(sampPos, float3(input.uv, input.viewId)).xyz;
-	float4 gtao           = texGTAO.Load(int4(input.pos.xy, input.viewId, 0));
+	float4 gtao           = gtao_enabled > 0.5 ? LoadGTAO(int2(input.pos.xy), input.viewId, pos3D.z) : 1.0;
 	float3 background     = texBackground.Sample(sampColor, float3(input.uv, input.viewId)).rgb;
 	float3 ssaoMask       = texSSAOMask.Sample(samplerSSAOMask, float3(input.uv, input.viewId)).xyz;
 	float3 ssMask         = texSSMask.Sample(samplerSSMask, float3(input.uv, input.viewId)).xyz;
@@ -242,7 +296,7 @@ PixelShaderOutput main(PixelShaderInput input)
 	float4 texelColor     = texColor.Sample(sampColor, input.uv);
 	float4 Normal         = texNormal.Sample(samplerNormal, input.uv);
 	float3 pos3D          = texPos.Sample(sampPos, input.uv).xyz;
-	float4 gtao           = texGTAO.Load(int3(input.pos.xy, 0));
+	float4 gtao           = gtao_enabled > 0.5 ? LoadGTAO(int2(input.pos.xy), 0, pos3D.z) : 1.0;
 	float3 background     = texBackground.Sample(sampColor, input.uv).rgb;
 	float3 ssaoMask       = texSSAOMask.Sample(samplerSSAOMask, input.uv).xyz;
 	float3 ssMask         = texSSMask.Sample(samplerSSMask, input.uv).xyz;

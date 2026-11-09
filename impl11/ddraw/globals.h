@@ -121,6 +121,8 @@ extern Vector3 g_PBRAmbientColor, g_PBRLightsColor;
 extern bool g_bGTAOEnabled;
 extern float g_fGTAORadius, g_fGTAOIntensity, g_fGTAOMinRadiusPx, g_fGTAOMaxRadiusPx;
 extern int g_iGTAOSlices, g_iGTAOSteps;
+// pbr_gtao_half_res: GTAO at half resolution
+extern bool g_bGTAOHalfRes;
 // pbr_gtao_gpu_timer: log the GPU time of the PBR lighting and GTAO passes ([DBG] [GTAO])
 extern bool g_bGTAOGPUTimer;
 // Color grading in the PBR shading (pbr_grade_*)

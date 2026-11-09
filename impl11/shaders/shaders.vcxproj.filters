@@ -101,6 +101,10 @@
     <FxCompile Include="SSDO\SSDOBlurVR.hlsl" />
     <FxCompile Include="SSDO\SSDOAddVR.hlsl" />
     <FxCompile Include="PBRAddVR.hlsl" />
+    <FxCompile Include="GTAO.hlsl" />
+    <FxCompile Include="GTAOVR.hlsl" />
+    <FxCompile Include="GTAODenoise.hlsl" />
+    <FxCompile Include="GTAODenoiseVR.hlsl" />
     <FxCompile Include="PBRAddV2.hlsl" />
     <FxCompile Include="PBRAddV2VR.hlsl" />
     <FxCompile Include="RT\RTShadowMaskPS_VR.hlsl" />
@@ -167,6 +171,15 @@
       <Filter>Fichiers d%27en-tête</Filter>
     </ClInclude>
     <ClInclude Include="PBRShadingV2.h">
+      <Filter>Fichiers d%27en-tête</Filter>
+    </ClInclude>
+    <ClInclude Include="GTAOCBuffer.h">
+      <Filter>Fichiers d%27en-tête</Filter>
+    </ClInclude>
+    <ClInclude Include="GTAOCommon.h">
+      <Filter>Fichiers d%27en-tête</Filter>
+    </ClInclude>
+    <ClInclude Include="GTAODenoiseCommon.h">
       <Filter>Fichiers d%27en-tête</Filter>
     </ClInclude>
     <ClInclude Include="PBRAddV2Common.h">

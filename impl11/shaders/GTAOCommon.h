@@ -1,0 +1,230 @@
+/*
+ * Ground Truth Ambient Occlusion (GTAO) with bent normals, used by ssao_type = PBR.
+ * Licensed under the MIT license. See LICENSE.txt
+ *
+ * Based on "Practical Real-Time Strategies for Accurate Indirect Occlusion" (Jimenez et al.,
+ * 2016) and Intel's XeGTAO (MIT license). For each pixel, a few directions ("slices") are
+ * searched in screen space for the highest horizon on both sides; the visible arc between
+ * the two horizons gives the cosine-weighted visibility of that slice. The bent normal (the
+ * least occluded direction) is the normal turned towards the middle of the visible arcs.
+ *
+ * Output: rgb = bent normal (view space, same convention as the position buffer), a = AO
+ * (1 = fully visible). The noise of the slice and step offsets repeats every 4x4 pixels, so
+ * the 4x4 filter in GTAODenoise.hlsl averages it out.
+ *
+ * The position buffer has the view-space position of each pixel (X+ right, Y+ up, Z+ away
+ * from the camera), in meters. The normal buffer has Z+ pointing to the camera, so its Z is
+ * flipped here. The projection isn't needed: the view ray of a pixel is P.xy / P.z, so the
+ * size of a pixel at any depth is measured from the rays of nearby pixels. That works in
+ * VR too, where each eye has its own projection.
+ */
+#include "GTAOCBuffer.h"
+
+#ifdef INSTANCED_RENDERING
+Texture2DArray texPos    : register(t0);
+Texture2DArray texNormal : register(t1);
+#else
+Texture2D texPos    : register(t0);
+Texture2D texNormal : register(t1);
+#endif
+
+struct PixelShaderInput
+{
+	float4 pos    : SV_POSITION;
+	float2 uv     : TEXCOORD;
+#ifdef INSTANCED_RENDERING
+	uint   viewId : SV_RenderTargetArrayIndex;
+#endif
+};
+
+static const float GTAO_PI      = 3.14159265;
+static const float GTAO_PI_HALF = 1.57079633;
+// Positions this far away are the background (the position buffer is cleared to Z = 32000)
+static const float GTAO_FAR_Z   = 30000.0;
+
+float3 LoadPos(int2 px, uint viewId)
+{
+	px = clamp(px, int2(0, 0), int2(gtao_buffer_size) - 1);
+#ifdef INSTANCED_RENDERING
+	return texPos.Load(int4(px, viewId, 0)).xyz;
+#else
+	return texPos.Load(int3(px, 0)).xyz;
+#endif
+}
+
+float4 LoadNormal(int2 px, uint viewId)
+{
+#ifdef INSTANCED_RENDERING
+	return texNormal.Load(int4(px, viewId, 0));
+#else
+	return texNormal.Load(int3(px, 0));
+#endif
+}
+
+bool IsGeometry(float3 P)
+{
+	return P.z > 0.0 && P.z < GTAO_FAR_Z;
+}
+
+// Change of the view ray (P.xy / P.z) per pixel, along x and along y. It's signed, so it
+// also tells how the screen axes map to the view axes. The position buffer is half
+// precision, so the rays are compared over several pixels to keep the error small.
+// Returns 0 on an axis when there's no geometry to compare with.
+float2 RayChangePerPixel(int2 px, float3 P, uint viewId)
+{
+	const float2 ray = P.xy / P.z;
+	float2 result = 0;
+	[unroll]
+	for (int axis = 0; axis < 2; axis++)
+	{
+		const int2 dir = axis == 0 ? int2(1, 0) : int2(0, 1);
+		[unroll]
+		for (int i = 0; i < 2; i++)
+		{
+			const int dist = i == 0 ? 16 : 4;
+			const float3 A = LoadPos(px + dir * dist, viewId);
+			const float3 B = LoadPos(px - dir * dist, viewId);
+			if (result[axis] == 0 && IsGeometry(A))
+				result[axis] = ((A.xy / A.z)[axis] - ray[axis]) / dist;
+			else if (result[axis] == 0 && IsGeometry(B))
+				result[axis] = (ray[axis] - (B.xy / B.z)[axis]) / dist;
+		}
+	}
+	return result;
+}
+
+// 4x4 ordered (Bayer) pattern: each value 0..15 appears once in every 4x4 block
+float Bayer4x4(int2 px)
+{
+	const uint2 p = uint2(px) & 3;
+	const uint bayer[16] = { 0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5 };
+	return (float)bayer[p.y * 4 + p.x];
+}
+
+float4 main(PixelShaderInput input) : SV_TARGET
+{
+#ifdef INSTANCED_RENDERING
+	const uint viewId = input.viewId;
+#else
+	const uint viewId = 0;
+#endif
+	const int2 px = int2(input.pos.xy);
+	const float3 P = LoadPos(px, viewId);
+	const float4 normalSample = LoadNormal(px, viewId);
+	// The normal in the same space as the positions
+	const float3 N = normalize(float3(normalSample.x, normalSample.y, -normalSample.z));
+
+	// Background, and surfaces that aren't fully opaque (their normal.w is low): no occlusion
+	if (!IsGeometry(P) || normalSample.w < 0.5)
+		return float4(N, 1.0);
+
+	// Size of a pixel at this depth (both axes have the same size), and the signs that map
+	// screen directions to view directions
+	const float2 rayChange = RayChangePerPixel(px, P, viewId);
+	const float2 absChange = abs(rayChange);
+	const float pixelAngle = (absChange.x > 0 && absChange.y > 0) ? 0.5 * (absChange.x + absChange.y) :
+		max(absChange.x, absChange.y);
+	if (pixelAngle <= 0)
+		return float4(N, 1.0);
+	// Screen y grows downwards and view y grows upwards, so that's the default
+	const float2 axisSign = float2(rayChange.x != 0 ? sign(rayChange.x) : 1.0,
+	                               rayChange.y != 0 ? sign(rayChange.y) : -1.0);
+	const float pixelSize = pixelAngle * P.z; // Meters per pixel at this depth
+
+	// The radius of the effect, in pixels and in meters. It's clamped in pixels: close
+	// surfaces don't sample half of the screen, and far ones still get some occlusion.
+	const float screenRadius = clamp(gtao_radius / pixelSize, gtao_min_radius_px, gtao_max_radius_px);
+	const float radius = screenRadius * pixelSize;
+	// Samples fade out between falloffFrom and the radius, so occluders at the edge of the
+	// radius don't pop in and out
+	const float falloffRange = gtao_falloff * radius;
+	const float falloffFrom  = radius * (1.0 - gtao_falloff);
+	const float falloffMul   = -1.0 / falloffRange;
+	const float falloffAdd   = falloffFrom / falloffRange + 1.0;
+
+	const float3 V = normalize(-P);
+	const float noise = Bayer4x4(px);
+	const float noiseSlice = (noise + 0.5) / 16.0;
+	// A different order of the same 16 values, so the slice and step offsets don't line up
+	const float noiseStep = frac((noise * 5.0 + 0.5) / 16.0);
+
+	const int sliceCount = (int)gtao_slices;
+	const int stepCount  = (int)gtao_steps;
+	float visibility = 0.0;
+	float3 bentNormal = 0.0;
+
+	[loop]
+	for (int slice = 0; slice < sliceCount; slice++)
+	{
+		const float phi = (slice + noiseSlice) * GTAO_PI / sliceCount;
+		const float2 omega = float2(cos(phi), sin(phi)); // Screen direction (pixels)
+		const float3 dirVec = normalize(float3(omega * axisSign, 0.0)); // The same, in view space
+		const float3 orthoDirVec = dirVec - dot(dirVec, V) * V;
+		const float3 axisVec = normalize(cross(orthoDirVec, V));
+		// The normal projected on the slice plane, and its angle from V (positive towards dirVec)
+		const float3 projNormal = N - axisVec * dot(N, axisVec);
+		const float projNormalLength = length(projNormal);
+		const float signNorm = sign(dot(orthoDirVec, projNormal));
+		const float cosNorm = saturate(dot(projNormal, V) / max(projNormalLength, 1e-4));
+		const float n = signNorm * acos(cosNorm);
+
+		// The lowest possible horizons: the tangent plane on each side
+		const float lowHorizonCos0 = cos(n + GTAO_PI_HALF);
+		const float lowHorizonCos1 = cos(n - GTAO_PI_HALF);
+		float horizonCos0 = lowHorizonCos0; // Along +omega
+		float horizonCos1 = lowHorizonCos1; // Along -omega
+
+		[loop]
+		for (int step = 0; step < stepCount; step++)
+		{
+			// More samples close to the pixel, where the occluders matter most
+			float s = (step + noiseStep) / stepCount;
+			s = s * s;
+			const float2 offset = round(omega * max(s * screenRadius, 1.0));
+
+			const float3 S0 = LoadPos(px + int2(offset), viewId);
+			const float3 S1 = LoadPos(px - int2(offset), viewId);
+			const float3 delta0 = S0 - P;
+			const float3 delta1 = S1 - P;
+			const float dist0 = length(delta0);
+			const float dist1 = length(delta1);
+			const float weight0 = IsGeometry(S0) ? saturate(dist0 * falloffMul + falloffAdd) : 0.0;
+			const float weight1 = IsGeometry(S1) ? saturate(dist1 * falloffMul + falloffAdd) : 0.0;
+			const float shc0 = lerp(lowHorizonCos0, dot(delta0, V) / max(dist0, 1e-4), weight0);
+			const float shc1 = lerp(lowHorizonCos1, dot(delta1, V) / max(dist1, 1e-4), weight1);
+			horizonCos0 = max(horizonCos0, shc0);
+			horizonCos1 = max(horizonCos1, shc1);
+		}
+
+		// The horizon angles (from V), limited to the hemisphere around the normal
+		float h0 = -acos(clamp(horizonCos1, -1.0, 1.0));
+		float h1 =  acos(clamp(horizonCos0, -1.0, 1.0));
+		h0 = n + clamp(h0 - n, -GTAO_PI_HALF, GTAO_PI_HALF);
+		h1 = n + clamp(h1 - n, -GTAO_PI_HALF, GTAO_PI_HALF);
+
+		// Cosine-weighted visible arc between the horizons (GTAO paper, equation 10)
+		const float sinN = sin(n);
+		const float arc0 = (cosNorm + 2.0 * h0 * sinN - cos(2.0 * h0 - n)) / 4.0;
+		const float arc1 = (cosNorm + 2.0 * h1 * sinN - cos(2.0 * h1 - n)) / 4.0;
+		const float localVisibility = projNormalLength * (arc0 + arc1);
+		visibility += localVisibility;
+
+		// Bent normal: the normal, rotated in the slice plane by how far the middle of the
+		// visible arc is from it, weighted by how much of the slice is visible. Without
+		// occluders the arc is centered on the normal, so the bent normal is the normal.
+		// Rotating by a positive angle around axisVec moves towards -orthoDirVec, so the
+		// angle is negated (Rodrigues' rotation formula).
+		const float delta = -(0.5 * (h0 + h1) - n);
+		const float cosDelta = cos(delta), sinDelta = sin(delta);
+		const float3 rotatedNormal = N * cosDelta + cross(axisVec, N) * sinDelta +
+			axisVec * dot(axisVec, N) * (1.0 - cosDelta);
+		bentNormal += rotatedNormal * localVisibility;
+	}
+
+	visibility = saturate(visibility / sliceCount);
+	visibility = pow(visibility, gtao_intensity);
+	// A pixel that's visible can't be fully occluded
+	visibility = max(visibility, 0.03);
+	bentNormal = length(bentNormal) > 1e-4 ? normalize(bentNormal) : N;
+	return float4(bentNormal, visibility);
+}

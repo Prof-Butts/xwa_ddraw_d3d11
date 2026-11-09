@@ -106,10 +106,10 @@ public:
 			this->msg[0] = 0;
 	}
 };
-const int MAX_TIMED_MESSAGES = 3;
+const int MAX_TIMED_MESSAGES = 4;
 
 /*
-  Only rows 0..2 are available
+  Only rows 0..3 are available (MAX_TIMED_MESSAGES). Other rows are ignored.
  */
 void DisplayTimedMessage(uint32_t seconds, int row, const char *msg);
 
@@ -145,6 +145,7 @@ public:
 	void InitVSConstantBuffer3D(ID3D11Buffer** buffer, const VertexShaderCBuffer* vsCBuffer);
 	void InitVSConstantBufferMatrix(ID3D11Buffer** buffer, const VertexShaderMatrixCB* vsCBuffer);
 	void InitPSConstantShadingSystem(ID3D11Buffer** buffer, const PSShadingSystemCB* psCBuffer);
+	void InitPSConstantBufferGTAO(const GTAOCBuffer* psCBuffer);
 	void InitVSConstantBuffer2D(ID3D11Buffer** buffer, const float parallax, const float aspectRatio, const float scale, const float brightness, const float use_3D);
 	void InitVSConstantBufferHyperspace(ID3D11Buffer ** buffer, const ShadertoyCBuffer * psConstants);
 	void InitVSConstantOPTMeshTransform(ID3D11Buffer ** buffer, const OPTMeshTransformCBuffer *vsConstants);
@@ -284,6 +285,8 @@ public:
 	//ComPtr<ID3D11Texture2D> _bentBufR;		// No MSAA
 	ComPtr<ID3D11Texture2D> _ssaoBuf;		// No MSAA
 	ComPtr<ID3D11Texture2D> _ssaoBufR;		// No MSAA
+	ComPtr<ID3D11Texture2D> _gtaoBuf;			// GTAO: bent normal + AO (No MSAA)
+	ComPtr<ID3D11Texture2D> _gtaoBufDenoised;	// GTAO after the denoise pass
 	// Shading System
 	ComPtr<ID3D11Texture2D> _normBufMSAA;
 	ComPtr<ID3D11Texture2D> _normBufMSAA_R;
@@ -361,6 +364,8 @@ public:
 	ComPtr<ID3D11RenderTargetView> _renderTargetViewBentBufR;
 	ComPtr<ID3D11RenderTargetView> _renderTargetViewSSAO;
 	ComPtr<ID3D11RenderTargetView> _renderTargetViewSSAO_R;
+	ComPtr<ID3D11RenderTargetView> _gtaoRTV;
+	ComPtr<ID3D11RenderTargetView> _gtaoDenoisedRTV;
 	// Shading System
 	ComPtr<ID3D11RenderTargetView> _renderTargetViewNormBuf;
 	ComPtr<ID3D11RenderTargetView> _renderTargetViewNormBufR;
@@ -403,6 +408,8 @@ public:
 	//ComPtr<ID3D11ShaderResourceView> _bentBufSRV;     // SRV for bentBuf
 	//ComPtr<ID3D11ShaderResourceView> _bentBufSRV_R;   // SRV for bentBufR
 	ComPtr<ID3D11ShaderResourceView> _ssaoBufSRV;     // SRV for ssaoBuf
+	ComPtr<ID3D11ShaderResourceView> _gtaoSRV;
+	ComPtr<ID3D11ShaderResourceView> _gtaoDenoisedSRV;
 	ComPtr<ID3D11ShaderResourceView> _ssaoBufSRV_R;   // SRV for ssaoBuf
 	// Shading System
 	ComPtr<ID3D11ShaderResourceView> _normBufSRV;     // SRV for normBuf
@@ -476,6 +483,10 @@ public:
 	ComPtr<ID3D11PixelShader> _pbrAddPS_VR;
 	ComPtr<ID3D11PixelShader> _pbrAddV2PS;    // ssao_type = PBR
 	ComPtr<ID3D11PixelShader> _pbrAddV2PS_VR; // ssao_type = PBR
+	ComPtr<ID3D11PixelShader> _gtaoPS;              // GTAO, ssao_type = PBR
+	ComPtr<ID3D11PixelShader> _gtaoPS_VR;
+	ComPtr<ID3D11PixelShader> _gtaoDenoisePS;
+	ComPtr<ID3D11PixelShader> _gtaoDenoisePS_VR;
 	ComPtr<ID3D11PixelShader> _headLightsPS;
 	ComPtr<ID3D11PixelShader> _headLightsPS_VR;
 	ComPtr<ID3D11PixelShader> _headLightsSSAOPS;
@@ -570,6 +581,7 @@ public:
 	ComPtr<ID3D11Buffer> _VSConstantBuffer;
 	ComPtr<ID3D11Buffer> _VSMatrixBuffer;
 	ComPtr<ID3D11Buffer> _shadingSysBuffer;
+	ComPtr<ID3D11Buffer> _gtaoConstantBuffer;
 	ComPtr<ID3D11Buffer> _PSConstantBuffer;
 	ComPtr<ID3D11Buffer> _PSConstantBufferDC;
 	ComPtr<ID3D11Buffer> _barrelConstantBuffer;

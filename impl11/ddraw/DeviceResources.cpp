@@ -102,6 +102,10 @@
 #include "../Debug/PBRAddVR.h"
 #include "../Debug/PBRAddV2.h"
 #include "../Debug/PBRAddV2VR.h"
+#include "../Debug/GTAO.h"
+#include "../Debug/GTAOVR.h"
+#include "../Debug/GTAODenoise.h"
+#include "../Debug/GTAODenoiseVR.h"
 #include "../Debug/PixelShaderVRGeom.h"
 #else
 #include "../Release/MainVertexShader.h"
@@ -192,6 +196,10 @@
 #include "../Release/PBRAddVR.h"
 #include "../Release/PBRAddV2.h"
 #include "../Release/PBRAddV2VR.h"
+#include "../Release/GTAO.h"
+#include "../Release/GTAOVR.h"
+#include "../Release/GTAODenoise.h"
+#include "../Release/GTAODenoiseVR.h"
 #include "../Release/PixelShaderVRGeom.h"
 #endif
 
@@ -1982,6 +1990,12 @@ HRESULT DeviceResources::OnSizeChanged(HWND hWnd, DWORD dwWidth, DWORD dwHeight)
 		this->_renderTargetViewSSAO_R.Release();
 		this->_ssaoBufSRV.Release();
 		this->_ssaoBufSRV_R.Release();
+		this->_gtaoBuf.Release();
+		this->_gtaoBufDenoised.Release();
+		this->_gtaoRTV.Release();
+		this->_gtaoDenoisedRTV.Release();
+		this->_gtaoSRV.Release();
+		this->_gtaoDenoisedSRV.Release();
 		if (g_bUseSteamVR) {
 			this->_depthBufR.Release();
 			this->_depthBufAsInputR.Release();
@@ -3033,6 +3047,24 @@ HRESULT DeviceResources::OnSizeChanged(HWND hWnd, DWORD dwWidth, DWORD dwHeight)
 					goto out;
 				}
 
+				// GTAO (ssao_type = PBR): bent normal + AO, before and after the denoise pass
+				desc.Format = HDR_FORMAT;
+				step = "_gtaoBuf";
+				hr = this->_d3dDevice->CreateTexture2D(&desc, nullptr, &this->_gtaoBuf);
+				if (FAILED(hr)) {
+					log_err("dwWidth, Height: %u, %u\n", dwWidth, dwHeight);
+					log_err_desc(step, hWnd, hr, desc);
+					goto out;
+				}
+
+				step = "_gtaoBufDenoised";
+				hr = this->_d3dDevice->CreateTexture2D(&desc, nullptr, &this->_gtaoBufDenoised);
+				if (FAILED(hr)) {
+					log_err("dwWidth, Height: %u, %u\n", dwWidth, dwHeight);
+					log_err_desc(step, hWnd, hr, desc);
+					goto out;
+				}
+
 				desc.Format = oldFormat;
 				desc.BindFlags = oldFlags;
 				desc.MipLevels = 1;
@@ -3419,6 +3451,22 @@ HRESULT DeviceResources::OnSizeChanged(HWND hWnd, DWORD dwWidth, DWORD dwHeight)
 					goto out;
 				}
 
+				step = "_gtaoSRV";
+				hr = this->_d3dDevice->CreateShaderResourceView(this->_gtaoBuf, &shaderResourceViewDesc, &this->_gtaoSRV);
+				if (FAILED(hr)) {
+					log_err("dwWidth, Height: %u, %u\n", dwWidth, dwHeight);
+					log_shaderres_view(step, hWnd, hr, shaderResourceViewDesc);
+					goto out;
+				}
+
+				step = "_gtaoDenoisedSRV";
+				hr = this->_d3dDevice->CreateShaderResourceView(this->_gtaoBufDenoised, &shaderResourceViewDesc, &this->_gtaoDenoisedSRV);
+				if (FAILED(hr)) {
+					log_err("dwWidth, Height: %u, %u\n", dwWidth, dwHeight);
+					log_shaderres_view(step, hWnd, hr, shaderResourceViewDesc);
+					goto out;
+				}
+
 				if (g_bUseSteamVR) {
 					step = "_ssaoBufSRV_R";
 					hr = this->_d3dDevice->CreateShaderResourceView(this->_ssaoBufR, &shaderResourceViewDesc, &this->_ssaoBufSRV_R);
@@ -3778,6 +3826,14 @@ HRESULT DeviceResources::OnSizeChanged(HWND hWnd, DWORD dwWidth, DWORD dwHeight)
 			// This buffer is needed in all cases, not only SteamVR/stereo rendering, since it is used later as Indirect SSDO buffer
 			step = "_renderTargetViewSSAO_R";
 			hr = this->_d3dDevice->CreateRenderTargetView(this->_ssaoBufR, &GetRtvDesc(false, g_bUseSteamVR, HDR_FORMAT), &this->_renderTargetViewSSAO_R);
+			if (FAILED(hr)) goto out;
+
+			step = "_gtaoRTV";
+			hr = this->_d3dDevice->CreateRenderTargetView(this->_gtaoBuf, &GetRtvDesc(false, g_bUseSteamVR, HDR_FORMAT), &this->_gtaoRTV);
+			if (FAILED(hr)) goto out;
+
+			step = "_gtaoDenoisedRTV";
+			hr = this->_d3dDevice->CreateRenderTargetView(this->_gtaoBufDenoised, &GetRtvDesc(false, g_bUseSteamVR, HDR_FORMAT), &this->_gtaoDenoisedRTV);
 			if (FAILED(hr)) goto out;
 		}
 
@@ -4330,6 +4386,12 @@ HRESULT DeviceResources::LoadMainResources()
 
 			if (FAILED(hr = this->_d3dDevice->CreatePixelShader(g_PBRAddV2VR, sizeof(g_PBRAddV2VR), nullptr, &_pbrAddV2PS_VR)))
 				return hr;
+
+			if (FAILED(hr = this->_d3dDevice->CreatePixelShader(g_GTAOVR, sizeof(g_GTAOVR), nullptr, &_gtaoPS_VR)))
+				return hr;
+
+			if (FAILED(hr = this->_d3dDevice->CreatePixelShader(g_GTAODenoiseVR, sizeof(g_GTAODenoiseVR), nullptr, &_gtaoDenoisePS_VR)))
+				return hr;
 		}
 		else
 		{
@@ -4352,6 +4414,12 @@ HRESULT DeviceResources::LoadMainResources()
 				return hr;
 
 			if (FAILED(hr = this->_d3dDevice->CreatePixelShader(g_PBRAddV2, sizeof(g_PBRAddV2), nullptr, &_pbrAddV2PS)))
+				return hr;
+
+			if (FAILED(hr = this->_d3dDevice->CreatePixelShader(g_GTAO, sizeof(g_GTAO), nullptr, &_gtaoPS)))
+				return hr;
+
+			if (FAILED(hr = this->_d3dDevice->CreatePixelShader(g_GTAODenoise, sizeof(g_GTAODenoise), nullptr, &_gtaoDenoisePS)))
 				return hr;
 		}
 
@@ -4789,6 +4857,12 @@ HRESULT DeviceResources::LoadResources()
 
 			if (FAILED(hr = this->_d3dDevice->CreatePixelShader(g_PBRAddV2VR, sizeof(g_PBRAddV2VR), nullptr, &_pbrAddV2PS_VR)))
 				return hr;
+
+			if (FAILED(hr = this->_d3dDevice->CreatePixelShader(g_GTAOVR, sizeof(g_GTAOVR), nullptr, &_gtaoPS_VR)))
+				return hr;
+
+			if (FAILED(hr = this->_d3dDevice->CreatePixelShader(g_GTAODenoiseVR, sizeof(g_GTAODenoiseVR), nullptr, &_gtaoDenoisePS_VR)))
+				return hr;
 		}
 		else
 		{
@@ -4811,6 +4885,12 @@ HRESULT DeviceResources::LoadResources()
 				return hr;
 
 			if (FAILED(hr = this->_d3dDevice->CreatePixelShader(g_PBRAddV2, sizeof(g_PBRAddV2), nullptr, &_pbrAddV2PS)))
+				return hr;
+
+			if (FAILED(hr = this->_d3dDevice->CreatePixelShader(g_GTAO, sizeof(g_GTAO), nullptr, &_gtaoPS)))
+				return hr;
+
+			if (FAILED(hr = this->_d3dDevice->CreatePixelShader(g_GTAODenoise, sizeof(g_GTAODenoise), nullptr, &_gtaoDenoisePS)))
 				return hr;
 		}
 
@@ -4973,6 +5053,12 @@ HRESULT DeviceResources::LoadResources()
 	constantBufferDesc.ByteWidth = 1184;
 	static_assert(sizeof(PSShadingSystemCB) == 1184, "sizeof(PSShadingSystemCB) must be 1184");
 	if (FAILED(hr = this->_d3dDevice->CreateBuffer(&constantBufferDesc, nullptr, &this->_shadingSysBuffer)))
+		return hr;
+
+	// GTAO constant buffer (ssao_type = PBR)
+	constantBufferDesc.ByteWidth = 48;
+	static_assert(sizeof(GTAOCBuffer) == 48, "sizeof(GTAOCBuffer) must be 48");
+	if (FAILED(hr = this->_d3dDevice->CreateBuffer(&constantBufferDesc, nullptr, &this->_gtaoConstantBuffer)))
 		return hr;
 
 	// Create the constant buffer for the main pixel shader
@@ -5256,6 +5342,12 @@ void DeviceResources::InitPSConstantShadingSystem(ID3D11Buffer** buffer, const P
 {
 	this->_d3dDeviceContext->UpdateSubresource(buffer[0], 0, nullptr, psCBuffer, 0, 0);
 	this->_d3dDeviceContext->PSSetConstantBuffers(4, 1, buffer);
+}
+
+void DeviceResources::InitPSConstantBufferGTAO(const GTAOCBuffer* psCBuffer)
+{
+	this->_d3dDeviceContext->UpdateSubresource(this->_gtaoConstantBuffer.Get(), 0, nullptr, psCBuffer, 0, 0);
+	this->_d3dDeviceContext->PSSetConstantBuffers(12, 1, this->_gtaoConstantBuffer.GetAddressOf());
 }
 
 void DeviceResources::InitVSConstantBuffer2D(ID3D11Buffer** buffer, const float parallax,

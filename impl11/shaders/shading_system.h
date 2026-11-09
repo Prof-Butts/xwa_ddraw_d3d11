@@ -42,7 +42,7 @@ cbuffer ConstantBuffer : register(b4)
 	// Color grading, only used when ssao_type = PBR (pbr_grade_*). Neutral: all 1.
 	float grade_contrast;     // Contrast around mid-gray, on the final colors
 	float grade_saturation;   // 0 = gray, 1 = unchanged
-	float unused_ss0;
+	float gtao_enabled;       // 1 when the GTAO buffer (bent normal + AO) is bound to t1
 	// 1152 bytes
 	float3 grade_shadows;     // Tint for the dark tones; it changes the color, not the brightness
 	float unused_ss1;

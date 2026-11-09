@@ -2979,6 +2979,8 @@ void SetLights(DeviceResources *resources, float fSSDOEnabled) {
 	g_ShadingSys_PSBuffer.ambient_tint[1] = ambientColor.y;
 	g_ShadingSys_PSBuffer.ambient_tint[2] = ambientColor.z;
 	g_ShadingSys_PSBuffer.albedo_floor = bPBRShadingV2 ? g_fPBRMinAlbedo : g_fMinAlbedo;
+	// GTAO: DeferredPass() runs GTAOPass() and binds its buffer when this is set
+	g_ShadingSys_PSBuffer.gtao_enabled = (g_bAOEnabled && g_bGTAOEnabled && bPBRShadingV2) ? 1.0f : 0.0f;
 	// Color grading (only the PBR shading reads it)
 	g_ShadingSys_PSBuffer.grade_contrast = g_fPBRGradeContrast;
 	g_ShadingSys_PSBuffer.grade_saturation = g_fPBRGradeSaturation;
@@ -3745,6 +3747,120 @@ out1:
 }
 
 /* Regular deferred shading with fake HDR, no SSAO */
+// Measures the GPU time of the new PBR lighting pass, including its GTAO passes, when
+// pbr_gtao_gpu_timer = 1. The tag is 1 with GTAO and 0 without, so toggling GTAO
+// (Ctrl+Alt+J) starts a new reporting window instead of mixing both.
+static GPUTimer g_GTAOGPUTimer;
+
+// Sections of the PBR lighting GPU time, see GPUTimer::Mark()
+enum GTAOTimerSection
+{
+	GTAO_TIMER_SETUP,    // Everything before the first pass
+	GTAO_TIMER_GTAO,     // GTAO pass
+	GTAO_TIMER_DENOISE,  // GTAO denoise pass
+	GTAO_TIMER_LIGHTING, // The PBR lighting pass, with the resolves of its inputs
+};
+
+// True when the new PBR shading uses GTAO this frame. Call it after SetLights(), which
+// decides whether the headlights are on.
+static bool IsGTAOActive()
+{
+	return g_bAOEnabled && g_bGTAOEnabled && IsPBRShadingV2Active();
+}
+
+/*
+ * GTAO: ambient occlusion and bent normals for the new PBR shading (ssao_type = PBR).
+ * Two full-screen passes: GTAO (position + normal buffers -> _gtaoBuf) and a 4x4 denoise
+ * filter (_gtaoBuf -> _gtaoBufDenoised). DeferredPass() binds _gtaoBufDenoised to t1.
+ * See GTAOCommon.h and GTAODenoiseCommon.h.
+ */
+void PrimarySurface::GTAOPass()
+{
+	this->_deviceResources->BeginAnnotatedEvent(L"GTAOPass");
+
+	auto& resources = this->_deviceResources;
+	auto& context = resources->_d3dDeviceContext;
+
+	UINT stride = sizeof(MainVertex);
+	UINT offset = 0;
+	resources->InitVertexBuffer(resources->_postProcessVertBuffer.GetAddressOf(), &stride, &offset);
+	resources->InitTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+	resources->InitInputLayout(resources->_mainInputLayout);
+
+	D3D11_DEPTH_STENCIL_DESC desc;
+	ComPtr<ID3D11DepthStencilState> depthState;
+	desc.DepthEnable = FALSE;
+	desc.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ZERO;
+	desc.DepthFunc = D3D11_COMPARISON_ALWAYS;
+	desc.StencilEnable = FALSE;
+	resources->InitDepthStencilState(depthState, &desc);
+
+	const float screen_res_x = (float)resources->_backbufferWidth;
+	const float screen_res_y = (float)resources->_backbufferHeight;
+	D3D11_VIEWPORT viewport{};
+	viewport.Width    = screen_res_x;
+	viewport.Height   = screen_res_y;
+	viewport.MaxDepth = D3D11_MAX_DEPTH;
+	viewport.MinDepth = D3D11_MIN_DEPTH;
+	resources->InitViewport(&viewport);
+
+	resources->InitVSConstantBuffer2D(resources->_mainShadersConstantBuffer.GetAddressOf(),
+		0.0f, 1.0f, 1.0f, 1.0f, 0.0f); // Do not use 3D projection matrices
+	resources->InitVertexShader(g_bUseSteamVR ? resources->_mainVertexShaderVR : resources->_mainVertexShader);
+
+	GTAOCBuffer cb = {};
+	cb.buffer_size[0] = screen_res_x;
+	cb.buffer_size[1] = screen_res_y;
+	cb.radius         = g_fGTAORadius;
+	cb.intensity      = g_fGTAOIntensity;
+	cb.min_radius_px  = g_fGTAOMinRadiusPx;
+	cb.max_radius_px  = max(g_fGTAOMinRadiusPx, g_fGTAOMaxRadiusPx);
+	cb.slices         = g_iGTAOSlices;
+	cb.steps          = g_iGTAOSteps;
+	cb.falloff        = 0.615f; // XeGTAO's default
+	cb.denoise_depth  = 0.05f;  // Neighbors within 5% of the depth are blended
+	resources->InitPSConstantBufferGTAO(&cb);
+
+	// GTAO
+	{
+		g_GTAOGPUTimer.Mark(context, GTAO_TIMER_GTAO);
+		ID3D11RenderTargetView* rtvs[1] = { resources->_gtaoRTV.Get() };
+		context->OMSetRenderTargets(1, rtvs, NULL);
+		ID3D11ShaderResourceView* srvs[2] = {
+			resources->_depthBufSRV.Get(), // 0: Position buffer
+			resources->_normBufSRV.Get(),  // 1: Normals buffer
+		};
+		context->PSSetShaderResources(0, 2, srvs);
+		resources->InitPixelShader(g_bUseSteamVR ? resources->_gtaoPS_VR : resources->_gtaoPS);
+		if (g_bUseSteamVR)
+			context->DrawInstanced(6, 2, 0, 0);
+		else
+			context->Draw(6, 0);
+	}
+
+	// Denoise
+	{
+		g_GTAOGPUTimer.Mark(context, GTAO_TIMER_DENOISE);
+		ID3D11RenderTargetView* rtvs[1] = { resources->_gtaoDenoisedRTV.Get() };
+		context->OMSetRenderTargets(1, rtvs, NULL);
+		ID3D11ShaderResourceView* srvs[2] = {
+			resources->_gtaoSRV.Get(),     // 0: GTAO buffer
+			resources->_depthBufSRV.Get(), // 1: Position buffer
+		};
+		context->PSSetShaderResources(0, 2, srvs);
+		resources->InitPixelShader(g_bUseSteamVR ? resources->_gtaoDenoisePS_VR : resources->_gtaoDenoisePS);
+		if (g_bUseSteamVR)
+			context->DrawInstanced(6, 2, 0, 0);
+		else
+			context->Draw(6, 0);
+	}
+
+	ID3D11ShaderResourceView* nullSRVs[2] = { NULL, NULL };
+	context->PSSetShaderResources(0, 2, nullSRVs);
+
+	this->_deviceResources->EndAnnotatedEvent();
+}
+
 void PrimarySurface::DeferredPass()
 {
 	this->_deviceResources->BeginAnnotatedEvent(L"DeferredLightingPass");
@@ -3803,6 +3919,15 @@ void PrimarySurface::DeferredPass()
 
 	// Set the lights and the Shading System Constant Buffer
 	SetLights(_deviceResources, 0.0f);
+
+	// GTAO for the new PBR shading. It sets its own render targets, shaders and constant
+	// buffers; everything this pass needs is set again below.
+	const bool bGTAO = IsGTAOActive();
+	const bool bGPUTimer = g_bGTAOGPUTimer && IsPBRShadingV2Active();
+	if (bGPUTimer)
+		g_GTAOGPUTimer.Begin(device, context, bGTAO ? 1 : 0);
+	if (bGTAO)
+		GTAOPass();
 
 	int region = 0;
 	const bool renderCubeMapInThisRegion      = RenderCubeMapInThisRegion(&region);
@@ -3864,6 +3989,7 @@ void PrimarySurface::DeferredPass()
 	// The pos/depth texture must be resolved to _depthAsInput/_depthAsInputR already
 	// Deferred pass, Left Image
 	{
+		g_GTAOGPUTimer.Mark(context, GTAO_TIMER_LIGHTING);
 		// input: offscreenAsInput (resolved here), normBuf
 		// output: offscreenBuf, bloomMask
 		viewport.TopLeftX = 0.0f;
@@ -3905,7 +4031,7 @@ void PrimarySurface::DeferredPass()
 
 		ID3D11ShaderResourceView *srvs_pass[10] = {
 			resources->_offscreenAsInputShaderResourceView.Get(), // 0: Color buffer
-			NULL,                                                 // 1: SSDO Direct Component (LDR)
+			bGTAO ? resources->_gtaoDenoisedSRV.Get() : NULL,     // 1: GTAO (new PBR shading)
 			resources->_backgroundBufferSRV.Get(),                // 2: Background buffer
 			resources->_ssaoMaskSRV.Get(),                        // 3: SSAO Mask
 
@@ -3947,6 +4073,29 @@ void PrimarySurface::DeferredPass()
 	// Clear RT SRVs slots that are only used for the shadows to avoid DirectX errors
 	ID3D11ShaderResourceView* srvs[] = { NULL, NULL, NULL, NULL };
 	context->PSSetShaderResources(14, 4, srvs);
+	// Unbind the GTAO buffer too: the next frame renders to it
+	context->PSSetShaderResources(1, 1, srvs);
+
+	if (bGPUTimer)
+	{
+		g_GTAOGPUTimer.End(context);
+
+		GPUTimer::Stats stats;
+		int tag;
+		if (g_GTAOGPUTimer.GetReport(5000, &stats, &tag))
+		{
+			const char* gtaoState = tag ? "on" : "off";
+			const double* section = stats.sectionAvgMs;
+			log_debug("[DBG] [GTAO] PBR lighting GPU time, GTAO %s: avg %0.3f ms, min %0.3f ms, max %0.3f ms, %d frames",
+				gtaoState, stats.avgMs, stats.minMs, stats.maxMs, stats.numFrames);
+			log_debug("[DBG] [GTAO]   setup %0.3f, gtao %0.3f, denoise %0.3f, lighting %0.3f ms",
+				section[GTAO_TIMER_SETUP], section[GTAO_TIMER_GTAO],
+				section[GTAO_TIMER_DENOISE], section[GTAO_TIMER_LIGHTING]);
+			// Shown for a bit longer than the reporting window so the message doesn't flicker.
+			// Row 3 (the last one, see MAX_TIMED_MESSAGES), so it doesn't cover the bloom timer.
+			DisplayTimedMessageV(6, 3, "PBR lighting GPU time (GTAO %s): %0.3f ms", gtaoState, stats.avgMs);
+		}
+	}
 
 	// Restore previous rendertarget, etc
 	// TODO: Is this really needed?
@@ -13332,6 +13481,9 @@ short DisplayCenteredText(char* str, int font_size_index, short y, uint32_t colo
   relative and seem to work fine across different resolutions.
  */
 void DisplayTimedMessage(uint32_t seconds, int row, const char* msg) {
+	// g_TimedMessages only has MAX_TIMED_MESSAGES rows
+	if (row < 0 || row >= MAX_TIMED_MESSAGES)
+		return;
 	short y_pos = (short)(g_fCurInGameHeight * (0.189f + 0.05f * row));
 	g_TimedMessages[row].SetMsg(msg, seconds, y_pos, FONT_LARGE_IDX, FONT_BLUE_COLOR);
 }

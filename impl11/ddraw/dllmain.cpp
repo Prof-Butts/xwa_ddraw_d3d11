@@ -803,6 +803,14 @@ LRESULT CALLBACK MyWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam
 					DisplayTimedMessage(3, 0, g_bPBRShadingV2 ? "PBR shading: new" : "PBR shading: legacy");
 				}
 				return 0;
+			// Ctrl+Alt+J: GTAO on/off in the new PBR shading, for comparisons
+			case 'J':
+				if (g_SSAO_Type == SSO_PBR)
+				{
+					g_bGTAOEnabled = !g_bGTAOEnabled;
+					DisplayTimedMessage(3, 0, g_bGTAOEnabled ? "GTAO: on" : "GTAO: off");
+				}
+				return 0;
 			//case 'T':
 			//	g_bToggleSkipDC = !g_bToggleSkipDC;
 			//	return 0;

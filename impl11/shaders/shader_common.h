@@ -15,6 +15,7 @@ LaserPointerCBuffer     : register(b8)
 PixelShaderCBuffer      : register(b9) (Used to be b0, but the D3DRendererHook is using that now)
 RTConstantsBuffer       : register(b10)
 VRGeometryCBuffer       : register(b11)
+GTAOCBuffer             : register(b12)
 
 VS Constant Buffer Registers
 

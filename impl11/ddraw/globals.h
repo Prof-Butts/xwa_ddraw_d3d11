@@ -123,6 +123,11 @@ extern float g_fGTAORadius, g_fGTAOIntensity, g_fGTAOMinRadiusPx, g_fGTAOMaxRadi
 extern int g_iGTAOSlices, g_iGTAOSteps;
 // pbr_gtao_half_res: GTAO at half resolution
 extern bool g_bGTAOHalfRes;
+// pbr_gtao_coarse*: a second GTAO pass at quarter resolution with a larger radius
+extern bool g_bGTAOCoarse;
+extern float g_fGTAOCoarseRadius, g_fGTAOCoarseIntensity, g_fGTAOCoarseMinRadiusPx, g_fGTAOCoarseMaxRadiusPx;
+// pbr_gtao_debug: shows the AO instead of the shading. 1 fine, 2 coarse, 3 both, 4 bent normal
+extern int g_iGTAODebug;
 // pbr_gtao_gpu_timer: log the GPU time of the PBR lighting and GTAO passes ([DBG] [GTAO])
 extern bool g_bGTAOGPUTimer;
 // Color grading in the PBR shading (pbr_grade_*)

@@ -66,7 +66,7 @@ typedef struct AuxTextureDataStruct {
 
 #define FONT_RED_COLOR 0xFF3333
 #define FONT_GREEN_COLOR 0x33FF33
-#define FONT_BLUE_COLOR 0x5555FF
+#define FONT_BLUE_COLOR 0x8080FF
 #define FONT_WHITE_COLOR 0xFFFFFF
 #define FONT_BLACK_COLOR 0x0
 
@@ -287,6 +287,7 @@ public:
 	ComPtr<ID3D11Texture2D> _ssaoBufR;		// No MSAA
 	ComPtr<ID3D11Texture2D> _gtaoBuf;			// GTAO: bent normal + AO (No MSAA)
 	ComPtr<ID3D11Texture2D> _gtaoBufDenoised;	// GTAO after the denoise pass
+	ComPtr<ID3D11Texture2D> _gtaoCoarseBuf;		// Coarse GTAO, quarter resolution, denoised
 	// Shading System
 	ComPtr<ID3D11Texture2D> _normBufMSAA;
 	ComPtr<ID3D11Texture2D> _normBufMSAA_R;
@@ -366,6 +367,7 @@ public:
 	ComPtr<ID3D11RenderTargetView> _renderTargetViewSSAO_R;
 	ComPtr<ID3D11RenderTargetView> _gtaoRTV;
 	ComPtr<ID3D11RenderTargetView> _gtaoDenoisedRTV;
+	ComPtr<ID3D11RenderTargetView> _gtaoCoarseRTV;
 	// Shading System
 	ComPtr<ID3D11RenderTargetView> _renderTargetViewNormBuf;
 	ComPtr<ID3D11RenderTargetView> _renderTargetViewNormBufR;
@@ -410,6 +412,7 @@ public:
 	ComPtr<ID3D11ShaderResourceView> _ssaoBufSRV;     // SRV for ssaoBuf
 	ComPtr<ID3D11ShaderResourceView> _gtaoSRV;
 	ComPtr<ID3D11ShaderResourceView> _gtaoDenoisedSRV;
+	ComPtr<ID3D11ShaderResourceView> _gtaoCoarseSRV;
 	ComPtr<ID3D11ShaderResourceView> _ssaoBufSRV_R;   // SRV for ssaoBuf
 	// Shading System
 	ComPtr<ID3D11ShaderResourceView> _normBufSRV;     // SRV for normBuf

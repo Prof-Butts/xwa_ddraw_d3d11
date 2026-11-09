@@ -1996,6 +1996,9 @@ HRESULT DeviceResources::OnSizeChanged(HWND hWnd, DWORD dwWidth, DWORD dwHeight)
 		this->_gtaoDenoisedRTV.Release();
 		this->_gtaoSRV.Release();
 		this->_gtaoDenoisedSRV.Release();
+		this->_gtaoCoarseBuf.Release();
+		this->_gtaoCoarseRTV.Release();
+		this->_gtaoCoarseSRV.Release();
 		if (g_bUseSteamVR) {
 			this->_depthBufR.Release();
 			this->_depthBufAsInputR.Release();
@@ -3065,6 +3068,22 @@ HRESULT DeviceResources::OnSizeChanged(HWND hWnd, DWORD dwWidth, DWORD dwHeight)
 					goto out;
 				}
 
+				// Coarse GTAO, at a quarter of the resolution (rounded up)
+				{
+					const UINT oldW = desc.Width, oldH = desc.Height;
+					desc.Width = (desc.Width + 3) / 4;
+					desc.Height = (desc.Height + 3) / 4;
+					step = "_gtaoCoarseBuf";
+					hr = this->_d3dDevice->CreateTexture2D(&desc, nullptr, &this->_gtaoCoarseBuf);
+					desc.Width = oldW;
+					desc.Height = oldH;
+					if (FAILED(hr)) {
+						log_err("dwWidth, Height: %u, %u\n", dwWidth, dwHeight);
+						log_err_desc(step, hWnd, hr, desc);
+						goto out;
+					}
+				}
+
 				desc.Format = oldFormat;
 				desc.BindFlags = oldFlags;
 				desc.MipLevels = 1;
@@ -3467,6 +3486,14 @@ HRESULT DeviceResources::OnSizeChanged(HWND hWnd, DWORD dwWidth, DWORD dwHeight)
 					goto out;
 				}
 
+				step = "_gtaoCoarseSRV";
+				hr = this->_d3dDevice->CreateShaderResourceView(this->_gtaoCoarseBuf, &shaderResourceViewDesc, &this->_gtaoCoarseSRV);
+				if (FAILED(hr)) {
+					log_err("dwWidth, Height: %u, %u\n", dwWidth, dwHeight);
+					log_shaderres_view(step, hWnd, hr, shaderResourceViewDesc);
+					goto out;
+				}
+
 				if (g_bUseSteamVR) {
 					step = "_ssaoBufSRV_R";
 					hr = this->_d3dDevice->CreateShaderResourceView(this->_ssaoBufR, &shaderResourceViewDesc, &this->_ssaoBufSRV_R);
@@ -3834,6 +3861,10 @@ HRESULT DeviceResources::OnSizeChanged(HWND hWnd, DWORD dwWidth, DWORD dwHeight)
 
 			step = "_gtaoDenoisedRTV";
 			hr = this->_d3dDevice->CreateRenderTargetView(this->_gtaoBufDenoised, &GetRtvDesc(false, g_bUseSteamVR, HDR_FORMAT), &this->_gtaoDenoisedRTV);
+			if (FAILED(hr)) goto out;
+
+			step = "_gtaoCoarseRTV";
+			hr = this->_d3dDevice->CreateRenderTargetView(this->_gtaoCoarseBuf, &GetRtvDesc(false, g_bUseSteamVR, HDR_FORMAT), &this->_gtaoCoarseRTV);
 			if (FAILED(hr)) goto out;
 		}
 
@@ -5050,8 +5081,8 @@ HRESULT DeviceResources::LoadResources()
 	if (FAILED(hr = this->_d3dDevice->CreateBuffer(&constantBufferDesc, nullptr, &this->_ssaoConstantBuffer)))
 		return hr;
 
-	constantBufferDesc.ByteWidth = 1184;
-	static_assert(sizeof(PSShadingSystemCB) == 1184, "sizeof(PSShadingSystemCB) must be 1184");
+	constantBufferDesc.ByteWidth = 1200;
+	static_assert(sizeof(PSShadingSystemCB) == 1200, "sizeof(PSShadingSystemCB) must be 1200");
 	if (FAILED(hr = this->_d3dDevice->CreateBuffer(&constantBufferDesc, nullptr, &this->_shadingSysBuffer)))
 		return hr;
 

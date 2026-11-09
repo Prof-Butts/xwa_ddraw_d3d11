@@ -48,6 +48,9 @@ cbuffer ConstantBuffer : register(b4)
 	float gtao_scale;         // 1: GTAO at full resolution, 2: at half resolution
 	// 1168 bytes
 	float3 grade_highlights;  // Tint for the bright tones
-	float unused_ss2;
+	float gtao_coarse_enabled; // 1 when the coarse GTAO buffer is bound to t8
 	// 1184 bytes
+	float gtao_debug;         // pbr_gtao_debug: 0 off, 1 fine AO, 2 coarse AO, 3 both, 4 bent normal
+	float3 unused_ss3;
+	// 1200 bytes
 };

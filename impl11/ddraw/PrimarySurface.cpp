@@ -2982,6 +2982,8 @@ void SetLights(DeviceResources *resources, float fSSDOEnabled) {
 	// GTAO: DeferredPass() runs GTAOPass() and binds its buffer when this is set
 	g_ShadingSys_PSBuffer.gtao_enabled = (g_bAOEnabled && g_bGTAOEnabled && bPBRShadingV2) ? 1.0f : 0.0f;
 	g_ShadingSys_PSBuffer.gtao_scale = g_bGTAOHalfRes ? 2.0f : 1.0f;
+	g_ShadingSys_PSBuffer.gtao_coarse_enabled = (g_ShadingSys_PSBuffer.gtao_enabled > 0.5f && g_bGTAOCoarse) ? 1.0f : 0.0f;
+	g_ShadingSys_PSBuffer.gtao_debug = (float)g_iGTAODebug;
 	// Color grading (only the PBR shading reads it)
 	g_ShadingSys_PSBuffer.grade_contrast = g_fPBRGradeContrast;
 	g_ShadingSys_PSBuffer.grade_saturation = g_fPBRGradeSaturation;
@@ -3760,6 +3762,7 @@ enum GTAOTimerSection
 	GTAO_TIMER_GTAO,     // GTAO pass
 	GTAO_TIMER_DENOISE,  // GTAO denoise pass
 	GTAO_TIMER_LIGHTING, // The PBR lighting pass, with the resolves of its inputs
+	GTAO_TIMER_COARSE,   // Coarse GTAO and its denoise pass
 };
 
 // True when the new PBR shading uses GTAO this frame. Call it after SetLights(), which
@@ -3769,11 +3772,80 @@ static bool IsGTAOActive()
 	return g_bAOEnabled && g_bGTAOEnabled && IsPBRShadingV2Active();
 }
 
+// Renders one GTAO pass and its denoise filter. The GTAO pass writes to _gtaoBuf, and the
+// denoise filter reads it and writes to outputRTV. scale is the fraction of the resolution
+// (1, 2 or 4): both passes render to the top-left 1 / scale of their buffers. The denoise
+// filter's GPU time goes to denoiseSection (-1: the current section).
+static void RenderGTAO(DeviceResources* resources, int scale, float radius, float intensity,
+	float minRadiusPx, float maxRadiusPx, ID3D11RenderTargetView* outputRTV, int denoiseSection)
+{
+	auto& context = resources->_d3dDeviceContext;
+
+	D3D11_VIEWPORT viewport{};
+	viewport.Width    = (float)((resources->_backbufferWidth + scale - 1) / scale);
+	viewport.Height   = (float)((resources->_backbufferHeight + scale - 1) / scale);
+	viewport.MaxDepth = D3D11_MAX_DEPTH;
+	viewport.MinDepth = D3D11_MIN_DEPTH;
+	resources->InitViewport(&viewport);
+
+	GTAOCBuffer cb = {};
+	cb.buffer_size[0] = (float)resources->_backbufferWidth;
+	cb.buffer_size[1] = (float)resources->_backbufferHeight;
+	cb.radius         = radius;
+	cb.intensity      = intensity;
+	cb.min_radius_px  = minRadiusPx;
+	cb.max_radius_px  = max(minRadiusPx, maxRadiusPx);
+	cb.slices         = g_iGTAOSlices;
+	cb.steps          = g_iGTAOSteps;
+	cb.falloff        = 0.615f; // XeGTAO's default
+	cb.denoise_depth  = 0.05f;  // Neighbors within 5% of the depth are blended
+	cb.scale          = (float)scale;
+	resources->InitPSConstantBufferGTAO(&cb);
+
+	// GTAO
+	{
+		ID3D11RenderTargetView* rtvs[1] = { resources->_gtaoRTV.Get() };
+		context->OMSetRenderTargets(1, rtvs, NULL);
+		ID3D11ShaderResourceView* srvs[2] = {
+			resources->_depthBufSRV.Get(), // 0: Position buffer
+			resources->_normBufSRV.Get(),  // 1: Normals buffer
+		};
+		context->PSSetShaderResources(0, 2, srvs);
+		resources->InitPixelShader(g_bUseSteamVR ? resources->_gtaoPS_VR : resources->_gtaoPS);
+		if (g_bUseSteamVR)
+			context->DrawInstanced(6, 2, 0, 0);
+		else
+			context->Draw(6, 0);
+	}
+
+	// Denoise
+	{
+		g_GTAOGPUTimer.Mark(context, denoiseSection);
+		ID3D11RenderTargetView* rtvs[1] = { outputRTV };
+		context->OMSetRenderTargets(1, rtvs, NULL);
+		ID3D11ShaderResourceView* srvs[2] = {
+			resources->_gtaoSRV.Get(),     // 0: GTAO buffer
+			resources->_depthBufSRV.Get(), // 1: Position buffer
+		};
+		context->PSSetShaderResources(0, 2, srvs);
+		resources->InitPixelShader(g_bUseSteamVR ? resources->_gtaoDenoisePS_VR : resources->_gtaoDenoisePS);
+		if (g_bUseSteamVR)
+			context->DrawInstanced(6, 2, 0, 0);
+		else
+			context->Draw(6, 0);
+	}
+
+	ID3D11ShaderResourceView* nullSRVs[2] = { NULL, NULL };
+	context->PSSetShaderResources(0, 2, nullSRVs);
+}
+
 /*
  * GTAO: ambient occlusion and bent normals for the new PBR shading (ssao_type = PBR).
  * Two full-screen passes: GTAO (position + normal buffers -> _gtaoBuf) and a 4x4 denoise
  * filter (_gtaoBuf -> _gtaoBufDenoised). DeferredPass() binds _gtaoBufDenoised to t1.
- * See GTAOCommon.h and GTAODenoiseCommon.h.
+ * With pbr_gtao_coarse = 1, the same two passes run again at quarter resolution with a
+ * larger radius (-> _gtaoCoarseBuf, bound to t8). See GTAOCommon.h and
+ * GTAODenoiseCommon.h.
  */
 void PrimarySurface::GTAOPass()
 {
@@ -3796,72 +3868,46 @@ void PrimarySurface::GTAOPass()
 	desc.StencilEnable = FALSE;
 	resources->InitDepthStencilState(depthState, &desc);
 
-	// At half resolution, both passes render to the top-left quarter of their buffers
-	// (rounded up, so every full-resolution pixel has a GTAO pixel)
-	const int scale = g_bGTAOHalfRes ? 2 : 1;
-	const float screen_res_x = (float)resources->_backbufferWidth;
-	const float screen_res_y = (float)resources->_backbufferHeight;
-	D3D11_VIEWPORT viewport{};
-	viewport.Width    = (float)((resources->_backbufferWidth + scale - 1) / scale);
-	viewport.Height   = (float)((resources->_backbufferHeight + scale - 1) / scale);
-	viewport.MaxDepth = D3D11_MAX_DEPTH;
-	viewport.MinDepth = D3D11_MIN_DEPTH;
-	resources->InitViewport(&viewport);
+	// The GTAO passes replace the contents of their buffers, so blending must be off: with
+	// the alpha blending that earlier passes leave on, each pass was mixed with the old
+	// contents of its buffer. The previous blend state is restored at the end, since the
+	// lighting pass relies on it.
+	ComPtr<ID3D11BlendState> prevBlendState;
+	FLOAT prevBlendFactor[4];
+	UINT prevSampleMask;
+	context->OMGetBlendState(prevBlendState.GetAddressOf(), prevBlendFactor, &prevSampleMask);
+	D3D11_BLEND_DESC blendDesc{};
+	blendDesc.AlphaToCoverageEnable = FALSE;
+	blendDesc.IndependentBlendEnable = FALSE;
+	blendDesc.RenderTarget[0].BlendEnable = FALSE;
+	blendDesc.RenderTarget[0].SrcBlend = D3D11_BLEND_ONE;
+	blendDesc.RenderTarget[0].DestBlend = D3D11_BLEND_ZERO;
+	blendDesc.RenderTarget[0].BlendOp = D3D11_BLEND_OP_ADD;
+	blendDesc.RenderTarget[0].SrcBlendAlpha = D3D11_BLEND_ONE;
+	blendDesc.RenderTarget[0].DestBlendAlpha = D3D11_BLEND_ZERO;
+	blendDesc.RenderTarget[0].BlendOpAlpha = D3D11_BLEND_OP_ADD;
+	blendDesc.RenderTarget[0].RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL;
+	resources->InitBlendState(nullptr, &blendDesc);
 
 	resources->InitVSConstantBuffer2D(resources->_mainShadersConstantBuffer.GetAddressOf(),
 		0.0f, 1.0f, 1.0f, 1.0f, 0.0f); // Do not use 3D projection matrices
 	resources->InitVertexShader(g_bUseSteamVR ? resources->_mainVertexShaderVR : resources->_mainVertexShader);
 
-	GTAOCBuffer cb = {};
-	cb.buffer_size[0] = screen_res_x;
-	cb.buffer_size[1] = screen_res_y;
-	cb.radius         = g_fGTAORadius;
-	cb.intensity      = g_fGTAOIntensity;
-	cb.min_radius_px  = g_fGTAOMinRadiusPx;
-	cb.max_radius_px  = max(g_fGTAOMinRadiusPx, g_fGTAOMaxRadiusPx);
-	cb.slices         = g_iGTAOSlices;
-	cb.steps          = g_iGTAOSteps;
-	cb.falloff        = 0.615f; // XeGTAO's default
-	cb.denoise_depth  = 0.05f;  // Neighbors within 5% of the depth are blended
-	cb.scale          = (float)scale;
-	resources->InitPSConstantBufferGTAO(&cb);
+	// GTAO, at full or half resolution
+	g_GTAOGPUTimer.Mark(context, GTAO_TIMER_GTAO);
+	RenderGTAO(resources, g_bGTAOHalfRes ? 2 : 1, g_fGTAORadius, g_fGTAOIntensity,
+		g_fGTAOMinRadiusPx, g_fGTAOMaxRadiusPx, resources->_gtaoDenoisedRTV.Get(), GTAO_TIMER_DENOISE);
 
-	// GTAO
+	// Coarse GTAO, at quarter resolution with a larger radius, for the broad occlusion of
+	// large structures. It reuses _gtaoBuf, which the fine pass doesn't need anymore.
+	if (g_bGTAOCoarse)
 	{
-		g_GTAOGPUTimer.Mark(context, GTAO_TIMER_GTAO);
-		ID3D11RenderTargetView* rtvs[1] = { resources->_gtaoRTV.Get() };
-		context->OMSetRenderTargets(1, rtvs, NULL);
-		ID3D11ShaderResourceView* srvs[2] = {
-			resources->_depthBufSRV.Get(), // 0: Position buffer
-			resources->_normBufSRV.Get(),  // 1: Normals buffer
-		};
-		context->PSSetShaderResources(0, 2, srvs);
-		resources->InitPixelShader(g_bUseSteamVR ? resources->_gtaoPS_VR : resources->_gtaoPS);
-		if (g_bUseSteamVR)
-			context->DrawInstanced(6, 2, 0, 0);
-		else
-			context->Draw(6, 0);
+		g_GTAOGPUTimer.Mark(context, GTAO_TIMER_COARSE);
+		RenderGTAO(resources, 4, g_fGTAOCoarseRadius, g_fGTAOCoarseIntensity,
+			g_fGTAOCoarseMinRadiusPx, g_fGTAOCoarseMaxRadiusPx, resources->_gtaoCoarseRTV.Get(), -1);
 	}
 
-	// Denoise
-	{
-		g_GTAOGPUTimer.Mark(context, GTAO_TIMER_DENOISE);
-		ID3D11RenderTargetView* rtvs[1] = { resources->_gtaoDenoisedRTV.Get() };
-		context->OMSetRenderTargets(1, rtvs, NULL);
-		ID3D11ShaderResourceView* srvs[2] = {
-			resources->_gtaoSRV.Get(),     // 0: GTAO buffer
-			resources->_depthBufSRV.Get(), // 1: Position buffer
-		};
-		context->PSSetShaderResources(0, 2, srvs);
-		resources->InitPixelShader(g_bUseSteamVR ? resources->_gtaoDenoisePS_VR : resources->_gtaoDenoisePS);
-		if (g_bUseSteamVR)
-			context->DrawInstanced(6, 2, 0, 0);
-		else
-			context->Draw(6, 0);
-	}
-
-	ID3D11ShaderResourceView* nullSRVs[2] = { NULL, NULL };
-	context->PSSetShaderResources(0, 2, nullSRVs);
+	context->OMSetBlendState(prevBlendState.Get(), prevBlendFactor, prevSampleMask);
 
 	this->_deviceResources->EndAnnotatedEvent();
 }
@@ -4047,6 +4093,9 @@ void PrimarySurface::DeferredPass()
 				resources->_shadowMapArraySRV.Get() : NULL,
 		};
 		context->PSSetShaderResources(0, 8, srvs_pass);
+		// Coarse GTAO (t8)
+		ID3D11ShaderResourceView* coarseSRV = (bGTAO && g_bGTAOCoarse) ? resources->_gtaoCoarseSRV.Get() : NULL;
+		context->PSSetShaderResources(8, 1, &coarseSRV);
 
 		if (g_bRTEnabled)
 		{
@@ -4078,8 +4127,9 @@ void PrimarySurface::DeferredPass()
 	// Clear RT SRVs slots that are only used for the shadows to avoid DirectX errors
 	ID3D11ShaderResourceView* srvs[] = { NULL, NULL, NULL, NULL };
 	context->PSSetShaderResources(14, 4, srvs);
-	// Unbind the GTAO buffer too: the next frame renders to it
+	// Unbind the GTAO buffers too: the next frame renders to them
 	context->PSSetShaderResources(1, 1, srvs);
+	context->PSSetShaderResources(8, 1, srvs);
 
 	if (bGPUTimer)
 	{
@@ -4093,9 +4143,9 @@ void PrimarySurface::DeferredPass()
 			const double* section = stats.sectionAvgMs;
 			log_debug("[DBG] [GTAO] PBR lighting GPU time, GTAO %s: avg %0.3f ms, min %0.3f ms, max %0.3f ms, %d frames",
 				gtaoState, stats.avgMs, stats.minMs, stats.maxMs, stats.numFrames);
-			log_debug("[DBG] [GTAO]   setup %0.3f, gtao %0.3f, denoise %0.3f, lighting %0.3f ms",
-				section[GTAO_TIMER_SETUP], section[GTAO_TIMER_GTAO],
-				section[GTAO_TIMER_DENOISE], section[GTAO_TIMER_LIGHTING]);
+			log_debug("[DBG] [GTAO]   setup %0.3f, gtao %0.3f, denoise %0.3f, coarse %0.3f, lighting %0.3f ms",
+				section[GTAO_TIMER_SETUP], section[GTAO_TIMER_GTAO], section[GTAO_TIMER_DENOISE],
+				section[GTAO_TIMER_COARSE], section[GTAO_TIMER_LIGHTING]);
 			// Shown for a bit longer than the reporting window so the message doesn't flicker.
 			// Row 3 (the last one, see MAX_TIMED_MESSAGES), so it doesn't cover the bloom timer.
 			DisplayTimedMessageV(6, 3, "PBR lighting GPU time (GTAO %s): %0.3f ms", gtaoState, stats.avgMs);

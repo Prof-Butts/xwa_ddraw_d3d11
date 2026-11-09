@@ -222,6 +222,11 @@ float g_fGTAORadius = 1.0f, g_fGTAOIntensity = 1.5f, g_fGTAOMinRadiusPx = 4.0f, 
 int g_iGTAOSlices = 3, g_iGTAOSteps = 4;
 bool g_bGTAOGPUTimer = false;
 bool g_bGTAOHalfRes = true;
+// Two-scale AO: a coarse GTAO pass for the broad occlusion of large structures
+bool g_bGTAOCoarse = false;
+float g_fGTAOCoarseRadius = 10.0f, g_fGTAOCoarseIntensity = 1.0f;
+float g_fGTAOCoarseMinRadiusPx = 32.0f, g_fGTAOCoarseMaxRadiusPx = 256.0f;
+int g_iGTAODebug = 0;
 // Color grading in the new PBR shading: contrast, saturation and the tints of the dark and
 // bright tones. The defaults don't change anything. See ApplyColorGrade() in PBRShadingV2.h.
 float g_fPBRGradeContrast = 1.0f, g_fPBRGradeSaturation = 1.0f;
@@ -2309,6 +2314,12 @@ bool LoadSSAOParams() {
 	g_iGTAOSteps = 4;
 	g_bGTAOGPUTimer = false;
 	g_bGTAOHalfRes = true;
+	g_bGTAOCoarse = false;
+	g_fGTAOCoarseRadius = 10.0f;
+	g_fGTAOCoarseIntensity = 1.0f;
+	g_fGTAOCoarseMinRadiusPx = 32.0f;
+	g_fGTAOCoarseMaxRadiusPx = 256.0f;
+	g_iGTAODebug = 0;
 	g_fPBRGradeContrast = 1.0f;
 	g_fPBRGradeSaturation = 1.0f;
 	g_PBRGradeShadows = Vector3(1.0f, 1.0f, 1.0f);
@@ -2492,6 +2503,24 @@ bool LoadSSAOParams() {
 			}
 			else if (_stricmp(param, "pbr_gtao_half_res") == 0) {
 				g_bGTAOHalfRes = (bool)fValue;
+			}
+			else if (_stricmp(param, "pbr_gtao_debug") == 0) {
+				g_iGTAODebug = (int)fValue;
+			}
+			else if (_stricmp(param, "pbr_gtao_coarse") == 0) {
+				g_bGTAOCoarse = (bool)fValue;
+			}
+			else if (_stricmp(param, "pbr_gtao_coarse_radius") == 0) {
+				g_fGTAOCoarseRadius = max(0.01f, fValue);
+			}
+			else if (_stricmp(param, "pbr_gtao_coarse_intensity") == 0) {
+				g_fGTAOCoarseIntensity = max(0.0f, fValue);
+			}
+			else if (_stricmp(param, "pbr_gtao_coarse_min_radius_px") == 0) {
+				g_fGTAOCoarseMinRadiusPx = max(1.0f, fValue);
+			}
+			else if (_stricmp(param, "pbr_gtao_coarse_max_radius_px") == 0) {
+				g_fGTAOCoarseMaxRadiusPx = max(1.0f, fValue);
 			}
 			else if (_stricmp(param, "pbr_grade_contrast") == 0) {
 				g_fPBRGradeContrast = fValue;

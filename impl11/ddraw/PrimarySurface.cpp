@@ -2979,6 +2979,15 @@ void SetLights(DeviceResources *resources, float fSSDOEnabled) {
 	g_ShadingSys_PSBuffer.ambient_tint[1] = ambientColor.y;
 	g_ShadingSys_PSBuffer.ambient_tint[2] = ambientColor.z;
 	g_ShadingSys_PSBuffer.albedo_floor = bPBRShadingV2 ? g_fPBRMinAlbedo : g_fMinAlbedo;
+	// Color grading (only the PBR shading reads it)
+	g_ShadingSys_PSBuffer.grade_contrast = g_fPBRGradeContrast;
+	g_ShadingSys_PSBuffer.grade_saturation = g_fPBRGradeSaturation;
+	g_ShadingSys_PSBuffer.grade_shadows[0] = g_PBRGradeShadows.x;
+	g_ShadingSys_PSBuffer.grade_shadows[1] = g_PBRGradeShadows.y;
+	g_ShadingSys_PSBuffer.grade_shadows[2] = g_PBRGradeShadows.z;
+	g_ShadingSys_PSBuffer.grade_highlights[0] = g_PBRGradeHighlights.x;
+	g_ShadingSys_PSBuffer.grade_highlights[1] = g_PBRGradeHighlights.y;
+	g_ShadingSys_PSBuffer.grade_highlights[2] = g_PBRGradeHighlights.z;
 	if (g_bEnableHeadLights) g_ShadingSys_PSBuffer.ambient = cur_ambient;
 	resources->InitPSConstantShadingSystem(resources->_shadingSysBuffer.GetAddressOf(), &g_ShadingSys_PSBuffer);
 }

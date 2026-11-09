@@ -17,7 +17,8 @@
  *   the ambient light.
  * - pbr_ambient is always the base ambient light. A cubemap adds its own light on top
  *   (AmbientInt) and its reflections (Specular), instead of replacing the ambient and
- *   tinting the lights.
+ *   tinting the lights. pbr_ambient_color tints the base ambient and the cubemap's.
+ * - An optional color grading step (pbr_grade_*) on the final colors of the lit surfaces.
  * The shadows, the material heuristics and the composition with the background and the
  * transparent layers are the same as in PBRAddCommon.h.
  */
@@ -497,7 +498,9 @@ PixelShaderOutput main(PixelShaderInput input)
 	// for instance to make shadows bluish. When there's a cubemap, its light is added on top:
 	// it lights the surfaces from all directions (diffuse) and it's reflected by them (specular).
 	const float3 baseAmbient = ambient_tint * ambient;
-	const float3 envDiffuse  = cubeMappingEnabled ? cubeMapAmbientInt * skyBoxNormalCol : 0.0;
+	// ambient_tint (pbr_ambient_color) tints the cubemap's ambient light too. Its reflections
+	// aren't tinted: they're the image of the surroundings.
+	const float3 envDiffuse  = cubeMappingEnabled ? ambient_tint * cubeMapAmbientInt * skyBoxNormalCol : 0.0;
 	const float3 envSpecular = cubeMappingEnabled ? cubeMapSpecInt * skyBoxReflCol : 0.0;
 
 	// Direct light from the XWA lights
@@ -618,6 +621,10 @@ PixelShaderOutput main(PixelShaderInput input)
 	// Tonemap and convert back to sRGB
 	tmp_color = ACESFitted(exposure_mult * tmp_color);
 	output.color.rgb = LinearToSRGB(tmp_color);
+	// Color grading (pbr_grade_*). Only the lit surfaces get it: the background and the
+	// shadeless surfaces (displays, engine glows) keep their colors.
+	output.color.rgb = ApplyColorGrade(output.color.rgb, grade_contrast, grade_saturation,
+		grade_shadows, grade_highlights);
 	output.color = float4(lerp(background, output.color.rgb, blendAlpha), 1);
 
 #ifdef INSTANCED_RENDERING

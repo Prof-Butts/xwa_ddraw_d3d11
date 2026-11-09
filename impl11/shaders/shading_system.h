@@ -39,6 +39,15 @@ cbuffer ConstantBuffer : register(b4)
 	float3 ambient_tint;      // Multiplies the ambient light
 	// 1136 bytes
 	float albedo_floor;       // The albedo of black areas (linear): dark colors are lifted to this
-	float3 unused_ss0;
+	// Color grading, only used when ssao_type = PBR (pbr_grade_*). Neutral: all 1.
+	float grade_contrast;     // Contrast around mid-gray, on the final colors
+	float grade_saturation;   // 0 = gray, 1 = unchanged
+	float unused_ss0;
 	// 1152 bytes
+	float3 grade_shadows;     // Tint for the dark tones; it changes the color, not the brightness
+	float unused_ss1;
+	// 1168 bytes
+	float3 grade_highlights;  // Tint for the bright tones
+	float unused_ss2;
+	// 1184 bytes
 };

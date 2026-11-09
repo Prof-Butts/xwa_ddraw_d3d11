@@ -400,8 +400,17 @@ typedef struct PSShadingSystemCBStruct {
 	float ambient_tint[3];       // Multiplies the ambient light
 	// 1136 bytes
 	float albedo_floor;          // The albedo of black areas: dark colors are lifted to this
-	float unused_ss0, unused_ss1, unused_ss2;
+	// Color grading, only used when ssao_type = PBR (pbr_grade_*). Neutral: all 1.
+	float grade_contrast;        // Contrast around mid-gray, on the final colors
+	float grade_saturation;      // 0 = gray, 1 = unchanged
+	float unused_ss0;
 	// 1152 bytes
+	float grade_shadows[3];      // Tint for the dark tones; it changes the color, not the brightness
+	float unused_ss1;
+	// 1168 bytes
+	float grade_highlights[3];   // Tint for the bright tones
+	float unused_ss2;
+	// 1184 bytes
 } PSShadingSystemCB;
 
 typedef struct RTConstantsBufferStruct {

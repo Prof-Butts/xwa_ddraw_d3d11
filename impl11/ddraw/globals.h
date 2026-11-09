@@ -116,6 +116,9 @@ extern SSAOTypeEnum g_SSAO_Type;
 extern bool g_bPBRShadingV2;
 extern float g_fPBRExposure, g_fPBRMinAlbedo;
 extern Vector3 g_PBRAmbientColor, g_PBRLightsColor;
+// Color grading in the PBR shading (pbr_grade_*)
+extern float g_fPBRGradeContrast, g_fPBRGradeSaturation;
+extern Vector3 g_PBRGradeShadows, g_PBRGradeHighlights;
 // The equivalents of pbr_exposure, pbr_min_albedo, pbr_ambient_color and pbr_lights_color
 // for the other shading modes
 extern float g_fExposure, g_fMinAlbedo;

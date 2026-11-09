@@ -125,4 +125,25 @@ float3 EnvBRDFApprox(float3 F0, float roughness, float dotNV)
 	return F0 * AB.x + AB.y;
 }
 
+/*
+ * Color grading, applied to the final (tonemapped, sRGB) colors. With contrast = 1,
+ * saturation = 1 and white tints, it doesn't change anything.
+ * - contrast: pushes the colors away from (> 1) or toward (< 1) mid-gray.
+ * - saturation: 0 makes the image gray, 1 leaves it unchanged, > 1 makes it more colorful.
+ * - shadowTint, highlightTint: the dark tones are multiplied by shadowTint and the bright
+ *   ones by highlightTint, blended in between ("split toning"). The tints are scaled so
+ *   they don't change the brightness, only the color.
+ */
+float3 ApplyColorGrade(float3 color, float contrast, float saturation, float3 shadowTint, float3 highlightTint)
+{
+	const float3 lumaWeights = float3(0.2126, 0.7152, 0.0722);
+	color = (color - 0.5) * contrast + 0.5;
+	float luma = dot(saturate(color), lumaWeights);
+	color = lerp(luma, color, saturation);
+	// Below ~0.05 it's all shadow tint, above ~0.6 it's all highlight tint
+	float3 tint = lerp(shadowTint, highlightTint, smoothstep(0.05, 0.6, luma));
+	tint /= max(dot(tint, lumaWeights), 1e-4);
+	return saturate(color * tint);
+}
+
 #endif

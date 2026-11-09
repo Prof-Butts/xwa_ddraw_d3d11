@@ -216,6 +216,10 @@ float g_fPBRMinAlbedo = 0.0f;
 Vector3 g_PBRAmbientColor = Vector3(1.0f, 1.0f, 1.0f);
 // Tints the XWA lights (the suns) in the new PBR shading. See SetLights().
 Vector3 g_PBRLightsColor = Vector3(1.0f, 1.0f, 1.0f);
+// Color grading in the new PBR shading: contrast, saturation and the tints of the dark and
+// bright tones. The defaults don't change anything. See ApplyColorGrade() in PBRShadingV2.h.
+float g_fPBRGradeContrast = 1.0f, g_fPBRGradeSaturation = 1.0f;
+Vector3 g_PBRGradeShadows = Vector3(1.0f, 1.0f, 1.0f), g_PBRGradeHighlights = Vector3(1.0f, 1.0f, 1.0f);
 // exposure, min_albedo, ambient_color and lights_color: the same as the pbr_* settings, for
 // the other shading modes (ssao_type = Deferred). See SetLights().
 float g_fExposure = 1.0f, g_fMinAlbedo = 0.0f;
@@ -2290,6 +2294,10 @@ bool LoadSSAOParams() {
 	g_fPBRMinAlbedo = 0.0f;
 	g_PBRAmbientColor = Vector3(1.0f, 1.0f, 1.0f);
 	g_PBRLightsColor = Vector3(1.0f, 1.0f, 1.0f);
+	g_fPBRGradeContrast = 1.0f;
+	g_fPBRGradeSaturation = 1.0f;
+	g_PBRGradeShadows = Vector3(1.0f, 1.0f, 1.0f);
+	g_PBRGradeHighlights = Vector3(1.0f, 1.0f, 1.0f);
 	g_fExposure = 1.0f;
 	g_fMinAlbedo = 0.0f;
 	g_AmbientColor = Vector3(1.0f, 1.0f, 1.0f);
@@ -2442,6 +2450,22 @@ bool LoadSSAOParams() {
 				float x, y, z;
 				LoadGeneric3DCoords(buf, &x, &y, &z);
 				g_PBRLightsColor = Vector3(x, y, z);
+			}
+			else if (_stricmp(param, "pbr_grade_contrast") == 0) {
+				g_fPBRGradeContrast = fValue;
+			}
+			else if (_stricmp(param, "pbr_grade_saturation") == 0) {
+				g_fPBRGradeSaturation = fValue;
+			}
+			else if (_stricmp(param, "pbr_grade_shadows") == 0) {
+				float x, y, z;
+				LoadGeneric3DCoords(buf, &x, &y, &z);
+				g_PBRGradeShadows = Vector3(x, y, z);
+			}
+			else if (_stricmp(param, "pbr_grade_highlights") == 0) {
+				float x, y, z;
+				LoadGeneric3DCoords(buf, &x, &y, &z);
+				g_PBRGradeHighlights = Vector3(x, y, z);
 			}
 			else if (_stricmp(param, "exposure") == 0) {
 				g_fExposure = fValue;

@@ -107,6 +107,7 @@ public:
 
 	void SSDOPass(float fZoomFactor, float fZoomFactor2);
 
+	void GTAOPass();
 	void DeferredPass();
 
 	//void InitHeadingMatrix();

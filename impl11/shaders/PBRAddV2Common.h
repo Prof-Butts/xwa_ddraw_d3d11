@@ -19,6 +19,8 @@
  *   (AmbientInt) and its reflections (Specular), instead of replacing the ambient and
  *   tinting the lights. pbr_ambient_color tints the base ambient and the cubemap's.
  * - An optional color grading step (pbr_grade_*) on the final colors of the lit surfaces.
+ * - GTAO (pbr_gtao_*): ambient occlusion and bent normals for the ambient light. It replaces
+ *   the SSDO input of the legacy shading, which this pass doesn't use.
  * The shadows, the material heuristics and the composition with the background and the
  * transparent layers are the same as in PBRAddCommon.h.
  */
@@ -37,9 +39,8 @@
 Texture2DArray texColor : register(t0);
 SamplerState sampColor : register(s0);
 
-// The SSDO Direct buffer
-Texture2DArray texSSDO : register(t1);
-SamplerState samplerSSDO : register(s1);
+// GTAO: bent normal (rgb) and ambient occlusion (a), when gtao_enabled. See GTAOCommon.h.
+Texture2DArray texGTAO : register(t1);
 
 // The Background buffer
 Texture2DArray texBackground : register(t2);
@@ -73,9 +74,8 @@ Texture2DArray transp2 : register(t19);
 Texture2D texColor : register(t0);
 SamplerState sampColor : register(s0);
 
-// The SSDO Direct buffer
-Texture2D texSSDO : register(t1);
-SamplerState samplerSSDO : register(s1);
+// GTAO: bent normal (rgb) and ambient occlusion (a), when gtao_enabled. See GTAOCommon.h.
+Texture2D texGTAO : register(t1);
 
 // The Background buffer
 Texture2D texBackground : register(t2);
@@ -228,12 +228,11 @@ PixelShaderOutput main(PixelShaderInput input)
 	output.color = 0;
 	output.bloom = 0;
 
-	float2 input_uv_sub   = input.uv * amplifyFactor;
 #ifdef INSTANCED_RENDERING
 	float4 texelColor     = texColor.Sample(sampColor, float3(input.uv, input.viewId));
 	float4 Normal         = texNormal.Sample(samplerNormal, float3(input.uv, input.viewId));
 	float3 pos3D          = texPos.Sample(sampPos, float3(input.uv, input.viewId)).xyz;
-	float3 ssdo           = texSSDO.Sample(samplerSSDO, float3(input_uv_sub, input.viewId)).rgb;
+	float4 gtao           = texGTAO.Load(int4(input.pos.xy, input.viewId, 0));
 	float3 background     = texBackground.Sample(sampColor, float3(input.uv, input.viewId)).rgb;
 	float3 ssaoMask       = texSSAOMask.Sample(samplerSSAOMask, float3(input.uv, input.viewId)).xyz;
 	float3 ssMask         = texSSMask.Sample(samplerSSMask, float3(input.uv, input.viewId)).xyz;
@@ -243,7 +242,7 @@ PixelShaderOutput main(PixelShaderInput input)
 	float4 texelColor     = texColor.Sample(sampColor, input.uv);
 	float4 Normal         = texNormal.Sample(samplerNormal, input.uv);
 	float3 pos3D          = texPos.Sample(sampPos, input.uv).xyz;
-	float3 ssdo           = texSSDO.Sample(samplerSSDO, input_uv_sub).rgb;
+	float4 gtao           = texGTAO.Load(int3(input.pos.xy, 0));
 	float3 background     = texBackground.Sample(sampColor, input.uv).rgb;
 	float3 ssaoMask       = texSSAOMask.Sample(samplerSSAOMask, input.uv).xyz;
 	float3 ssMask         = texSSMask.Sample(samplerSSMask, input.uv).xyz;
@@ -265,10 +264,11 @@ PixelShaderOutput main(PixelShaderInput input)
 	const float blendAlphaSat = saturate(2.0 * Normal.w);
 	const float blendAlpha = blendAlphaSat * blendAlphaSat;
 
-	// There's no SSDO component in this pass. Set it to 1 if SSDO is disabled
-	ssdo = lerp(1.0, ssdo, ssdo_enabled);
-	// Toggle the SSDO component for debugging purposes:
-	ssdo = lerp(ssdo, 1.0, sso_disable);
+	// GTAO (Ctrl+Alt+J toggles it): it occludes the ambient light, and the bent normal (the
+	// least occluded direction) is used to look up the cubemap's ambient light. The sun has
+	// real shadows, so it isn't occluded.
+	const bool bGTAO = gtao_enabled > 0.5;
+	const float ao = bGTAO ? gtao.a : 1.0;
 
 	// We need to invert the Z-axis for illumination because the normals are Z+ when pointing to the camera
 	// so that implies that Z increases towards the viewer and decreases away from the camera.
@@ -477,7 +477,8 @@ PixelShaderOutput main(PixelShaderInput input)
 	const float3 viewDir   = normalize(float3(pos3D.x, pos3D.y, -pos3D.z));
 	// Normal.z is inverted because Z+ should point away from the camera:
 	float3 skyBoxReflected = reflect(viewDir, normalize(float3(Normal.x, Normal.y, -Normal.z)));
-	float3 skyBoxNormal    = normalize(float3(Normal.x, Normal.y, -Normal.z));
+	// The bent normal is in the same space (Z+ away from the camera)
+	float3 skyBoxNormal    = bGTAO ? normalize(gtao.xyz) : normalize(float3(Normal.x, Normal.y, -Normal.z));
 	skyBoxReflected        = mul(viewMat, float4(skyBoxReflected, 0)).xyz;
 	skyBoxNormal           = mul(viewMat, float4(skyBoxNormal, 0)).xyz;
 	float3 skyBoxReflCol   = 1;
@@ -543,7 +544,7 @@ PixelShaderOutput main(PixelShaderInput input)
 		float3 diffuseBRDF, specularBRDF;
 		EvaluateDirectBRDF(N_PBR, V_PBR, L, albedo, metallicity, F0, roughness, diffuseBRDF, specularBRDF);
 		// See the light convention in PBRShadingV2.h: the irradiance is PI * lightColor * dotNL
-		const float3 irradiance = PI * lightColor * saturate(dot(N_PBR, L)) * shadow_factor * ssdo.x;
+		const float3 irradiance = PI * lightColor * saturate(dot(N_PBR, L)) * shadow_factor;
 		const float3 diffuse  = diffuseBRDF  * irradiance;
 		const float3 specular = specularBRDF * irradiance;
 
@@ -564,8 +565,12 @@ PixelShaderOutput main(PixelShaderInput input)
 
 	// Ambient light, added once. It's treated as uniform light coming from all directions,
 	// so it has a diffuse and a specular component.
-	const float3 ambientDiffuse  = (baseAmbient + envDiffuse) * albedo * (1.0 - metallicity);
-	const float3 ambientSpecular = (baseAmbient + envSpecular) * EnvBRDFApprox(F0, roughness, dotNV);
+	// The ambient occlusion darkens the diffuse ambient light. For the reflections, it's
+	// turned into specular occlusion, which also depends on the roughness and the view angle
+	// (Lagarde & de Rousiers, "Moving Frostbite to PBR", 2014).
+	const float specOcclusion = saturate(pow(abs(dotNV + ao), exp2(-16.0 * roughness - 1.0)) - 1.0 + ao);
+	const float3 ambientDiffuse  = ao * (baseAmbient + envDiffuse) * albedo * (1.0 - metallicity);
+	const float3 ambientSpecular = specOcclusion * (baseAmbient + envSpecular) * EnvBRDFApprox(F0, roughness, dotNV);
 	float3 tmp_color = ambientDiffuse + ambientSpecular + direct;
 
 	// Apply the shadeless mask: shadeless surfaces show their own color

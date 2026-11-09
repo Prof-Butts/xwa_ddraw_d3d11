@@ -116,6 +116,13 @@ extern SSAOTypeEnum g_SSAO_Type;
 extern bool g_bPBRShadingV2;
 extern float g_fPBRExposure, g_fPBRMinAlbedo;
 extern Vector3 g_PBRAmbientColor, g_PBRLightsColor;
+// GTAO (ambient occlusion with bent normals) in the PBR shading (pbr_gtao_*). Ctrl+Alt+J
+// toggles g_bGTAOEnabled.
+extern bool g_bGTAOEnabled;
+extern float g_fGTAORadius, g_fGTAOIntensity, g_fGTAOMinRadiusPx, g_fGTAOMaxRadiusPx;
+extern int g_iGTAOSlices, g_iGTAOSteps;
+// pbr_gtao_gpu_timer: log the GPU time of the PBR lighting and GTAO passes ([DBG] [GTAO])
+extern bool g_bGTAOGPUTimer;
 // Color grading in the PBR shading (pbr_grade_*)
 extern float g_fPBRGradeContrast, g_fPBRGradeSaturation;
 extern Vector3 g_PBRGradeShadows, g_PBRGradeHighlights;

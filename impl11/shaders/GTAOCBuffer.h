@@ -4,7 +4,7 @@
 // GTAOCBuffer: the settings of the GTAO and GTAO denoise passes. See GTAOCommon.h.
 cbuffer ConstantBuffer : register(b12)
 {
-	float2 gtao_buffer_size;    // Size of the GTAO buffers, in pixels
+	float2 gtao_buffer_size;    // Size of the full-resolution buffers, in pixels
 	float gtao_radius;          // Radius of the effect, in meters (pbr_gtao_radius)
 	float gtao_intensity;       // Power applied to the visibility (pbr_gtao_intensity)
 	// 16 bytes
@@ -15,7 +15,8 @@ cbuffer ConstantBuffer : register(b12)
 	// 32 bytes
 	float gtao_falloff;         // Fraction of the radius where the occluders fade out
 	float gtao_denoise_depth;   // Relative depth difference the denoise filter tolerates
-	float gtao_unused0, gtao_unused1;
+	float gtao_scale;           // 1: full resolution, 2: half resolution (pbr_gtao_half_res)
+	float gtao_unused1;
 	// 48 bytes
 };
 

@@ -406,7 +406,7 @@ typedef struct PSShadingSystemCBStruct {
 	float gtao_enabled;          // 1 when the GTAO buffer (bent normal + AO) is bound to t1
 	// 1152 bytes
 	float grade_shadows[3];      // Tint for the dark tones; it changes the color, not the brightness
-	float unused_ss1;
+	float gtao_scale;            // 1: GTAO at full resolution, 2: at half resolution
 	// 1168 bytes
 	float grade_highlights[3];   // Tint for the bright tones
 	float unused_ss2;
@@ -415,7 +415,7 @@ typedef struct PSShadingSystemCBStruct {
 
 // The settings of the GTAO passes (ssao_type = PBR). See GTAOCBuffer.h.
 typedef struct GTAOCBufferStruct {
-	float buffer_size[2];        // Size of the GTAO buffers, in pixels
+	float buffer_size[2];        // Size of the full-resolution buffers, in pixels
 	float radius;                // Meters
 	float intensity;             // Power applied to the visibility
 	// 16 bytes
@@ -424,7 +424,8 @@ typedef struct GTAOCBufferStruct {
 	// 32 bytes
 	float falloff;               // Fraction of the radius where the occluders fade out
 	float denoise_depth;         // Relative depth difference the denoise filter tolerates
-	float unused0, unused1;
+	float scale;                 // 1: full resolution, 2: half resolution
+	float unused1;
 	// 48 bytes
 } GTAOCBuffer;
 

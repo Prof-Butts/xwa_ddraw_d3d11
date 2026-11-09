@@ -221,6 +221,7 @@ bool g_bGTAOEnabled = false;
 float g_fGTAORadius = 1.0f, g_fGTAOIntensity = 1.5f, g_fGTAOMinRadiusPx = 4.0f, g_fGTAOMaxRadiusPx = 64.0f;
 int g_iGTAOSlices = 3, g_iGTAOSteps = 4;
 bool g_bGTAOGPUTimer = false;
+bool g_bGTAOHalfRes = true;
 // Color grading in the new PBR shading: contrast, saturation and the tints of the dark and
 // bright tones. The defaults don't change anything. See ApplyColorGrade() in PBRShadingV2.h.
 float g_fPBRGradeContrast = 1.0f, g_fPBRGradeSaturation = 1.0f;
@@ -2307,6 +2308,7 @@ bool LoadSSAOParams() {
 	g_iGTAOSlices = 3;
 	g_iGTAOSteps = 4;
 	g_bGTAOGPUTimer = false;
+	g_bGTAOHalfRes = true;
 	g_fPBRGradeContrast = 1.0f;
 	g_fPBRGradeSaturation = 1.0f;
 	g_PBRGradeShadows = Vector3(1.0f, 1.0f, 1.0f);
@@ -2487,6 +2489,9 @@ bool LoadSSAOParams() {
 			}
 			else if (_stricmp(param, "pbr_gtao_gpu_timer") == 0) {
 				g_bGTAOGPUTimer = (bool)fValue;
+			}
+			else if (_stricmp(param, "pbr_gtao_half_res") == 0) {
+				g_bGTAOHalfRes = (bool)fValue;
 			}
 			else if (_stricmp(param, "pbr_grade_contrast") == 0) {
 				g_fPBRGradeContrast = fValue;

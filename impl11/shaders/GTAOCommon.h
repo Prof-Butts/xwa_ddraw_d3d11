@@ -12,6 +12,11 @@
  * (1 = fully visible). The noise of the slice and step offsets repeats every 4x4 pixels, so
  * the 4x4 filter in GTAODenoise.hlsl averages it out.
  *
+ * At half resolution (gtao_scale = 2), this pass renders to the top-left quarter of the
+ * GTAO buffer, and each of its pixels uses the top-left pixel of a 2x2 block of the full
+ * resolution buffers. The radius and the sample offsets are still in full-resolution
+ * pixels, so the result looks the same, only with less detail.
+ *
  * The position buffer has the view-space position of each pixel (X+ right, Y+ up, Z+ away
  * from the camera), in meters. The normal buffer has Z+ pointing to the camera, so its Z is
  * flipped here. The projection isn't needed: the view ray of a pixel is P.xy / P.z, so the
@@ -66,10 +71,23 @@ bool IsGeometry(float3 P)
 	return P.z > 0.0 && P.z < GTAO_FAR_Z;
 }
 
+// Change of the view ray (P.xy / P.z) per pixel along one axis, measured against the pixel
+// `dist` pixels away in the positive (side = 1) or negative (side = -1) direction. Returns
+// 0 if there's no geometry there to compare with.
+float RayChange(int2 px, float2 ray, int axis, int dist, int side, uint viewId)
+{
+	const int2 dir = axis == 0 ? int2(1, 0) : int2(0, 1);
+	const float3 S = LoadPos(px + dir * (dist * side), viewId);
+	if (!IsGeometry(S))
+		return 0;
+	return ((S.xy / S.z)[axis] - ray[axis]) / (dist * side);
+}
+
 // Change of the view ray (P.xy / P.z) per pixel, along x and along y. It's signed, so it
 // also tells how the screen axes map to the view axes. The position buffer is half
-// precision, so the rays are compared over several pixels to keep the error small.
-// Returns 0 on an axis when there's no geometry to compare with.
+// precision, so the rays are compared over several pixels to keep the error small. The
+// other pixels are only read when the previous ones aren't geometry, so it's usually two
+// reads. Returns 0 on an axis when there's no geometry to compare with.
 float2 RayChangePerPixel(int2 px, float3 P, uint viewId)
 {
 	const float2 ray = P.xy / P.z;
@@ -77,18 +95,16 @@ float2 RayChangePerPixel(int2 px, float3 P, uint viewId)
 	[unroll]
 	for (int axis = 0; axis < 2; axis++)
 	{
-		const int2 dir = axis == 0 ? int2(1, 0) : int2(0, 1);
-		[unroll]
-		for (int i = 0; i < 2; i++)
-		{
-			const int dist = i == 0 ? 16 : 4;
-			const float3 A = LoadPos(px + dir * dist, viewId);
-			const float3 B = LoadPos(px - dir * dist, viewId);
-			if (result[axis] == 0 && IsGeometry(A))
-				result[axis] = ((A.xy / A.z)[axis] - ray[axis]) / dist;
-			else if (result[axis] == 0 && IsGeometry(B))
-				result[axis] = (ray[axis] - (B.xy / B.z)[axis]) / dist;
-		}
+		result[axis] = RayChange(px, ray, axis, 16, 1, viewId);
+		[branch]
+		if (result[axis] == 0)
+			result[axis] = RayChange(px, ray, axis, 16, -1, viewId);
+		[branch]
+		if (result[axis] == 0)
+			result[axis] = RayChange(px, ray, axis, 4, 1, viewId);
+		[branch]
+		if (result[axis] == 0)
+			result[axis] = RayChange(px, ray, axis, 4, -1, viewId);
 	}
 	return result;
 }
@@ -108,7 +124,9 @@ float4 main(PixelShaderInput input) : SV_TARGET
 #else
 	const uint viewId = 0;
 #endif
-	const int2 px = int2(input.pos.xy);
+	// This pass's pixel, and the full-resolution pixel it uses
+	const int2 outPx = int2(input.pos.xy);
+	const int2 px = outPx * (int)gtao_scale;
 	const float3 P = LoadPos(px, viewId);
 	const float4 normalSample = LoadNormal(px, viewId);
 	// The normal in the same space as the positions
@@ -143,7 +161,8 @@ float4 main(PixelShaderInput input) : SV_TARGET
 	const float falloffAdd   = falloffFrom / falloffRange + 1.0;
 
 	const float3 V = normalize(-P);
-	const float noise = Bayer4x4(px);
+	// The pattern is in this pass's pixels, so the 4x4 denoise filter averages it out
+	const float noise = Bayer4x4(outPx);
 	const float noiseSlice = (noise + 0.5) / 16.0;
 	// A different order of the same 16 values, so the slice and step offsets don't line up
 	const float noiseStep = frac((noise * 5.0 + 0.5) / 16.0);

@@ -45,7 +45,7 @@ cbuffer ConstantBuffer : register(b4)
 	float gtao_enabled;       // 1 when the GTAO buffer (bent normal + AO) is bound to t1
 	// 1152 bytes
 	float3 grade_shadows;     // Tint for the dark tones; it changes the color, not the brightness
-	float unused_ss1;
+	float gtao_scale;         // 1: GTAO at full resolution, 2: at half resolution
 	// 1168 bytes
 	float3 grade_highlights;  // Tint for the bright tones
 	float unused_ss2;

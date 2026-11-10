@@ -15,7 +15,9 @@ so the result is the same as replacing the textures one by one in the editor:
 - Indexed images (like the ones XwaOptEditor exports or upscale_textures.py --indexed
   makes) stay 8-bit with their own palette, rounded to RGB565 like every 8-bit OPT
   texture. Their mipmaps use the same palette. Indexed images with alpha or illumination
-  can't stay 8-bit: they're stored as 32-bit, and there's a warning.
+  can't stay 8-bit: they're stored as 32-bit, and there's a warning. Indexed images with
+  illumination are read as 32-bit: in 8-bit, the OPT library lights every pixel that has
+  the color of a lit pixel, not just the pixels the NAME_illum image lights.
 - 32-bit images that only use 256 colors or less (in RGB565) are stored as 8-bit, without
   loss, when the original texture was 8-bit. -Convert8 stores all of them as 8-bit, with a
   palette made by the OPT library.
@@ -76,6 +78,23 @@ function Find-Image([string] $name) {
 function Test-PowerOfTwo([int] $n) { return $n -gt 0 -and ($n -band ($n - 1)) -eq 0 }
 
 function Format-Size([long] $bytes) { return "{0:N1} MB" -f ($bytes / 1MB) }
+
+# Loads a texture from a 32-bit copy of the color image. For indexed images with an
+# illumination map: in 8-bit, the OPT library makes illumination a property of the palette
+# colors, so every pixel with the same color as a lit pixel would be lit too.
+function Read-Texture32([string] $colorFile, [string] $alphaFile, [string] $illumFile) {
+    Add-Type -AssemblyName System.Drawing
+    $temp = Join-Path ([IO.Path]::GetTempPath()) ("update_opt_textures_" + [Guid]::NewGuid().ToString("N") + ".png")
+    $image = [System.Drawing.Bitmap]::new($colorFile)
+    try {
+        $rect = [System.Drawing.Rectangle]::new(0, 0, $image.Width, $image.Height)
+        $copy = $image.Clone($rect, [System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
+        try { $copy.Save($temp, [System.Drawing.Imaging.ImageFormat]::Png) } finally { $copy.Dispose() }
+    }
+    finally { $image.Dispose() }
+    try { return [JeremyAnsel.Xwa.Opt.Texture]::FromFile($temp, $alphaFile, $illumFile) }
+    finally { Remove-Item -LiteralPath $temp -ErrorAction SilentlyContinue }
+}
 
 $Opt = (Resolve-Path -LiteralPath $Opt).Path
 $TexturesDir = (Resolve-Path -LiteralPath $TexturesDir).Path
@@ -197,6 +216,10 @@ foreach ($name in @($optFile.Textures.Keys | Sort-Object)) {
 
     try {
         $new = [JeremyAnsel.Xwa.Opt.Texture]::FromFile($colorFile, $alphaFile, $illumFile)
+        $indexed = $new.BitsPerPixel -eq 8
+        if ($indexed -and $new.IsIlluminated) {
+            $new = Read-Texture32 $colorFile $alphaFile $illumFile
+        }
         $new.Name = $name
 
         if ($old.HasAlpha -and -not $new.HasAlpha) {
@@ -216,7 +239,7 @@ foreach ($name in @($optFile.Textures.Keys | Sort-Object)) {
             Write-Warning "$name is $($new.Width)x$($new.Height), which isn't a power of two"
         }
 
-        if ($new.BitsPerPixel -eq 8 -and -not $new.HasAlpha -and -not $new.IsIlluminated) {
+        if ($indexed -and -not $new.HasAlpha -and -not $new.IsIlluminated) {
             # An indexed image stays 8-bit with its own palette (rounded to RGB565, like
             # every 8-bit OPT texture), and its mipmaps use the same palette
             if ($old.MipmapsCount -gt 1) {
@@ -227,10 +250,10 @@ foreach ($name in @($optFile.Textures.Keys | Sort-Object)) {
             # Like XwaOptEditor: the mipmaps are made in 32-bit, and then the texture is
             # converted to 8-bit if needed. Whether it fits in 256 colors is checked first,
             # because the mipmaps add blended colors. (Convert8To32 also makes mipmaps.)
-            if ($new.BitsPerPixel -eq 8) {
+            if ($indexed) {
                 # Indexed, with alpha or illumination: the library can't keep it 8-bit
                 $repalettized += $name
-                $new.Convert8To32()
+                if ($new.BitsPerPixel -eq 8) { $new.Convert8To32() }
                 $fitsIn8 = $false
             }
             else {

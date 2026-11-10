@@ -126,6 +126,11 @@ extern bool g_bGTAOHalfRes;
 // pbr_gtao_coarse*: a second GTAO pass at quarter resolution with a larger radius
 extern bool g_bGTAOCoarse;
 extern float g_fGTAOCoarseRadius, g_fGTAOCoarseIntensity, g_fGTAOCoarseMinRadiusPx, g_fGTAOCoarseMaxRadiusPx;
+extern int g_iGTAOCoarseSlices, g_iGTAOCoarseSteps;
+// pbr_gtao_angle_bias, pbr_gtao_coarse_angle_bias: degrees above the tangent plane that don't count as occlusion
+extern float g_fGTAOAngleBias, g_fGTAOCoarseAngleBias;
+// pbr_gtao_height_bias: bumps this many 16-bit position steps tall don't count as occluders
+extern float g_fGTAOHeightBias;
 // pbr_gtao_debug: shows the AO instead of the shading. 1 fine, 2 coarse, 3 both, 4 bent normal
 extern int g_iGTAODebug;
 // pbr_gtao_gpu_timer: log the GPU time of the PBR lighting and GTAO passes ([DBG] [GTAO])

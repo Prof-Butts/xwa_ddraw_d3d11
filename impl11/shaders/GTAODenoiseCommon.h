@@ -44,8 +44,8 @@ float4 main(PixelShaderInput input) : SV_TARGET
 	const float4 center = texGTAO.Load(int3(px, 0));
 	const float z = texPos.Load(int3(px * scale, 0)).z;
 #endif
-	// The background and the pixels that GTAO skipped are left as they are
-	if (center.a >= 1.0)
+	// The background and the pixels that GTAO skipped (AO = 2) are left as they are
+	if (center.a > 1.5)
 		return center;
 
 	const float tolerance = max(z * gtao_denoise_depth, 1e-3);
@@ -65,7 +65,9 @@ float4 main(PixelShaderInput input) : SV_TARGET
 			const float4 value = texGTAO.Load(int3(p, 0));
 			const float sz = texPos.Load(int3(p * scale, 0)).z;
 #endif
-			const float w = saturate(1.0 - abs(sz - z) / tolerance);
+			// Skipped pixels (AO = 2) aren't blended in. The AO isn't clamped to 1 yet: the
+			// values a bit above and below 1 on open surfaces average to 1 here.
+			const float w = value.a > 1.5 ? 0.0 : saturate(1.0 - abs(sz - z) / tolerance);
 			sum += value * w;
 			weightSum += w;
 		}

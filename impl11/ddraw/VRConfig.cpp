@@ -226,6 +226,9 @@ bool g_bGTAOHalfRes = true;
 bool g_bGTAOCoarse = false;
 float g_fGTAOCoarseRadius = 10.0f, g_fGTAOCoarseIntensity = 1.0f;
 float g_fGTAOCoarseMinRadiusPx = 32.0f, g_fGTAOCoarseMaxRadiusPx = 256.0f;
+int g_iGTAOCoarseSlices = 4, g_iGTAOCoarseSteps = 8;
+float g_fGTAOAngleBias = 2.0f, g_fGTAOCoarseAngleBias = 4.0f;
+float g_fGTAOHeightBias = 1.0f;
 int g_iGTAODebug = 0;
 // Color grading in the new PBR shading: contrast, saturation and the tints of the dark and
 // bright tones. The defaults don't change anything. See ApplyColorGrade() in PBRShadingV2.h.
@@ -2319,6 +2322,11 @@ bool LoadSSAOParams() {
 	g_fGTAOCoarseIntensity = 1.0f;
 	g_fGTAOCoarseMinRadiusPx = 32.0f;
 	g_fGTAOCoarseMaxRadiusPx = 256.0f;
+	g_iGTAOCoarseSlices = 4;
+	g_iGTAOCoarseSteps = 8;
+	g_fGTAOAngleBias = 2.0f;
+	g_fGTAOCoarseAngleBias = 4.0f;
+	g_fGTAOHeightBias = 1.0f;
 	g_iGTAODebug = 0;
 	g_fPBRGradeContrast = 1.0f;
 	g_fPBRGradeSaturation = 1.0f;
@@ -2521,6 +2529,21 @@ bool LoadSSAOParams() {
 			}
 			else if (_stricmp(param, "pbr_gtao_coarse_max_radius_px") == 0) {
 				g_fGTAOCoarseMaxRadiusPx = max(1.0f, fValue);
+			}
+			else if (_stricmp(param, "pbr_gtao_coarse_slices") == 0) {
+				g_iGTAOCoarseSlices = max(1, min(8, (int)fValue));
+			}
+			else if (_stricmp(param, "pbr_gtao_coarse_steps") == 0) {
+				g_iGTAOCoarseSteps = max(1, min(16, (int)fValue));
+			}
+			else if (_stricmp(param, "pbr_gtao_angle_bias") == 0) {
+				g_fGTAOAngleBias = max(0.0f, min(30.0f, fValue));
+			}
+			else if (_stricmp(param, "pbr_gtao_coarse_angle_bias") == 0) {
+				g_fGTAOCoarseAngleBias = max(0.0f, min(30.0f, fValue));
+			}
+			else if (_stricmp(param, "pbr_gtao_height_bias") == 0) {
+				g_fGTAOHeightBias = max(0.0f, min(16.0f, fValue));
 			}
 			else if (_stricmp(param, "pbr_grade_contrast") == 0) {
 				g_fPBRGradeContrast = fValue;

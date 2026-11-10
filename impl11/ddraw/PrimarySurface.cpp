@@ -3777,7 +3777,8 @@ static bool IsGTAOActive()
 // (1, 2 or 4): both passes render to the top-left 1 / scale of their buffers. The denoise
 // filter's GPU time goes to denoiseSection (-1: the current section).
 static void RenderGTAO(DeviceResources* resources, int scale, float radius, float intensity,
-	float minRadiusPx, float maxRadiusPx, ID3D11RenderTargetView* outputRTV, int denoiseSection)
+	float minRadiusPx, float maxRadiusPx, int slices, int steps, float angleBiasDeg,
+	ID3D11RenderTargetView* outputRTV, int denoiseSection)
 {
 	auto& context = resources->_d3dDeviceContext;
 
@@ -3795,11 +3796,13 @@ static void RenderGTAO(DeviceResources* resources, int scale, float radius, floa
 	cb.intensity      = intensity;
 	cb.min_radius_px  = minRadiusPx;
 	cb.max_radius_px  = max(minRadiusPx, maxRadiusPx);
-	cb.slices         = g_iGTAOSlices;
-	cb.steps          = g_iGTAOSteps;
+	cb.slices         = slices;
+	cb.steps          = steps;
 	cb.falloff        = 0.615f; // XeGTAO's default
 	cb.denoise_depth  = 0.05f;  // Neighbors within 5% of the depth are blended
 	cb.scale          = (float)scale;
+	cb.angle_bias     = angleBiasDeg * DEG2RAD;
+	cb.height_bias    = g_fGTAOHeightBias;
 	resources->InitPSConstantBufferGTAO(&cb);
 
 	// GTAO
@@ -3896,15 +3899,18 @@ void PrimarySurface::GTAOPass()
 	// GTAO, at full or half resolution
 	g_GTAOGPUTimer.Mark(context, GTAO_TIMER_GTAO);
 	RenderGTAO(resources, g_bGTAOHalfRes ? 2 : 1, g_fGTAORadius, g_fGTAOIntensity,
-		g_fGTAOMinRadiusPx, g_fGTAOMaxRadiusPx, resources->_gtaoDenoisedRTV.Get(), GTAO_TIMER_DENOISE);
+		g_fGTAOMinRadiusPx, g_fGTAOMaxRadiusPx, g_iGTAOSlices, g_iGTAOSteps, g_fGTAOAngleBias,
+		resources->_gtaoDenoisedRTV.Get(), GTAO_TIMER_DENOISE);
 
 	// Coarse GTAO, at quarter resolution with a larger radius, for the broad occlusion of
-	// large structures. It reuses _gtaoBuf, which the fine pass doesn't need anymore.
+	// large structures. It reuses _gtaoBuf, which the fine pass doesn't need anymore. It has
+	// its own slices and steps: with fewer pixels, it can afford more samples per pixel.
 	if (g_bGTAOCoarse)
 	{
 		g_GTAOGPUTimer.Mark(context, GTAO_TIMER_COARSE);
 		RenderGTAO(resources, 4, g_fGTAOCoarseRadius, g_fGTAOCoarseIntensity,
-			g_fGTAOCoarseMinRadiusPx, g_fGTAOCoarseMaxRadiusPx, resources->_gtaoCoarseRTV.Get(), -1);
+			g_fGTAOCoarseMinRadiusPx, g_fGTAOCoarseMaxRadiusPx, g_iGTAOCoarseSlices, g_iGTAOCoarseSteps,
+			g_fGTAOCoarseAngleBias, resources->_gtaoCoarseRTV.Get(), -1);
 	}
 
 	context->OMSetBlendState(prevBlendState.Get(), prevBlendFactor, prevSampleMask);

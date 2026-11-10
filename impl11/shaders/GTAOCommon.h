@@ -8,9 +8,26 @@
  * the two horizons gives the cosine-weighted visibility of that slice. The bent normal (the
  * least occluded direction) is the normal turned towards the middle of the visible arcs.
  *
+ * The horizons are measured as the elevation of the samples above the tangent plane (their
+ * height along the normal), not as their angle from the view vector. The sample offsets are
+ * rounded to whole pixels, which can move a sample off its slice; measured from the view
+ * vector, a sample that's on the surface could then look like an occluder. Its elevation is
+ * still 0, wherever it lands.
+ *
+ * The positions are stored as 16-bit floats, so they're rounded to steps of about 1/1024 of
+ * their size: about 2 mm at 2 m, which is as big as a pixel at 4K. A flat surface is stored
+ * as a staircase, and to the closest samples each step looks like a steep occluder (contour
+ * bands that follow the depth). gtao_height_bias lowers every sample's height above the
+ * tangent plane by that many steps, so the staircase stops counting and real occluders, which
+ * are much taller, still count. It's the same as moving the origin of the samples along the
+ * normal, but the distances (and the falloff) don't change.
+ *
  * Output: rgb = bent normal (view space, same convention as the position buffer), a = AO
- * (1 = fully visible). The noise of the slice and step offsets repeats every 4x4 pixels, so
- * the 4x4 filter in GTAODenoise.hlsl averages it out.
+ * (1 = fully visible). The AO isn't clamped to 1 here: with few slices, open surfaces get
+ * values a bit above and below 1 that the denoise filter averages to 1, and clamping first
+ * would leave them slightly occluded. Pixels without AO (the background, transparent
+ * surfaces) get GTAO_SKIPPED. The noise of the slice and step offsets repeats every 4x4
+ * pixels, so the 4x4 filter in GTAODenoise.hlsl averages it out.
  *
  * At half resolution (gtao_scale = 2), this pass renders to the top-left quarter of the
  * GTAO buffer, and each of its pixels uses the top-left pixel of a 2x2 block of the full
@@ -46,6 +63,9 @@ static const float GTAO_PI      = 3.14159265;
 static const float GTAO_PI_HALF = 1.57079633;
 // Positions this far away are the background (the position buffer is cleared to Z = 32000)
 static const float GTAO_FAR_Z   = 30000.0;
+// The AO of the pixels that GTAO skips. Above any real AO, so the denoise filter can tell
+// them apart; the lighting clamps it to 1.
+static const float GTAO_SKIPPED = 2.0;
 
 float3 LoadPos(int2 px, uint viewId)
 {
@@ -134,7 +154,7 @@ float4 main(PixelShaderInput input) : SV_TARGET
 
 	// Background, and surfaces that aren't fully opaque (their normal.w is low): no occlusion
 	if (!IsGeometry(P) || normalSample.w < 0.5)
-		return float4(N, 1.0);
+		return float4(N, GTAO_SKIPPED);
 
 	// Size of a pixel at this depth (both axes have the same size), and the signs that map
 	// screen directions to view directions
@@ -143,7 +163,7 @@ float4 main(PixelShaderInput input) : SV_TARGET
 	const float pixelAngle = (absChange.x > 0 && absChange.y > 0) ? 0.5 * (absChange.x + absChange.y) :
 		max(absChange.x, absChange.y);
 	if (pixelAngle <= 0)
-		return float4(N, 1.0);
+		return float4(N, GTAO_SKIPPED);
 	// Screen y grows downwards and view y grows upwards, so that's the default
 	const float2 axisSign = float2(rayChange.x != 0 ? sign(rayChange.x) : 1.0,
 	                               rayChange.y != 0 ? sign(rayChange.y) : -1.0);
@@ -161,6 +181,15 @@ float4 main(PixelShaderInput input) : SV_TARGET
 	const float falloffAdd   = falloffFrom / falloffRange + 1.0;
 
 	const float3 V = normalize(-P);
+	// Angle bias: the elevation of the horizons is lowered by this angle, so the small errors
+	// of the G-buffer (half-precision positions, smoothed normals) don't count as occluders.
+	// Real occluders rise well above the tangent plane, so they still count.
+	float sinBias, cosBias;
+	sincos(gtao_angle_bias, sinBias, cosBias);
+	// Height bias: gtao_height_bias steps of the 16-bit rounding of this position. A 16-bit
+	// float has 10 mantissa bits, so its step is at most 1/1024 of its magnitude.
+	const float3 absP = abs(P);
+	const float heightBias = gtao_height_bias * max(absP.z, max(absP.x, absP.y)) / 1024.0;
 	// The pattern is in this pass's pixels, so the 4x4 denoise filter averages it out
 	const float noise = Bayer4x4(outPx);
 	const float noiseSlice = (noise + 0.5) / 16.0;
@@ -187,11 +216,12 @@ float4 main(PixelShaderInput input) : SV_TARGET
 		const float cosNorm = saturate(dot(projNormal, V) / max(projNormalLength, 1e-4));
 		const float n = signNorm * acos(cosNorm);
 
-		// The lowest possible horizons: the tangent plane on each side
-		const float lowHorizonCos0 = cos(n + GTAO_PI_HALF);
-		const float lowHorizonCos1 = cos(n - GTAO_PI_HALF);
-		float horizonCos0 = lowHorizonCos0; // Along +omega
-		float horizonCos1 = lowHorizonCos1; // Along -omega
+		// The highest elevation above the tangent plane on each side, as a sine, measured in
+		// the slice plane: dot(delta, N) / (dist * projNormalLength). The horizon starts at
+		// the tangent plane (0).
+		const float invProjNormalLength = 1.0 / max(projNormalLength, 1e-4);
+		float elevation0 = 0.0; // Along +omega
+		float elevation1 = 0.0; // Along -omega
 
 		[loop]
 		for (int step = 0; step < stepCount; step++)
@@ -209,17 +239,19 @@ float4 main(PixelShaderInput input) : SV_TARGET
 			const float dist1 = length(delta1);
 			const float weight0 = IsGeometry(S0) ? saturate(dist0 * falloffMul + falloffAdd) : 0.0;
 			const float weight1 = IsGeometry(S1) ? saturate(dist1 * falloffMul + falloffAdd) : 0.0;
-			const float shc0 = lerp(lowHorizonCos0, dot(delta0, V) / max(dist0, 1e-4), weight0);
-			const float shc1 = lerp(lowHorizonCos1, dot(delta1, V) / max(dist1, 1e-4), weight1);
-			horizonCos0 = max(horizonCos0, shc0);
-			horizonCos1 = max(horizonCos1, shc1);
+			const float sinElev0 = saturate((dot(delta0, N) - heightBias) / max(dist0, 1e-4) * invProjNormalLength);
+			const float sinElev1 = saturate((dot(delta1, N) - heightBias) / max(dist1, 1e-4) * invProjNormalLength);
+			elevation0 = max(elevation0, weight0 * sinElev0);
+			elevation1 = max(elevation1, weight1 * sinElev1);
 		}
 
-		// The horizon angles (from V), limited to the hemisphere around the normal
-		float h0 = -acos(clamp(horizonCos1, -1.0, 1.0));
-		float h1 =  acos(clamp(horizonCos0, -1.0, 1.0));
-		h0 = n + clamp(h0 - n, -GTAO_PI_HALF, GTAO_PI_HALF);
-		h1 = n + clamp(h1 - n, -GTAO_PI_HALF, GTAO_PI_HALF);
+		// Angle bias: sin(elevation - bias) = sin * cosBias - cos * sinBias, not below 0
+		elevation0 = max(elevation0 * cosBias - sqrt(saturate(1.0 - elevation0 * elevation0)) * sinBias, 0.0);
+		elevation1 = max(elevation1 * cosBias - sqrt(saturate(1.0 - elevation1 * elevation1)) * sinBias, 0.0);
+		// The horizon angles (from V): the tangent plane on each side (n +- PI/2), raised by
+		// the elevation towards the normal. They stay within the hemisphere around the normal.
+		const float h1 = n + GTAO_PI_HALF - asin(elevation0);
+		const float h0 = n - GTAO_PI_HALF + asin(elevation1);
 
 		// Cosine-weighted visible arc between the horizons (GTAO paper, equation 10)
 		const float sinN = sin(n);
@@ -240,7 +272,8 @@ float4 main(PixelShaderInput input) : SV_TARGET
 		bentNormal += rotatedNormal * localVisibility;
 	}
 
-	visibility = saturate(visibility / sliceCount);
+	// Not clamped to 1, see the top of this file
+	visibility = max(visibility / sliceCount, 0.0);
 	visibility = pow(visibility, gtao_intensity);
 	// A pixel that's visible can't be fully occluded
 	visibility = max(visibility, 0.03);

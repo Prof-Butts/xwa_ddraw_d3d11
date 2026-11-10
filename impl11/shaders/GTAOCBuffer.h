@@ -16,8 +16,11 @@ cbuffer ConstantBuffer : register(b12)
 	float gtao_falloff;         // Fraction of the radius where the occluders fade out
 	float gtao_denoise_depth;   // Relative depth difference the denoise filter tolerates
 	float gtao_scale;           // 1: full resolution, 2: half resolution (pbr_gtao_half_res)
-	float gtao_unused1;
+	float gtao_angle_bias;      // Radians: occluders this close to the tangent plane are ignored
 	// 48 bytes
+	float gtao_height_bias;     // In 16-bit position steps: bumps this tall are ignored (pbr_gtao_height_bias)
+	float gtao_unused0, gtao_unused1, gtao_unused2;
+	// 64 bytes
 };
 
 #endif

@@ -207,13 +207,18 @@ float4 LoadGTAO(GTAO_TEXTURE tex, int scale, int2 maxPx, int2 px, uint viewId, f
 				const int2 h = min(base + int2(x, y), maxPx);
 				float w = (x ? f.x : 1.0 - f.x) * (y ? f.y : 1.0 - f.y);
 				w *= saturate(1.0 - abs(GTAO_DEPTH(h * scale) - z) / tolerance);
-				sum += w * GTAO_LOAD(h);
+				// Pixels that GTAO skipped (AO = 2) aren't blended in
+				const float4 value = GTAO_LOAD(h);
+				w *= value.a > 1.5 ? 0.0 : 1.0;
+				sum += w * value;
 				weightSum += w;
 			}
 		}
 		result = weightSum > 1e-4 ? sum / weightSum : GTAO_LOAD(min(base, maxPx));
 		result.xyz = length(result.xyz) > 1e-4 ? normalize(result.xyz) : result.xyz;
 	}
+	// The GTAO buffers keep values above 1 (and 2 for the skipped pixels), see GTAOCommon.h
+	result.a = saturate(result.a);
 	return result;
 #undef GTAO_LOAD
 #undef GTAO_DEPTH

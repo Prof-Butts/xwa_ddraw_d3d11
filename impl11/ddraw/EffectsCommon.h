@@ -428,8 +428,11 @@ typedef struct GTAOCBufferStruct {
 	float falloff;               // Fraction of the radius where the occluders fade out
 	float denoise_depth;         // Relative depth difference the denoise filter tolerates
 	float scale;                 // 1: full resolution, 2: half resolution
-	float unused1;
+	float angle_bias;            // Radians: occluders this close to the tangent plane are ignored
 	// 48 bytes
+	float height_bias;           // In 16-bit position steps: bumps this tall are ignored
+	float unused0, unused1, unused2;
+	// 64 bytes
 } GTAOCBuffer;
 
 typedef struct RTConstantsBufferStruct {

@@ -55,7 +55,9 @@ images.
 
 Images named NAME_alpha or NAME_illum are the alpha and illumination maps of the texture
 NAME, as XwaOptEditor exports them. They're only resized (with Lanczos), so they still
-match their texture. update_opt_textures.ps1 puts the results back into the OPT.
+match their texture. The pixels that a NAME_illum map lights keep the colors of the
+original texture (just resized): they're lights, so they look the same in any lighting.
+update_opt_textures.ps1 puts the results back into the OPT.
 
 Requires numpy, scipy and Pillow.
 """
@@ -241,6 +243,33 @@ def guided_filter(guide, source, radius, eps):
 
 
 # ------------------------------------------------------------------------------------
+# Shading removal (--flatten-shading)
+# ------------------------------------------------------------------------------------
+
+def estimate_shading(surface, threshold, detail_sigma=2.0):
+    """
+    The shading painted into a texture (baked ambient occlusion, light gradients), as a log
+    factor of the brightness: the texture without it is surface * exp(-shading). Retinex-style:
+    in log brightness, painted shading changes slowly (about 1% per pixel), while the edges
+    of markings and panels change a lot in a pixel or two. So the gradients sharper than
+    threshold (relative change per pixel) are kept as paint, the rest is shading, and the
+    paint is rebuilt from its gradients. The fine detail is set aside first (a blur of
+    detail_sigma pixels), so it doesn't count as either and isn't flattened. The shading
+    averages 0, so the texture keeps its overall brightness.
+    """
+    log = np.log(surface + 0.01)
+    smooth = ndimage.gaussian_filter(log, detail_sigma)
+    gx = np.zeros_like(smooth)
+    gy = np.zeros_like(smooth)
+    gx[:, :-1] = smooth[:, 1:] - smooth[:, :-1]
+    gy[:-1, :] = smooth[1:, :] - smooth[:-1, :]
+    gx *= smoothstep(threshold, 2 * threshold, np.abs(gx))
+    gy *= smoothstep(threshold, 2 * threshold, np.abs(gy))
+    shading = smooth - integrate_gradients(gx, gy)
+    return shading - shading.mean()
+
+
+# ------------------------------------------------------------------------------------
 # Layer adjustments
 # ------------------------------------------------------------------------------------
 
@@ -357,10 +386,13 @@ def to_image(data, mode):
     return Image.fromarray((np.clip(data, 0, 1) * 255 + 0.5).astype(np.uint8), mode)
 
 
-def process_image(image, args):
+def process_image(image, args, lit=None):
     """
     Returns the upscaled image, the color, grime and lines layers (for --export-layers),
-    and the intermediate layers (for --save-layers).
+    and the intermediate layers (for --save-layers). lit is the mask of the pixels that the
+    texture's illumination map lights, at the output size. They're left as they are in
+    the original texture (upscaled): they look the same in any lighting, so there's no
+    shading to remove, and the engine makes them bloom by their brightness.
     """
     has_alpha = image.mode in ("RGBA", "LA") or (image.mode == "P" and "transparency" in image.info)
     rgba = np.asarray(image.convert("RGBA")).astype(np.float32) / 255.0
@@ -446,6 +478,14 @@ def process_image(image, args):
             angle = np.arccos(np.clip(normals[..., 2] * 2 - 1, 0, 1))
             exported["slope"] = to_image(1 - angle / (np.pi / 2) * args.slope_contrast, "L")
 
+    # Remove the shading painted into the texture from the color layer. It's estimated on the
+    # clean surface (without the lines and the grime), whose sharp edges would otherwise
+    # count as paint anyway.
+    shading_hi = None
+    if args.flatten_shading > 0:
+        shading_hi = resize(estimate_shading(clean, args.flatten_threshold), out_width, out_height)
+        color = np.clip(color * np.exp(-args.flatten_shading * shading_hi)[..., None], 0, 1)
+
     # Adjust the layers and combine them
     color = adjust_color(color, args.color_brightness, args.color_contrast)
     grime = adjust_multiply_layer(grime, args.grime_brightness, args.grime_contrast)
@@ -454,6 +494,17 @@ def process_image(image, args):
     if grime.ndim == 2:
         grime = grime[..., None]
     rgb_hi = np.clip(color * grime * lines[..., None], 0, 1)
+    # Compared with a plain upscale of the original, pixel by pixel
+    original_value = None
+    has_lit = lit is not None and lit.any()
+    if args.bloom_threshold > 0 or has_lit:
+        original_hi = np.clip(np.stack([resize(rgb[..., c], out_width, out_height) for c in range(3)], axis=-1), 0, 1)
+    if args.bloom_threshold > 0:
+        original_value = original_hi.max(axis=-1)
+        rgb_hi = keep_bloom_side(rgb_hi, original_value, args.bloom_threshold)
+    if has_lit:
+        # The lit pixels keep the original colors
+        rgb_hi[lit] = original_hi[lit]
 
     mode = "RGB"
     if has_alpha:
@@ -462,6 +513,15 @@ def process_image(image, args):
         color = np.concatenate([color, alpha_hi[..., None]], axis=-1)
         mode = "RGBA"
     result = to_image(rgb_hi, mode)
+    if args.indexed:
+        mixed = lit is not None and lit.any() and not lit.all()
+        result = to_indexed(result, 256 - ILLUM_RESERVED_COLORS if mixed else 256)
+        if mixed:
+            result = use_exact_lit_colors(result, rgb_hi, lit)
+        if original_value is not None:
+            result = fix_indexed_bloom(result, original_value, args.bloom_threshold)
+        if mixed:
+            result = separate_lit_colors(result, lit, args.bloom_threshold)
 
     if args.export_layers:
         exported["color"] = to_image(color, mode)
@@ -481,6 +541,10 @@ def process_image(image, args):
         exported["color_chroma"] = to_image(chroma, mode)
         exported["grime"] = to_image(grime, "RGB") if grime.shape[-1] == 3 else to_image(grime[..., 0], "L")
         exported["lines"] = to_image(lines, "L")
+        if shading_hi is not None:
+            # The shading that was removed, as a multiply factor: 0.5 is no change, darker
+            # is where the texture had painted shadows
+            exported["shading"] = to_image(0.5 * np.exp(shading_hi), "L")
     debug_layers = {
         "brightness": y,
         "base": base,
@@ -538,30 +602,238 @@ def make_palette(image, colors=256, iterations=15):
     return centers
 
 
-def to_indexed(image):
+# The engine makes the illuminated areas of a texture bloom when the brightest channel of
+# their color (HSV value) reaches 0.75 (fully at 0.85). See XwaD3dPixelShader.hlsl,
+# PixelShaderAnim.hlsl and PixelShaderAnimDAT.hlsl: smoothstep(0.75, 0.85, val).
+DEFAULT_BLOOM_THRESHOLD = 0.75
+# Distance kept below the threshold, so 8-bit rounding and the dithering of --indexed don't
+# push a pixel over it
+BLOOM_MARGIN = 3.0 / 255.0
+
+
+def keep_bloom_side(rgb, original_value, threshold):
     """
-    Converts an image to indexed color (a palette of up to 256 colors), with Floyd-Steinberg
-    dithering so smooth gradients don't band. Images with 256 colors or less keep their
-    exact colors. Opaque images use make_palette(); images with transparency use Pillow's
-    fast octree, the only one of its methods that keeps the alpha.
+    Keeps every pixel on the side of the bloom threshold it was on in the original texture,
+    comparing the brightest channel of each (original_value is that of the original). Pixels
+    that were below are capped a little under the threshold, so the processing doesn't make
+    them glow in game. Pixels that were above don't get darker than they were, so lights glow
+    as much as before. The whole color is scaled, so the hue doesn't change.
+    """
+    value = rgb.max(axis=-1)
+    cap = threshold - BLOOM_MARGIN
+    scale = np.ones_like(value)
+    below = (original_value < threshold) & (value > cap)
+    scale[below] = cap / value[below]
+    # A little above the threshold too, so they don't round to just under it in 8 bits
+    floor = np.maximum(original_value, threshold + BLOOM_MARGIN)
+    above = (original_value >= threshold) & (value < floor) & (value > 1e-4)
+    scale[above] = floor[above] / value[above]
+    return np.clip(rgb * scale[..., None], 0, 1)
+
+
+def fix_indexed_bloom(image, original_value, threshold):
+    """
+    After an image is indexed, its palette and dithering can move a pixel to the other side
+    of the bloom threshold. Those pixels get the closest palette color on the side they were
+    on in the original texture (with the same alpha, for images with transparency).
+    """
+    if image.mode != "P":
+        return image
+    rawmode = image.palette.mode if image.palette.mode in ("RGB", "RGBA") else "RGB"
+    channels = len(rawmode)
+    indices = np.asarray(image)
+    palette = np.asarray(image.getpalette(rawmode), dtype=np.float32).reshape(-1, channels) / 255.0
+    palette = palette[:max(int(indices.max()) + 1, 1)]
+    palette_value = palette[:, :3].max(axis=1)
+    current_value = palette_value[indices]
+    wrong_side = (original_value < threshold) != (current_value < threshold)
+    if channels == 4:
+        # Fully transparent pixels don't show
+        wrong_side &= palette[indices, 3] > 0
+    if not wrong_side.any():
+        return image
+    indices = indices.copy()
+    # The alpha weighs much more than the color, so the pixels keep their transparency
+    weights = np.array([1.0, 1.0, 1.0, 100.0][:channels], dtype=np.float32)
+    for below in (True, False):
+        pixels = wrong_side & ((original_value < threshold) == below)
+        allowed = np.nonzero((palette_value < threshold) == below)[0]
+        if not pixels.any() or len(allowed) == 0:
+            continue
+        _, nearest = cKDTree(palette[allowed] * weights).query(palette[indices[pixels]] * weights)
+        indices[pixels] = allowed[nearest]
+    fixed = Image.fromarray(indices.astype(np.uint8), "P")
+    fixed.putpalette(image.getpalette(rawmode), rawmode)
+    fixed.info = dict(image.info)
+    return fixed
+
+
+def to_indexed(image, colors=256):
+    """
+    Converts an image to indexed color (a palette of up to `colors` colors), with
+    Floyd-Steinberg dithering so smooth gradients don't band. Images with that many colors
+    or less keep their exact colors. Opaque images use make_palette(); images with
+    transparency use Pillow's fast octree, the only one of its methods that keeps the alpha.
     """
     if image.mode == "P":
         return image
     if image.mode in ("RGBA", "LA"):
         image = image.convert("RGBA")
         if image.getextrema()[3][0] < 255:
-            return image.quantize(colors=256, method=Image.Quantize.FASTOCTREE,
+            return image.quantize(colors=colors, method=Image.Quantize.FASTOCTREE,
                                   dither=Image.Dither.FLOYDSTEINBERG)
     image = image.convert("RGB")
-    colors = np.clip(np.round(make_palette(image)), 0, 255).astype(np.uint8)
+    # Few enough colors: each pixel gets its own color. (Pillow's quantize() isn't exact for
+    # them: it can map a pixel to a color a few levels away, even when its color is there.)
+    pixels = np.asarray(image, dtype=np.uint8).reshape(-1, 3)
+    unique, inverse = np.unique(pixels, axis=0, return_inverse=True)
+    if len(unique) <= colors:
+        exact = Image.fromarray(inverse.reshape(image.height, image.width).astype(np.uint8), "P")
+        exact.putpalette(unique.ravel().tolist())
+        return exact
+    palette_colors = np.clip(np.round(make_palette(image, colors)), 0, 255).astype(np.uint8)
     palette = Image.new("P", (1, 1))
-    palette.putpalette(colors.ravel().tolist())
+    palette.putpalette(palette_colors.ravel().tolist())
     return image.quantize(palette=palette, dither=Image.Dither.FLOYDSTEINBERG)
+
+
+# Palette entries left free in indexed textures that have lit and unlit pixels, for
+# separate_lit_colors()
+ILLUM_RESERVED_COLORS = 16
+
+
+def rgb565_keys(color):
+    """
+    The RGB565 colors that an 8-bit color can become in an 8-bit OPT palette, rounded down
+    and to the nearest.
+    """
+    r, g, b = (int(v) for v in color[:3])
+    return {(r >> 3, g >> 2, b >> 3), ((r * 31 + 127) // 255, (g * 63 + 127) // 255, (b * 31 + 127) // 255)}
+
+
+# Color offsets for separate_lit_colors(), closest first
+_NUDGES = sorted(((dr, dg, db) for dr in range(-16, 17) for dg in range(-8, 9) for db in range(-16, 17)
+                  if (dr, dg, db) != (0, 0, 0)), key=lambda d: d[0] ** 2 + d[1] ** 2 + d[2] ** 2)
+
+
+def separate_lit_colors(image, lit, bloom_threshold=0.0):
+    """
+    In an indexed texture, gives the lit pixels (the ones the illumination map lights)
+    colors that no unlit pixel has. The OPT library (XwaOptEditor, update_opt_textures.ps1)
+    makes illumination a property of the colors of an indexed image, as they are in the OPT
+    palette (RGB565): an unlit pixel with the same RGB565 color as a lit one is lit in game
+    too. So a palette entry that both use is duplicated for the lit pixels, and the unlit
+    colors that are the same as a lit one in RGB565 are moved to the closest color that
+    isn't, without crossing the bloom threshold. The lit colors don't change. Without a
+    free entry for a duplicate, those lit pixels get the closest lit color.
+    """
+    if image.mode != "P":
+        return image
+    rawmode = image.palette.mode if image.palette.mode in ("RGB", "RGBA") else "RGB"
+    channels = len(rawmode)
+    indices = np.asarray(image).copy()
+    palette = np.asarray(image.getpalette(rawmode), dtype=np.int32).reshape(-1, channels)
+    palette = [tuple(int(v) for v in c) for c in palette[:int(indices.max()) + 1]]
+    unlit_entries = set(np.unique(indices[~lit]).tolist())
+    lit_entries = set(np.unique(indices[lit]).tolist())
+
+    # Entries that both use: the lit pixels get a copy of it
+    leftover = []
+    for entry in sorted(lit_entries & unlit_entries):
+        if len(palette) < 256:
+            palette.append(palette[entry])
+            indices[lit & (indices == entry)] = len(palette) - 1
+            lit_entries.add(len(palette) - 1)
+        else:
+            leftover.append(entry)
+        lit_entries.discard(entry)
+    if leftover:
+        lit_only = sorted(lit_entries)
+        if lit_only:
+            tree = cKDTree(np.array([palette[i] for i in lit_only], dtype=np.float32))
+            for entry in leftover:
+                _, nearest = tree.query(np.array(palette[entry], dtype=np.float32))
+                indices[lit & (indices == entry)] = lit_only[nearest]
+
+    lit_keys = set()
+    for i in lit_entries:
+        lit_keys |= rgb565_keys(palette[i])
+
+    def same_bloom_side(a, b):
+        if bloom_threshold <= 0:
+            return True
+        return (max(a[:3]) < 255 * bloom_threshold) == (max(b[:3]) < 255 * bloom_threshold)
+
+    # Unlit colors that are the same as a lit one in RGB565: moved
+    for entry in unlit_entries:
+        if not (rgb565_keys(palette[entry]) & lit_keys):
+            continue
+        color = palette[entry]
+        for step in _NUDGES:
+            c = tuple(min(max(color[k] + step[k], 0), 255) for k in range(3))
+            if not (rgb565_keys(c) & lit_keys) and same_bloom_side(c, color):
+                palette[entry] = c + tuple(color[3:])
+                break
+    fixed = Image.fromarray(indices.astype(np.uint8), "P")
+    fixed.putpalette([v for c in palette for v in c], rawmode)
+    fixed.info = dict(image.info)
+    return fixed
+
+
+def use_exact_lit_colors(image, rgb, lit):
+    """
+    Gives the lit pixels of an indexed texture their exact colors (from rgb, the image
+    before indexing, 0..1), as palette entries of their own, when there are few of them
+    (lights are usually painted with a few flat colors). Otherwise they keep the colors
+    the palette and the dithering gave them.
+    """
+    if image.mode != "P":
+        return image
+    rawmode = image.palette.mode if image.palette.mode in ("RGB", "RGBA") else "RGB"
+    channels = len(rawmode)
+    indices = np.asarray(image).copy()
+    palette = np.asarray(image.getpalette(rawmode), dtype=np.int32).reshape(-1, channels)
+    palette = palette[:int(indices.max()) + 1]
+    pixels = (np.clip(rgb[lit], 0, 1) * 255 + 0.5).astype(np.int32)
+    if pixels.shape[1] < channels:
+        pixels = np.concatenate([pixels, np.full((len(pixels), channels - pixels.shape[1]), 255, np.int32)], axis=1)
+    pixels = pixels[:, :channels]
+    colors, inverse = np.unique(pixels, axis=0, return_inverse=True)
+    if len(palette) + len(colors) > 256:
+        return image
+    indices[lit] = len(palette) + inverse.ravel()
+    fixed = Image.fromarray(indices.astype(np.uint8), "P")
+    fixed.putpalette(np.concatenate([palette, colors]).ravel().tolist(), rawmode)
+    fixed.info = dict(image.info)
+    return fixed
+
+
+def read_lit_mask(illum_path, args):
+    """
+    The pixels that an illumination map lights, at the output size: the ones that aren't
+    black in the map this script writes for it.
+    """
+    with Image.open(illum_path) as illum:
+        illum.load()
+        illum = resize_map(illum, args.scale)
+    if args.indexed:
+        illum = to_indexed(illum)
+    return np.asarray(illum.convert("RGB")).max(axis=-1) > 0
 
 
 def save_layer(channel, path, scale_to_max=False):
     data = channel / max(channel.max(), 1e-6) if scale_to_max else channel
     Image.fromarray((np.clip(data, 0, 1) * 255 + 0.5).astype(np.uint8), "L").save(path)
+
+
+def find_illum_map(path):
+    """The NAME_illum image next to the texture NAME, or None."""
+    folder, name = os.path.split(path)
+    wanted = os.path.splitext(name)[0].lower() + "_illum"
+    for other in sorted(os.listdir(folder or ".")):
+        if os.path.splitext(other)[0].lower() == wanted:
+            return os.path.join(folder, other)
+    return None
 
 
 def find_images(inputs, extensions, recursive):
@@ -611,9 +883,15 @@ def process_batch(images, output_root, args, counts):
                 if is_texture_map(path):
                     result, exported, layers = resize_map(image, args.scale), {}, None
                 else:
-                    result, exported, layers = process_image(image, args)
+                    lit = None
+                    illum_path = find_illum_map(path)
+                    if illum_path:
+                        lit = read_lit_mask(illum_path, args)
+                    result, exported, layers = process_image(image, args, lit)
             os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
-            if args.indexed:
+            # process_image() indexes the textures itself; the alpha and illumination maps are
+            # indexed here
+            if args.indexed and is_texture_map(path):
                 result = to_indexed(result)
             result.save(out_path)
             stem = os.path.splitext(out_path)[0]
@@ -785,6 +1063,21 @@ def main():
                             help="Brightness of the %s layer (default: 0)" % name)
         layers.add_argument("--%s-contrast" % name, type=float, default=1.0, metavar="C",
                             help="Contrast of the %s layer (default: 1)" % name)
+    layers.add_argument("--bloom-threshold", type=float, default=DEFAULT_BLOOM_THRESHOLD, metavar="T",
+                        help="The engine makes the illuminated areas of a texture bloom when the brightest of "
+                             "their R, G and B reaches this value (0..1). Every pixel of the result is kept on the "
+                             "side of it that it was on in the original texture, so brightening a texture doesn't "
+                             "make new areas glow, and lights still glow. 0 turns it off (default: %(default)s)")
+    layers.add_argument("--flatten-shading", type=float, default=0.0, metavar="S",
+                        help="Removes the shading painted into the texture (baked ambient occlusion, light "
+                             "gradients) from the color layer, so the engine's lighting and ambient occlusion "
+                             "don't darken the same places twice. 1 removes all of it, 0.5 half, 0 nothing. "
+                             "Markings and panels keep their own brightness, and the fine detail is kept "
+                             "(default: %(default)s)")
+    layers.add_argument("--flatten-threshold", type=float, default=0.02, metavar="T",
+                        help="For --flatten-shading: how sharp a change in brightness must be (relative change "
+                             "per pixel of the original image) to count as paint instead of shading. Higher "
+                             "values also flatten softer paint edges (default: %(default)s)")
     layers.add_argument("--grime-color", default="1,1,1", metavar="R,G,B",
                         help="Color of the dirt, 0..1 per channel: the grime darkens toward it instead of "
                              "toward gray, with the same brightness. For instance 0.6,0.45,0.3 for brown. "

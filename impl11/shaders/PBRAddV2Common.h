@@ -23,6 +23,8 @@
  *   the SSDO input of the legacy shading, which this pass doesn't use. An optional coarse
  *   pass (pbr_gtao_coarse*) adds the broad occlusion of large structures. Multi-bounce AO
  *   (pbr_gtao_multibounce, Ctrl+Alt+U) lightens it on bright surfaces, see GTAOMultiBounce().
+ *   The laser and explosion lights, which have no shadows, are faded by the directions GTAO
+ *   found blocked (pbr_gtao_light_occlusion), see the visibility cone below.
  * The shadows, the material heuristics and the composition with the background and the
  * transparent layers are the same as in PBRAddCommon.h.
  */
@@ -720,11 +722,25 @@ PixelShaderOutput main(PixelShaderInput input)
 	// Apply the shadeless mask: shadeless surfaces show their own color
 	tmp_color = lerp(tmp_color, color, shadeless);
 
-	// Add the laser/dynamic lights. This is the same as in PBRAddCommon.h
+	// Add the laser/dynamic lights. This is the same as in PBRAddCommon.h, plus the GTAO
+	// occlusion below.
 #define L_FADEOUT_A_0 30.0
 #define L_FADEOUT_A_1 50.0
 #define L_FADEOUT_B_0 50.0
 #define L_FADEOUT_B_1 1000.0
+	// These lights have no shadows, so GTAO occludes them (pbr_gtao_light_occlusion): a
+	// laser going by doesn't light the inside of a trench or the far side of a greeble.
+	// GTAO gives each pixel a visibility cone, the directions it sees open space through
+	// (Jimenez et al. 2016): the bent normal is its axis, and its half angle comes from the
+	// AO, cos = sqrt(1 - AO) (no occlusion: the whole hemisphere). A light inside the cone
+	// isn't occluded, and it fades out past the cone's edge. GTAO doesn't know how far the
+	// occluders are, so a light closer than them is occluded too, but it only finds
+	// occluders within its radius.
+#define LIGHT_CONE_SOFTNESS 0.3 // Width of the fade past the cone's edge, in cosine
+	const float lightOcclusion = bGTAO ? gtao_light_occlusion : 0.0;
+	// The bent normal is Z+ away from the camera; N and L below are Z+ towards it
+	const float3 lightConeAxis = normalize(float3(gtao.x, gtao.y, -gtao.z));
+	const float lightConeCos = sqrt(saturate(1.0 - ao));
 	float3 laser_light_sum = 0.0;
 	[loop]
 	for (i = 0; i < num_lasers; i++)
@@ -763,7 +779,10 @@ PixelShaderOutput main(PixelShaderInput input)
 		}
 		// compute the diffuse contribution
 		const float diff_val = max(dot(N, L), 0.0);
-		laser_light_sum += depth_attenuation * attenuation * angle_attenuation * diff_val * LightPointColor[i].rgb;
+		// GTAO occlusion: 1 inside the visibility cone, fading to 0 past its edge
+		const float coneVisibility = smoothstep(lightConeCos - LIGHT_CONE_SOFTNESS, lightConeCos, dot(lightConeAxis, L));
+		const float occlusion = lerp(1.0, coneVisibility, lightOcclusion);
+		laser_light_sum += occlusion * depth_attenuation * attenuation * angle_attenuation * diff_val * LightPointColor[i].rgb;
 	}
 	tmp_color += laser_light_intensity * laser_light_sum;
 

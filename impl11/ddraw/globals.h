@@ -137,6 +137,8 @@ extern int g_iGTAODebug;
 // Ctrl+Alt+U toggles g_bGTAOMultiBounce.
 extern bool g_bGTAOMultiBounce;
 extern float g_fGTAOMultiBounce;
+// pbr_gtao_light_occlusion: how much GTAO occludes the laser/dynamic lights (0-1, 0 is off)
+extern float g_fGTAOLightOcclusion;
 // pbr_gtao_gpu_timer: log the GPU time of the PBR lighting and GTAO passes ([DBG] [GTAO])
 extern bool g_bGTAOGPUTimer;
 // Color grading in the PBR shading (pbr_grade_*)

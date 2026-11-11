@@ -2307,12 +2307,155 @@ std::vector<std::wstring> ListFiles(std::string path)
 	return result;
 }
 
+/// <summary>
+/// Projects a cubemap's light onto 9 spherical-harmonic coefficients (RGB, linear), for the
+/// ambient light of the new PBR shading. The coefficients are already convolved with the
+/// cosine lobe and divided by PI (Ramamoorthi & Hanrahan, "An Efficient Representation for
+/// Irradiance Environment Maps", 2001), so evaluating them with a normal gives the average
+/// light that a surface facing that way receives from the whole sky: the same units as
+/// the sky's colors. It reads back a small mip (64x64 per face at most); the files are in
+/// sRGB, so the texels are converted to linear. sh[0][3] is set to 1 when it succeeds.
+/// </summary>
+static bool ComputeCubeMapSH(ID3D11Device* device, ID3D11DeviceContext* context,
+	ID3D11Texture2D* cube, float sh[9][4])
+{
+	memset(sh, 0, sizeof(float) * 9 * 4);
+	D3D11_TEXTURE2D_DESC desc;
+	cube->GetDesc(&desc);
+	if (desc.ArraySize != 6)
+		return false;
+
+	bool bgr;
+	switch (desc.Format)
+	{
+	case DXGI_FORMAT_R8G8B8A8_UNORM:
+	case DXGI_FORMAT_R8G8B8A8_UNORM_SRGB:
+		bgr = false;
+		break;
+	case DXGI_FORMAT_B8G8R8A8_UNORM:
+	case DXGI_FORMAT_B8G8R8A8_UNORM_SRGB:
+	case DXGI_FORMAT_B8G8R8X8_UNORM:
+	case DXGI_FORMAT_B8G8R8X8_UNORM_SRGB:
+		bgr = true;
+		break;
+	default:
+		log_debug("[DBG] [CUBE] SH: unsupported cubemap format %d, the ambient uses the cubemap's mips", desc.Format);
+		return false;
+	}
+
+	// The largest mip that's 64x64 or smaller
+	UINT mip = 0, size = desc.Width;
+	while (size > 64 && mip + 1 < desc.MipLevels)
+	{
+		size = max(1u, size / 2);
+		mip++;
+	}
+
+	D3D11_TEXTURE2D_DESC stagingDesc = {};
+	stagingDesc.Width = size;
+	stagingDesc.Height = size;
+	stagingDesc.MipLevels = 1;
+	stagingDesc.ArraySize = 6;
+	stagingDesc.Format = desc.Format;
+	stagingDesc.SampleDesc.Count = 1;
+	stagingDesc.Usage = D3D11_USAGE_STAGING;
+	stagingDesc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+	ComPtr<ID3D11Texture2D> staging;
+	if (FAILED(device->CreateTexture2D(&stagingDesc, nullptr, &staging)))
+		return false;
+	for (UINT face = 0; face < 6; face++)
+		context->CopySubresourceRegion(staging.Get(), D3D11CalcSubresource(0, face, 1), 0, 0, 0,
+			cube, D3D11CalcSubresource(mip, face, desc.MipLevels), nullptr);
+
+	float toLinear[256];
+	for (int i = 0; i < 256; i++)
+	{
+		const float c = i / 255.0f;
+		toLinear[i] = c <= 0.04045f ? c / 12.92f : powf((c + 0.055f) / 1.055f, 2.4f);
+	}
+
+	// Band factors of the cosine lobe, divided by PI: PI, 2PI/3, PI/4
+	const float band[9] = { 1.0f, 2.0f / 3.0f, 2.0f / 3.0f, 2.0f / 3.0f, 0.25f, 0.25f, 0.25f, 0.25f, 0.25f };
+	double acc[9][3] = {};
+	double weightSum = 0;
+	for (UINT face = 0; face < 6; face++)
+	{
+		D3D11_MAPPED_SUBRESOURCE map;
+		if (FAILED(context->Map(staging.Get(), D3D11CalcSubresource(0, face, 1), D3D11_MAP_READ, 0, &map)))
+			return false;
+		for (UINT j = 0; j < size; j++)
+		{
+			const uint8_t* row = (const uint8_t*)map.pData + j * map.RowPitch;
+			const float v = 2.0f * (j + 0.5f) / size - 1.0f;
+			for (UINT i = 0; i < size; i++)
+			{
+				const float u = 2.0f * (i + 0.5f) / size - 1.0f;
+				// The direction of this texel, in the D3D cubemap convention (the faces are
+				// +X, -X, +Y, -Y, +Z, -Z; see the order of the files in LoadCubeMap)
+				float x, y, z;
+				switch (face)
+				{
+				case 0:  x =  1; y = -v; z = -u; break;
+				case 1:  x = -1; y = -v; z =  u; break;
+				case 2:  x =  u; y =  1; z =  v; break;
+				case 3:  x =  u; y = -1; z = -v; break;
+				case 4:  x =  u; y = -v; z =  1; break;
+				default: x = -u; y = -v; z = -1; break;
+				}
+				const float len2 = x * x + y * y + z * z;
+				const float invLen = 1.0f / sqrtf(len2);
+				x *= invLen; y *= invLen; z *= invLen;
+				// The texel's solid angle, up to a constant
+				const float weight = 1.0f / (len2 * sqrtf(len2));
+
+				const uint8_t* texel = row + i * 4;
+				const float r = toLinear[texel[bgr ? 2 : 0]];
+				const float g = toLinear[texel[1]];
+				const float b = toLinear[texel[bgr ? 0 : 2]];
+
+				const float Y[9] = {
+					0.282095f,
+					0.488603f * y, 0.488603f * z, 0.488603f * x,
+					1.092548f * x * y, 1.092548f * y * z, 0.315392f * (3.0f * z * z - 1.0f),
+					1.092548f * x * z, 0.546274f * (x * x - y * y),
+				};
+				for (int k = 0; k < 9; k++)
+				{
+					acc[k][0] += r * Y[k] * weight;
+					acc[k][1] += g * Y[k] * weight;
+					acc[k][2] += b * Y[k] * weight;
+				}
+				weightSum += weight;
+			}
+		}
+		context->Unmap(staging.Get(), D3D11CalcSubresource(0, face, 1));
+	}
+
+	// The weights add up to the whole sphere, 4 PI
+	const double norm = 4.0 * 3.14159265358979 / weightSum;
+	for (int k = 0; k < 9; k++)
+		for (int c = 0; c < 3; c++)
+			sh[k][c] = (float)(acc[k][c] * norm * band[k]);
+	sh[0][3] = 1.0f;
+	log_debug("[DBG] [CUBE] SH from mip %d (%dx%d): average light %0.3f, %0.3f, %0.3f",
+		mip, size, size, sh[0][0] * 0.282095f, sh[0][1] * 0.282095f, sh[0][2] * 0.282095f);
+	return true;
+}
+
+/// <summary>
+/// Loads the 6 faces of a cubemap from path. When sh_out isn't null, it also gets the
+/// cubemap's spherical-harmonic irradiance (see ComputeCubeMapSH()).
+/// </summary>
 bool LoadCubeMap(const std::string path,
 	const float mipResolution, float* texResolution,
 	ID3D11Texture2D** cubeTexture,
 	ID3D11ShaderResourceView** cubeTextureSRV,
-	float *diffuseMipLevel_out)
+	float *diffuseMipLevel_out,
+	float (*sh_out)[4] = nullptr)
 {
+	if (sh_out != nullptr)
+		sh_out[0][3] = 0.0f;
+
 	HRESULT res = S_OK;
 	auto& resources = g_deviceResources;
 	auto& device    = g_deviceResources->_d3dDevice;
@@ -2452,6 +2595,8 @@ bool LoadCubeMap(const std::string path,
 
 	context->GenerateMips(*cubeTextureSRV);
 	//DirectX::SaveDDSTextureToFile(context, *cubeTexture, L"C:\\Temp\\_cubeTexture.dds");
+	if (sh_out != nullptr)
+		ComputeCubeMapSH(device, context, *cubeTexture, sh_out);
 	return true;
 }
 
@@ -2656,12 +2801,14 @@ void LoadMissionCubeMaps()
 		if (allRegionsPath.size() > 0)
 			g_CubeMaps.bRenderAllRegions = LoadCubeMap(allRegionsPath,
 				g_CubeMaps.allRegionsMipRes, &g_CubeMaps.allRegionsTexRes,
-				&allRegionsCubeTexture, &g_CubeMaps.allRegionsSRV, &g_CubeMaps.allRegionsDiffuseMipLevel);
+				&allRegionsCubeTexture, &g_CubeMaps.allRegionsSRV, &g_CubeMaps.allRegionsDiffuseMipLevel,
+				g_CubeMaps.allRegionsSH);
 
 		if (allRegionsIllumPath.size() > 0)
 			g_CubeMaps.bAllRegionsIllum = LoadCubeMap(allRegionsIllumPath,
 				g_CubeMaps.allRegionsIllumMipRes, &g_CubeMaps.allRegionsIllumTexRes,
-				&allRegionsIllumCubeTexture, &g_CubeMaps.allRegionsIllumSRV, &g_CubeMaps.allRegionsIllumDiffuseMipLevel);
+				&allRegionsIllumCubeTexture, &g_CubeMaps.allRegionsIllumSRV, &g_CubeMaps.allRegionsIllumDiffuseMipLevel,
+				g_CubeMaps.allRegionsIllumSH);
 
 		float dummy1, dummy2;
 		if (allRegionsOvrPath.size() > 0)
@@ -2673,12 +2820,14 @@ void LoadMissionCubeMaps()
 			if (regionPath[i].size() > 0)
 				g_CubeMaps.bRenderInThisRegion[i] = LoadCubeMap(regionPath[i],
 					g_CubeMaps.regionMipRes[i], &(g_CubeMaps.regionTexRes[i]),
-					&cubeTextures[i], &g_CubeMaps.regionSRV[i], &g_CubeMaps.regionDiffuseMipLevel[i]);
+					&cubeTextures[i], &g_CubeMaps.regionSRV[i], &g_CubeMaps.regionDiffuseMipLevel[i],
+					g_CubeMaps.regionSH[i]);
 
 			if (regionIllumPath[i].size() > 0)
 				g_CubeMaps.bRenderIllumInThisRegion[i] = LoadCubeMap(regionIllumPath[i],
 					g_CubeMaps.regionIllumMipRes[i], &(g_CubeMaps.regionIllumTexRes[i]),
-					&cubeTexturesIllum[i], &g_CubeMaps.regionIllumSRV[i], &g_CubeMaps.regionIllumDiffuseMipLevel[i]);
+					&cubeTexturesIllum[i], &g_CubeMaps.regionIllumSRV[i], &g_CubeMaps.regionIllumDiffuseMipLevel[i],
+					g_CubeMaps.regionIllumSH[i]);
 
 			if (regionIllumPath[i].size() > 0)
 				g_CubeMaps.bRenderOvrInThisRegion[i] = LoadCubeMap(regionOvrPath[i], 1024, &dummy1,

@@ -4032,6 +4032,23 @@ void PrimarySurface::DeferredPass()
 	g_SSAO_PSCBuffer.cubeMapMipLevel    = cubeMapMipLevel;
 	resources->InitPSConstantBufferSSAO(resources->_ssaoConstantBuffer.GetAddressOf(), &g_SSAO_PSCBuffer);
 
+	// The new PBR shading takes the cubemap's ambient light from its spherical-harmonic
+	// irradiance: the one of the cubemap whose ambient it would sample (the _illum one when
+	// there's one), picked like cubeMapMipLevel above.
+	if (IsPBRShadingV2Active())
+	{
+		const float (*sh)[4] = g_CubeMaps.allRegionsSH;
+		if (g_CubeMaps.bAllRegionsIllum) sh = g_CubeMaps.allRegionsIllumSH;
+		if (renderCubeMapInThisRegion)
+		{
+			sh = g_CubeMaps.regionSH[region];
+			if (renderIllumCubeMapInThisRegion) sh = g_CubeMaps.regionIllumSH[region];
+		}
+		memcpy(g_ShadingSys_PSBuffer.env_sh, sh, sizeof(g_ShadingSys_PSBuffer.env_sh));
+		g_ShadingSys_PSBuffer.env_sh_valid = (cubeMappingEnabled && sh[0][3] > 0.5f) ? 1.0f : 0.0f;
+		resources->InitPSConstantShadingSystem(resources->_shadingSysBuffer.GetAddressOf(), &g_ShadingSys_PSBuffer);
+	}
+
 	// Set the layout
 	context->IASetInputLayout(resources->_mainInputLayout);
 	resources->InitVertexShader(g_bUseSteamVR ? resources->_mainVertexShaderVR : resources->_mainVertexShader);

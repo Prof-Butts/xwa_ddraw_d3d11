@@ -419,8 +419,12 @@ typedef struct PSShadingSystemCBStruct {
 	float env_ambient_mult;      // pbr_cubemap_ambient: multiplies the cubemap's ambient light (AmbientInt)
 	float env_specular_mult;     // pbr_cubemap_specular: multiplies the cubemap's reflections (Specular)
 	float env_debug;             // pbr_cubemap_debug: 0 off, 1 reflected sky, 2 reflections, 3 ambient
-	float unused_ss4;
+	float env_sh_valid;          // 1 when env_sh holds the cubemap's irradiance
 	// 1216 bytes
+	// The cubemap's irradiance as 9 spherical-harmonic coefficients (rgb, linear), already
+	// convolved with the cosine lobe and divided by PI. See ComputeCubeMapSH().
+	float env_sh[9][4];
+	// 1360 bytes
 } PSShadingSystemCB;
 
 // The settings of the GTAO passes (ssao_type = PBR). See GTAOCBuffer.h.

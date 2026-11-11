@@ -5081,8 +5081,8 @@ HRESULT DeviceResources::LoadResources()
 	if (FAILED(hr = this->_d3dDevice->CreateBuffer(&constantBufferDesc, nullptr, &this->_ssaoConstantBuffer)))
 		return hr;
 
-	constantBufferDesc.ByteWidth = 1216;
-	static_assert(sizeof(PSShadingSystemCB) == 1216, "sizeof(PSShadingSystemCB) must be 1216");
+	constantBufferDesc.ByteWidth = 1360;
+	static_assert(sizeof(PSShadingSystemCB) == 1360, "sizeof(PSShadingSystemCB) must be 1360");
 	if (FAILED(hr = this->_d3dDevice->CreateBuffer(&constantBufferDesc, nullptr, &this->_shadingSysBuffer)))
 		return hr;
 

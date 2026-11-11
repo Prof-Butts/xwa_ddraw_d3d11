@@ -530,6 +530,14 @@ struct CubeMapData
 	ID3D11ShaderResourceView* regionIllumSRV[MAX_MISSION_REGIONS] = { nullptr, nullptr, nullptr, nullptr };
 	ID3D11ShaderResourceView* regionOvrSRV[MAX_MISSION_REGIONS] = { nullptr, nullptr, nullptr, nullptr };
 
+	// The irradiance of each cubemap as 9 spherical-harmonic coefficients (RGB, linear),
+	// for the ambient light of the new PBR shading. See ComputeCubeMapSH(). [0][3] is 1 when
+	// they're valid.
+	float allRegionsSH[9][4] = {};
+	float allRegionsIllumSH[9][4] = {};
+	float regionSH[MAX_MISSION_REGIONS][9][4] = {};
+	float regionIllumSH[MAX_MISSION_REGIONS][9][4] = {};
+
 	// Live edit mode variables
 	CubeMapEditMode editMode = CubeMapEditMode::DISABLED;
 	bool editParamsModified = false;

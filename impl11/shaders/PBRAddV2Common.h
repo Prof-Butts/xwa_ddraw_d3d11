@@ -354,6 +354,25 @@ float3 GTAOMultiBounce(float ao, float3 albedo)
 	return max(ao, ((ao * a + b) * ao + c) * ao);
 }
 
+// The cubemap's irradiance in direction d (unit, in the cubemap's space): its 9
+// spherical-harmonic coefficients (env_sh) evaluated in that direction. It's the average
+// light a surface facing d receives from the whole sky, already weighted by the cosine,
+// in the same units as the sky's colors. Skies with very bright spots can make it ring
+// slightly below 0 on the opposite side, so it's clamped.
+float3 EvalEnvSH(float3 d)
+{
+	float3 result = env_sh[0].rgb * 0.282095;
+	result += env_sh[1].rgb * (0.488603 * d.y);
+	result += env_sh[2].rgb * (0.488603 * d.z);
+	result += env_sh[3].rgb * (0.488603 * d.x);
+	result += env_sh[4].rgb * (1.092548 * d.x * d.y);
+	result += env_sh[5].rgb * (1.092548 * d.y * d.z);
+	result += env_sh[6].rgb * (0.315392 * (3.0 * d.z * d.z - 1.0));
+	result += env_sh[7].rgb * (1.092548 * d.x * d.z);
+	result += env_sh[8].rgb * (0.546274 * (d.x * d.x - d.y * d.y));
+	return max(result, 0.0);
+}
+
 // The AO of the diffuse ambient light: GTAO with multi-bounce (gtao_multibounce = 0 is plain
 // GTAO). It's applied to the combined AO of both passes: it's a function of all the
 // occlusion around a point, and applying it to each pass separately would lighten crevices
@@ -664,9 +683,11 @@ PixelShaderOutput main(PixelShaderInput input)
 	// Sample the cubemaps: their ambient light and their reflections. The cubemaps are in
 	// sRGB (their files have no color profile, so they're loaded as UNORM), and lighting is
 	// done in linear space, so they're converted like the textures.
-	// - Ambient: in the direction of the bent normal (Z+ away from the camera, like
-	//   skyBoxReflected), at the mission's diffuse mip level (MipRes, about 16x16 per face).
-	//   When there's an _illum cubemap (a low-res version made for lighting), it's used here.
+	// - Ambient: the cubemap's irradiance in the direction of the bent normal (Z+ away from
+	//   the camera, like skyBoxReflected): the light from the whole sky, weighted by the
+	//   cosine, from its spherical harmonics (EvalEnvSH). When there's an _illum cubemap (a
+	//   low-res version made for lighting), its irradiance is used. If the harmonics aren't
+	//   available, the cubemap is sampled at the mission's diffuse mip level (MipRes).
 	// - Reflections: always the main cubemap, at the mip level that matches the roughness, so
 	//   glossy surfaces reflect a sharp image and rough ones a blurry one. The mips are a box
 	//   filter of the full image, so the mip whose texels are as wide as the GGX lobe is
@@ -688,7 +709,9 @@ PixelShaderOutput main(PixelShaderInput input)
 		const float screenMip = min(reflScreenMip, maxMip - 5.0); // At most 32x32 per face
 		const float reflMip = clamp(max(roughnessMip, screenMip), 0.0, maxMip);
 		skyBoxReflCol = SRGBToLinear(skybox.SampleLevel(sampColor, skyBoxReflected, reflMip).rgb);
-		if (cubeMappingEnabled == 2)
+		if (env_sh_valid > 0.5)
+			skyBoxNormalCol = EvalEnvSH(normalize(skyBoxNormal));
+		else if (cubeMappingEnabled == 2)
 			skyBoxNormalCol = SRGBToLinear(illumSkybox.SampleLevel(sampColor, skyBoxNormal, cubeMapMipLevel).rgb);
 		else
 			skyBoxNormalCol = SRGBToLinear(skybox.SampleLevel(sampColor, skyBoxNormal, cubeMapMipLevel).rgb);

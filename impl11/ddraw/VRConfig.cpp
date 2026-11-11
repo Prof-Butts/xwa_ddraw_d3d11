@@ -230,6 +230,9 @@ int g_iGTAOCoarseSlices = 4, g_iGTAOCoarseSteps = 8;
 float g_fGTAOAngleBias = 2.0f, g_fGTAOCoarseAngleBias = 4.0f;
 float g_fGTAOHeightBias = 1.0f;
 int g_iGTAODebug = 0;
+// Multi-bounce AO: lightens the AO on bright surfaces (light bouncing inside the crevices)
+bool g_bGTAOMultiBounce = true;
+float g_fGTAOMultiBounce = 1.0f;
 // Color grading in the new PBR shading: contrast, saturation and the tints of the dark and
 // bright tones. The defaults don't change anything. See ApplyColorGrade() in PBRShadingV2.h.
 float g_fPBRGradeContrast = 1.0f, g_fPBRGradeSaturation = 1.0f;
@@ -2328,6 +2331,8 @@ bool LoadSSAOParams() {
 	g_fGTAOCoarseAngleBias = 4.0f;
 	g_fGTAOHeightBias = 1.0f;
 	g_iGTAODebug = 0;
+	g_bGTAOMultiBounce = true;
+	g_fGTAOMultiBounce = 1.0f;
 	g_fPBRGradeContrast = 1.0f;
 	g_fPBRGradeSaturation = 1.0f;
 	g_PBRGradeShadows = Vector3(1.0f, 1.0f, 1.0f);
@@ -2541,6 +2546,12 @@ bool LoadSSAOParams() {
 			}
 			else if (_stricmp(param, "pbr_gtao_coarse_angle_bias") == 0) {
 				g_fGTAOCoarseAngleBias = max(0.0f, min(30.0f, fValue));
+			}
+			else if (_stricmp(param, "pbr_gtao_multibounce_enabled") == 0) {
+				g_bGTAOMultiBounce = (bool)fValue;
+			}
+			else if (_stricmp(param, "pbr_gtao_multibounce") == 0) {
+				g_fGTAOMultiBounce = max(0.0f, min(1.0f, fValue));
 			}
 			else if (_stricmp(param, "pbr_gtao_height_bias") == 0) {
 				g_fGTAOHeightBias = max(0.0f, min(16.0f, fValue));

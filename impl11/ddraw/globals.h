@@ -133,6 +133,10 @@ extern float g_fGTAOAngleBias, g_fGTAOCoarseAngleBias;
 extern float g_fGTAOHeightBias;
 // pbr_gtao_debug: shows the AO instead of the shading. 1 fine, 2 coarse, 3 both, 4 bent normal
 extern int g_iGTAODebug;
+// pbr_gtao_multibounce_enabled, pbr_gtao_multibounce: multi-bounce AO and its strength.
+// Ctrl+Alt+U toggles g_bGTAOMultiBounce.
+extern bool g_bGTAOMultiBounce;
+extern float g_fGTAOMultiBounce;
 // pbr_gtao_gpu_timer: log the GPU time of the PBR lighting and GTAO passes ([DBG] [GTAO])
 extern bool g_bGTAOGPUTimer;
 // Color grading in the PBR shading (pbr_grade_*)

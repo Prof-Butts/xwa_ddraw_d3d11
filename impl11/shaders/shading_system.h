@@ -55,4 +55,9 @@ cbuffer ConstantBuffer : register(b4)
 	float gtao_light_occlusion; // GTAO occlusion of the laser/dynamic lights (pbr_gtao_light_occlusion)
 	float unused_ss3;
 	// 1200 bytes
+	float env_ambient_mult;   // pbr_cubemap_ambient: multiplies the cubemap's ambient light (AmbientInt)
+	float env_specular_mult;  // pbr_cubemap_specular: multiplies the cubemap's reflections (Specular)
+	float env_debug;          // pbr_cubemap_debug: 0 off, 1 reflected sky, 2 reflections, 3 ambient
+	float unused_ss4;
+	// 1216 bytes
 };

@@ -2986,6 +2986,10 @@ void SetLights(DeviceResources *resources, float fSSDOEnabled) {
 	g_ShadingSys_PSBuffer.gtao_debug = (float)g_iGTAODebug;
 	g_ShadingSys_PSBuffer.gtao_multibounce = g_bGTAOMultiBounce ? g_fGTAOMultiBounce : 0.0f;
 	g_ShadingSys_PSBuffer.gtao_light_occlusion = g_fGTAOLightOcclusion;
+	// The cubemap's ambient light and reflections (only the new PBR shading reads them)
+	g_ShadingSys_PSBuffer.env_ambient_mult = g_fPBRCubeMapAmbient;
+	g_ShadingSys_PSBuffer.env_specular_mult = g_fPBRCubeMapSpecular;
+	g_ShadingSys_PSBuffer.env_debug = (float)g_iPBRCubeMapDebug;
 	// Color grading (only the PBR shading reads it)
 	g_ShadingSys_PSBuffer.grade_contrast = g_fPBRGradeContrast;
 	g_ShadingSys_PSBuffer.grade_saturation = g_fPBRGradeSaturation;

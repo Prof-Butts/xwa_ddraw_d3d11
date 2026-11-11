@@ -17,7 +17,10 @@
  *   the ambient light.
  * - pbr_ambient is always the base ambient light. A cubemap adds its own light on top
  *   (AmbientInt) and its reflections (Specular), instead of replacing the ambient and
- *   tinting the lights. pbr_ambient_color tints the base ambient and the cubemap's.
+ *   tinting the lights. pbr_ambient_color tints the base ambient and the cubemap's. The
+ *   cubemap is converted to linear like the textures, its reflections get sharper on
+ *   glossy surfaces (the mip comes from the roughness), and pbr_cubemap_ambient and
+ *   pbr_cubemap_specular scale both. See "Sample the cubemaps" below.
  * - An optional color grading step (pbr_grade_*) on the final colors of the lit surfaces.
  * - GTAO (pbr_gtao_*): ambient occlusion and bent normals for the ambient light. It replaces
  *   the SSDO input of the legacy shading, which this pass doesn't use. An optional coarse
@@ -453,6 +456,14 @@ PixelShaderOutput main(PixelShaderInput input)
 	const float3 P = pos3D.xyz;
 	pos3D.z = -pos3D.z;
 
+	// The direction reflected towards the cubemap (Z+ away from the camera, then in the
+	// cubemap's space), and the mip level that the screen can resolve for it: on curved
+	// surfaces it changes fast from pixel to pixel, and the sharp mips would shimmer. It's
+	// computed here, before any pixel can return early, because it uses screen derivatives.
+	const float3 skyBoxReflected = mul(viewMat, float4(reflect(normalize(P),
+		normalize(float3(Normal.x, Normal.y, -Normal.z))), 0)).xyz;
+	const float reflScreenMip = skybox.CalculateLevelOfDetail(sampColor, skyBoxReflected);
+
 	if (shadeless >= 1.0)
 	{
 		output.color = float4(lerp(background, color, blendAlpha), 1);
@@ -650,28 +661,37 @@ PixelShaderOutput main(PixelShaderInput input)
 	const float3 V_PBR = normalize(P);
 	const float dotNV = saturate(dot(N_PBR, V_PBR));
 
-	// Sample the cubemaps. They tint the light colors and provide the ambient light.
-	// pos3D.z is inverted because it was just inverted above:
-	const float3 viewDir   = normalize(float3(pos3D.x, pos3D.y, -pos3D.z));
-	// Normal.z is inverted because Z+ should point away from the camera:
-	float3 skyBoxReflected = reflect(viewDir, normalize(float3(Normal.x, Normal.y, -Normal.z)));
-	// The bent normal is in the same space (Z+ away from the camera)
+	// Sample the cubemaps: their ambient light and their reflections. The cubemaps are in
+	// sRGB (their files have no color profile, so they're loaded as UNORM), and lighting is
+	// done in linear space, so they're converted like the textures.
+	// - Ambient: in the direction of the bent normal (Z+ away from the camera, like
+	//   skyBoxReflected), at the mission's diffuse mip level (MipRes, about 16x16 per face).
+	//   When there's an _illum cubemap (a low-res version made for lighting), it's used here.
+	// - Reflections: always the main cubemap, at the mip level that matches the roughness, so
+	//   glossy surfaces reflect a sharp image and rough ones a blurry one. The mips are a box
+	//   filter of the full image, so the mip whose texels are as wide as the GGX lobe is
+	//   used. The lobe is about PI/4 * alpha radians wide (alpha = roughness^2, the whole
+	//   hemisphere at roughness 1), and a face is PI/2 wide, so the face size that matches it
+	//   is 2 / alpha pixels: mip = log2(faceSize * alpha / 2). It's never sharper than the
+	//   screen can resolve (reflScreenMip), but the screen's limit is capped, so the edges of
+	//   objects (where the derivatives jump to the background) don't get a blurry outline.
 	float3 skyBoxNormal    = bGTAO ? normalize(gtao.xyz) : normalize(float3(Normal.x, Normal.y, -Normal.z));
-	skyBoxReflected        = mul(viewMat, float4(skyBoxReflected, 0)).xyz;
 	skyBoxNormal           = mul(viewMat, float4(skyBoxNormal, 0)).xyz;
 	float3 skyBoxReflCol   = 1;
 	float3 skyBoxNormalCol = 1;
-	// Sample the hi-res cubemap:
-	if (cubeMappingEnabled == 1)
+	if (cubeMappingEnabled)
 	{
-		skyBoxReflCol   = skybox.SampleLevel(sampColor, skyBoxReflected.xyz, cubeMapMipLevel).rgb;
-		skyBoxNormalCol = skybox.SampleLevel(sampColor, skyBoxNormal.xyz, cubeMapMipLevel).rgb;
-	}
-	// Sample the lo-res cubemap:
-	else if (cubeMappingEnabled == 2)
-	{
-		skyBoxReflCol   = illumSkybox.SampleLevel(sampColor, skyBoxReflected.xyz, cubeMapMipLevel).rgb;
-		skyBoxNormalCol = illumSkybox.SampleLevel(sampColor, skyBoxNormal.xyz, cubeMapMipLevel).rgb;
+		uint faceSize, faceSize2, mipCount;
+		skybox.GetDimensions(0, faceSize, faceSize2, mipCount);
+		const float maxMip = (float)mipCount - 1.0;
+		const float roughnessMip = log2(max(faceSize * roughness * roughness * 0.5, 1.0));
+		const float screenMip = min(reflScreenMip, maxMip - 5.0); // At most 32x32 per face
+		const float reflMip = clamp(max(roughnessMip, screenMip), 0.0, maxMip);
+		skyBoxReflCol = SRGBToLinear(skybox.SampleLevel(sampColor, skyBoxReflected, reflMip).rgb);
+		if (cubeMappingEnabled == 2)
+			skyBoxNormalCol = SRGBToLinear(illumSkybox.SampleLevel(sampColor, skyBoxNormal, cubeMapMipLevel).rgb);
+		else
+			skyBoxNormalCol = SRGBToLinear(skybox.SampleLevel(sampColor, skyBoxNormal, cubeMapMipLevel).rgb);
 	}
 	// The ambient light is pbr_ambient everywhere, tinted by ambient_tint (pbr_ambient_color),
 	// for instance to make shadows bluish. When there's a cubemap, its light is added on top:
@@ -679,8 +699,8 @@ PixelShaderOutput main(PixelShaderInput input)
 	const float3 baseAmbient = ambient_tint * ambient;
 	// ambient_tint (pbr_ambient_color) tints the cubemap's ambient light too. Its reflections
 	// aren't tinted: they're the image of the surroundings.
-	const float3 envDiffuse  = cubeMappingEnabled ? ambient_tint * cubeMapAmbientInt * skyBoxNormalCol : 0.0;
-	const float3 envSpecular = cubeMappingEnabled ? cubeMapSpecInt * skyBoxReflCol : 0.0;
+	const float3 envDiffuse  = cubeMappingEnabled ? env_ambient_mult * ambient_tint * cubeMapAmbientInt * skyBoxNormalCol : 0.0;
+	const float3 envSpecular = cubeMappingEnabled ? env_specular_mult * cubeMapSpecInt * skyBoxReflCol : 0.0;
 
 	// Direct light from the XWA lights
 	float3 direct = 0.0;
@@ -751,6 +771,26 @@ PixelShaderOutput main(PixelShaderInput input)
 	const float3 ambientDiffuse  = GTAODiffuseAO(ao, albedo) * (baseAmbient + envDiffuse) * albedo * (1.0 - metallicity);
 	const float3 ambientSpecular = specOcclusion * (baseAmbient + envSpecular) * EnvBRDFApprox(F0, roughness, dotNV);
 	float3 tmp_color = ambientDiffuse + ambientSpecular + direct;
+
+	// Debug view (pbr_cubemap_debug): only the cubemap's light, on the surfaces.
+	// 1: the sky the surface reflects, as a perfect mirror with the blur of its roughness
+	//    (no strength or Fresnel): to check how sharp the reflections are.
+	// 2: the cubemap's reflections as they're added to the lighting (Specular,
+	//    pbr_cubemap_specular, Fresnel and specular occlusion).
+	// 3: the cubemap's ambient light on the surface (AmbientInt, pbr_cubemap_ambient, AO).
+	// 2 and 3 are exposed and tonemapped like the final colors.
+	[branch]
+	if (env_debug > 0.5)
+	{
+		float3 debugColor = skyBoxReflCol;
+		if (env_debug > 2.5)
+			debugColor = ACESFitted(exposure_mult * GTAODiffuseAO(ao, albedo) * envDiffuse * albedo * (1.0 - metallicity));
+		else if (env_debug > 1.5)
+			debugColor = ACESFitted(exposure_mult * specOcclusion * envSpecular * EnvBRDFApprox(F0, roughness, dotNV));
+		output.color = float4(lerp(background, LinearToSRGB(debugColor), blendAlpha), 1);
+		output.bloom = 0;
+		return output;
+	}
 
 	// Apply the shadeless mask: shadeless surfaces show their own color
 	tmp_color = lerp(tmp_color, color, shadeless);

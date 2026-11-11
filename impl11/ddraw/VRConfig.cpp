@@ -235,6 +235,9 @@ bool g_bGTAOMultiBounce = true;
 float g_fGTAOMultiBounce = 1.0f;
 // The laser/dynamic lights have no shadows: GTAO occludes them
 float g_fGTAOLightOcclusion = 1.0f;
+// The cubemap's ambient light and reflections in the new PBR shading
+float g_fPBRCubeMapAmbient = 1.0f, g_fPBRCubeMapSpecular = 1.0f;
+int g_iPBRCubeMapDebug = 0;
 // Color grading in the new PBR shading: contrast, saturation and the tints of the dark and
 // bright tones. The defaults don't change anything. See ApplyColorGrade() in PBRShadingV2.h.
 float g_fPBRGradeContrast = 1.0f, g_fPBRGradeSaturation = 1.0f;
@@ -2336,6 +2339,9 @@ bool LoadSSAOParams() {
 	g_bGTAOMultiBounce = true;
 	g_fGTAOMultiBounce = 1.0f;
 	g_fGTAOLightOcclusion = 1.0f;
+	g_fPBRCubeMapAmbient = 1.0f;
+	g_fPBRCubeMapSpecular = 1.0f;
+	g_iPBRCubeMapDebug = 0;
 	g_fPBRGradeContrast = 1.0f;
 	g_fPBRGradeSaturation = 1.0f;
 	g_PBRGradeShadows = Vector3(1.0f, 1.0f, 1.0f);
@@ -2555,6 +2561,15 @@ bool LoadSSAOParams() {
 			}
 			else if (_stricmp(param, "pbr_gtao_multibounce") == 0) {
 				g_fGTAOMultiBounce = max(0.0f, min(1.0f, fValue));
+			}
+			else if (_stricmp(param, "pbr_cubemap_ambient") == 0) {
+				g_fPBRCubeMapAmbient = max(0.0f, fValue);
+			}
+			else if (_stricmp(param, "pbr_cubemap_specular") == 0) {
+				g_fPBRCubeMapSpecular = max(0.0f, fValue);
+			}
+			else if (_stricmp(param, "pbr_cubemap_debug") == 0) {
+				g_iPBRCubeMapDebug = (int)fValue;
 			}
 			else if (_stricmp(param, "pbr_gtao_light_occlusion") == 0) {
 				g_fGTAOLightOcclusion = max(0.0f, min(1.0f, fValue));

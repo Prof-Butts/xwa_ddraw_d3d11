@@ -177,8 +177,15 @@ int2 GTAOBufferSize(GTAO_TEXTURE tex)
 // at 1 / scale of the full resolution. Each GTAO pixel h was computed at the full-resolution
 // pixel h * scale. Below full resolution, the four nearest GTAO pixels are blended with
 // bilinear weights, skipping the ones at a different depth so the occlusion doesn't bleed
-// across the edges of objects. maxPx is the last GTAO pixel that was rendered.
-float4 LoadGTAO(GTAO_TEXTURE tex, int scale, int2 maxPx, int2 px, uint viewId, float z)
+// across the edges of objects. maxPx is the last GTAO pixel that was rendered. n is the
+// pixel's normal (Z+ away from the camera), for the pixels without any GTAO.
+//
+// Along the silhouettes of objects, all four can be on the background or at another depth:
+// a GTAO pixel only sees the depth of the first full-resolution pixel of its block. Those
+// pixels take the GTAO pixel at the closest depth in the surrounding 4x4 instead. Without
+// that, a band of up to `scale` pixels along every silhouette had no occlusion at all, a
+// bright, stair-stepped outline.
+float4 LoadGTAO(GTAO_TEXTURE tex, int scale, int2 maxPx, int2 px, uint viewId, float z, float3 n)
 {
 #ifdef INSTANCED_RENDERING
 #define GTAO_LOAD(p) tex.Load(int4(p, viewId, 0))
@@ -217,8 +224,34 @@ float4 LoadGTAO(GTAO_TEXTURE tex, int scale, int2 maxPx, int2 px, uint viewId, f
 				weightSum += w;
 			}
 		}
-		result = weightSum > 1e-4 ? sum / weightSum : GTAO_LOAD(min(base, maxPx));
-		result.xyz = length(result.xyz) > 1e-4 ? normalize(result.xyz) : result.xyz;
+		if (weightSum > 1e-4)
+		{
+			result = sum / weightSum;
+		}
+		else
+		{
+			// No usable neighbor: the GTAO pixel at the closest depth around it, if it's on the
+			// same surface (within a few times the tolerance), or no occlusion
+			result = float4(n, 1.0);
+			float bestDiff = 4.0 * tolerance;
+			[loop]
+			for (int sy = -1; sy <= 2; sy++)
+			{
+				[loop]
+				for (int sx = -1; sx <= 2; sx++)
+				{
+					const int2 h = clamp(base + int2(sx, sy), 0, maxPx);
+					const float4 value = GTAO_LOAD(h);
+					const float diff = abs(GTAO_DEPTH(h * scale) - z);
+					if (value.a < 1.5 && diff < bestDiff)
+					{
+						bestDiff = diff;
+						result = value;
+					}
+				}
+			}
+		}
+		result.xyz = length(result.xyz) > 1e-4 ? normalize(result.xyz) : n;
 	}
 	// The GTAO buffers keep values above 1 (and 2 for the skipped pixels), see GTAOCommon.h
 	result.a = saturate(result.a);
@@ -384,7 +417,8 @@ PixelShaderOutput main(PixelShaderInput input)
 		const int2 px = int2(input.pos.xy);
 		const int fineScale = (int)gtao_scale;
 		const int2 fineMaxPx = int2((uint2(GTAOBufferSize(texGTAO)) + (uint)fineScale - 1) / (uint)fineScale) - 1;
-		gtao = LoadGTAO(texGTAO, fineScale, fineMaxPx, px, viewId, pos3D.z);
+		const float3 n = normalize(float3(Normal.x, Normal.y, -Normal.z));
+		gtao = LoadGTAO(texGTAO, fineScale, fineMaxPx, px, viewId, pos3D.z, n);
 		fineAO = gtao.a;
 		// Two-scale AO: the coarse pass adds the broad occlusion of large structures. The
 		// visibilities multiply, and the bent normal turns by the sum of both deviations
@@ -392,8 +426,7 @@ PixelShaderOutput main(PixelShaderInput input)
 		[branch]
 		if (gtao_coarse_enabled > 0.5)
 		{
-			const float4 coarse = LoadGTAO(texGTAOCoarse, 4, GTAOBufferSize(texGTAOCoarse) - 1, px, viewId, pos3D.z);
-			const float3 n = normalize(float3(Normal.x, Normal.y, -Normal.z));
+			const float4 coarse = LoadGTAO(texGTAOCoarse, 4, GTAOBufferSize(texGTAOCoarse) - 1, px, viewId, pos3D.z, n);
 			gtao.xyz = gtao.xyz + coarse.xyz - n;
 			gtao.a *= coarse.a;
 			coarseAO = coarse.a;

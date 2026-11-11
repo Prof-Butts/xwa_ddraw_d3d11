@@ -811,6 +811,14 @@ LRESULT CALLBACK MyWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam
 					DisplayTimedMessage(3, 0, g_bGTAOEnabled ? "GTAO: on" : "GTAO: off");
 				}
 				return 0;
+			// Ctrl+Alt+U: multi-bounce AO on/off (GTAO in the new PBR shading), for comparisons
+			case 'U':
+				if (g_SSAO_Type == SSO_PBR)
+				{
+					g_bGTAOMultiBounce = !g_bGTAOMultiBounce;
+					DisplayTimedMessage(3, 0, g_bGTAOMultiBounce ? "Multi-bounce AO: on" : "Multi-bounce AO: off");
+				}
+				return 0;
 			//case 'T':
 			//	g_bToggleSkipDC = !g_bToggleSkipDC;
 			//	return 0;

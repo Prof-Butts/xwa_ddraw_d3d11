@@ -21,7 +21,8 @@
  * - An optional color grading step (pbr_grade_*) on the final colors of the lit surfaces.
  * - GTAO (pbr_gtao_*): ambient occlusion and bent normals for the ambient light. It replaces
  *   the SSDO input of the legacy shading, which this pass doesn't use. An optional coarse
- *   pass (pbr_gtao_coarse*) adds the broad occlusion of large structures.
+ *   pass (pbr_gtao_coarse*) adds the broad occlusion of large structures. Multi-bounce AO
+ *   (pbr_gtao_multibounce, Ctrl+Alt+U) lightens it on bright surfaces, see GTAOMultiBounce().
  * The shadows, the material heuristics and the composition with the background and the
  * transparent layers are the same as in PBRAddCommon.h.
  */
@@ -300,6 +301,30 @@ float4 BlendTransparentLayers(
 	return color;
 }
 
+// Multi-bounce AO (Jimenez et al. 2016, "Practical Real-Time Strategies for Accurate
+// Indirect Occlusion"). AO alone treats the occluders as black: the light that hits them is
+// lost. Real occluders reflect part of it, and the light bounces around a crevice before it
+// leaves, so crevices are lighter than AO says, more so on bright materials. This is the
+// paper's fit of path-traced results: the visibility with all the bounces, from the AO and
+// the albedo (linear), per color channel. It assumes the occluders around a point have its
+// albedo, which also tints crevices with the surface's color. Black surfaces keep the AO.
+float3 GTAOMultiBounce(float ao, float3 albedo)
+{
+	const float3 a =  2.0404 * albedo - 0.3324;
+	const float3 b = -4.7951 * albedo + 0.6417;
+	const float3 c =  2.7552 * albedo + 0.6903;
+	return max(ao, ((ao * a + b) * ao + c) * ao);
+}
+
+// The AO of the diffuse ambient light: GTAO with multi-bounce (gtao_multibounce = 0 is plain
+// GTAO). It's applied to the combined AO of both passes: it's a function of all the
+// occlusion around a point, and applying it to each pass separately would lighten crevices
+// too much.
+float3 GTAODiffuseAO(float ao, float3 albedo)
+{
+	return lerp(ao, GTAOMultiBounce(ao, albedo), gtao_multibounce);
+}
+
 PixelShaderOutput main(PixelShaderInput input)
 {
 	PixelShaderOutput output;
@@ -374,11 +399,13 @@ PixelShaderOutput main(PixelShaderInput input)
 	}
 	const float ao = gtao.a;
 
-	// Debug view (pbr_gtao_debug): the AO of each pass, or the bent normal, on the surfaces
+	// Debug view (pbr_gtao_debug): the AO of each pass, or the bent normal, on the surfaces.
+	// Both passes combined (3) includes the multi-bounce, so it shows its colors.
 	[branch]
 	if (bGTAO && gtao_debug > 0.5)
 	{
-		float3 debugColor = ao;
+		const float3 debugAlbedo = albedo_floor + (1.0 - albedo_floor) * SRGBToLinear(texelColor.rgb);
+		float3 debugColor = GTAODiffuseAO(ao, debugAlbedo);
 		if (gtao_debug < 1.5)      debugColor = fineAO;
 		else if (gtao_debug < 2.5) debugColor = coarseAO;
 		else if (gtao_debug > 3.5) debugColor = normalize(gtao.xyz) * 0.5 + 0.5;
@@ -685,7 +712,8 @@ PixelShaderOutput main(PixelShaderInput input)
 	// turned into specular occlusion, which also depends on the roughness and the view angle
 	// (Lagarde & de Rousiers, "Moving Frostbite to PBR", 2014).
 	const float specOcclusion = saturate(pow(abs(dotNV + ao), exp2(-16.0 * roughness - 1.0)) - 1.0 + ao);
-	const float3 ambientDiffuse  = ao * (baseAmbient + envDiffuse) * albedo * (1.0 - metallicity);
+	// Multi-bounce only applies to the diffuse light: the reflections keep the plain AO
+	const float3 ambientDiffuse  = GTAODiffuseAO(ao, albedo) * (baseAmbient + envDiffuse) * albedo * (1.0 - metallicity);
 	const float3 ambientSpecular = specOcclusion * (baseAmbient + envSpecular) * EnvBRDFApprox(F0, roughness, dotNV);
 	float3 tmp_color = ambientDiffuse + ambientSpecular + direct;
 

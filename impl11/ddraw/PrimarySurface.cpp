@@ -2984,6 +2984,7 @@ void SetLights(DeviceResources *resources, float fSSDOEnabled) {
 	g_ShadingSys_PSBuffer.gtao_scale = g_bGTAOHalfRes ? 2.0f : 1.0f;
 	g_ShadingSys_PSBuffer.gtao_coarse_enabled = (g_ShadingSys_PSBuffer.gtao_enabled > 0.5f && g_bGTAOCoarse) ? 1.0f : 0.0f;
 	g_ShadingSys_PSBuffer.gtao_debug = (float)g_iGTAODebug;
+	g_ShadingSys_PSBuffer.gtao_multibounce = g_bGTAOMultiBounce ? g_fGTAOMultiBounce : 0.0f;
 	// Color grading (only the PBR shading reads it)
 	g_ShadingSys_PSBuffer.grade_contrast = g_fPBRGradeContrast;
 	g_ShadingSys_PSBuffer.grade_saturation = g_fPBRGradeSaturation;

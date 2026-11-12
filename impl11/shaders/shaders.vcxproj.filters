@@ -105,6 +105,7 @@
     <FxCompile Include="GTAOVR.hlsl" />
     <FxCompile Include="GTAODenoise.hlsl" />
     <FxCompile Include="GTAODenoiseVR.hlsl" />
+    <FxCompile Include="CubeMapPrefilterCS.hlsl" />
     <FxCompile Include="PBRAddV2.hlsl" />
     <FxCompile Include="PBRAddV2VR.hlsl" />
     <FxCompile Include="RT\RTShadowMaskPS_VR.hlsl" />

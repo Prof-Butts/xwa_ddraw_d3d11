@@ -4046,6 +4046,15 @@ void PrimarySurface::DeferredPass()
 		}
 		memcpy(g_ShadingSys_PSBuffer.env_sh, sh, sizeof(g_ShadingSys_PSBuffer.env_sh));
 		g_ShadingSys_PSBuffer.env_sh_valid = (cubeMappingEnabled && sh[0][3] > 0.5f) ? 1.0f : 0.0f;
+
+		// The reflections: the GGX-prefiltered version of the cubemap that's drawn as the
+		// background (pbr_cubemap_prefilter)
+		ID3D11ShaderResourceView* prefSRV = g_CubeMaps.allRegionsPrefSRV;
+		if (renderCubeMapInThisRegion) prefSRV = g_CubeMaps.regionPrefSRV[region];
+		const bool bPrefilter = g_bPBRCubeMapPrefilter && cubeMappingEnabled && prefSRV != nullptr;
+		if (bPrefilter)
+			context->PSSetShaderResources(22, 1, &prefSRV);
+		g_ShadingSys_PSBuffer.env_prefilter = bPrefilter ? 1.0f : 0.0f;
 		resources->InitPSConstantShadingSystem(resources->_shadingSysBuffer.GetAddressOf(), &g_ShadingSys_PSBuffer);
 	}
 

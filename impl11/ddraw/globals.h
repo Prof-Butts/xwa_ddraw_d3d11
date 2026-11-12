@@ -142,6 +142,8 @@ extern float g_fGTAOLightOcclusion;
 // pbr_cubemap_ambient, pbr_cubemap_specular: multiply the cubemap's ambient light and
 // reflections in the new PBR shading (the mission's AmbientInt and Specular)
 extern float g_fPBRCubeMapAmbient, g_fPBRCubeMapSpecular;
+// pbr_cubemap_prefilter: the reflections use the GGX-prefiltered cubemap
+extern bool g_bPBRCubeMapPrefilter;
 // pbr_cubemap_debug: shows only the cubemap's light. 1 reflected sky, 2 reflections, 3 ambient
 extern int g_iPBRCubeMapDebug;
 // pbr_gtao_gpu_timer: log the GPU time of the PBR lighting and GTAO passes ([DBG] [GTAO])
@@ -537,6 +539,18 @@ struct CubeMapData
 	float allRegionsIllumSH[9][4] = {};
 	float regionSH[MAX_MISSION_REGIONS][9][4] = {};
 	float regionIllumSH[MAX_MISSION_REGIONS][9][4] = {};
+
+	// AllRegionsIllumBoost, RegionNIllumBoost (mission .ini): multiplies the brightest parts of
+	// 8-bit skies (clipped at 1) for the light of the new PBR shading: its ambient (the SH)
+	// and its prefiltered reflections. 1 is off.
+	float allRegionsIllumBoost = 1.0f;
+	float regionIllumBoost[MAX_MISSION_REGIONS] = { 1, 1, 1, 1 };
+	// The GGX-prefiltered versions of the cubemaps, for the reflections of the new PBR shading
+	// (pbr_cubemap_prefilter). See PrefilterCubeMap().
+	ID3D11Texture2D* allRegionsPrefTex = nullptr;
+	ID3D11ShaderResourceView* allRegionsPrefSRV = nullptr;
+	ID3D11Texture2D* regionPrefTex[MAX_MISSION_REGIONS] = { nullptr, nullptr, nullptr, nullptr };
+	ID3D11ShaderResourceView* regionPrefSRV[MAX_MISSION_REGIONS] = { nullptr, nullptr, nullptr, nullptr };
 
 	// Live edit mode variables
 	CubeMapEditMode editMode = CubeMapEditMode::DISABLED;

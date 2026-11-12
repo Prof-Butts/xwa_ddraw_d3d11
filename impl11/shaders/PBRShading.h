@@ -190,6 +190,33 @@ float3 addPBR(in float3 position, in float3 N, in float3 FlatN, in float3 V,
 	return ambient * albedo + color * shadowFactor;
 }
 
+// The same as addPBR(), but with separate shadows for the diffuse and the specular light
+// (see specular_shadow_factor() in shadow_mapping_common.h). specular_out gets
+// specShadowFactor.
+float3 addPBR(in float3 position, in float3 N, in float3 FlatN, in float3 V,
+	in float3 baseColor, in float3 lightDir, in float4 lightColor,
+	in float metalMask, in float glossiness, in float reflectance,
+	in float3 ambient, float shadowFactor, float specShadowFactor,
+	out float3 specular_out)
+{
+	const float roughness = 1.0 - glossiness * glossiness;
+	const float3 F0 = 0.16 * reflectance * reflectance * (1.0 - metalMask) + baseColor * metalMask;
+#ifdef WHITE_ONLY_DEBUG
+	const float3 albedo = 1.0;
+	const float3 light_color = 1.0;
+#else
+	const float3 albedo = baseColor;
+	const float3 light_color = lightColor.w * lightColor.xyz;
+#endif
+	const float3 L = normalize(lightDir);
+	const float3 col = computePBRLighting(L, light_color, position,
+		N, V, albedo, roughness, F0, specShadowFactor, lightColor.w, specular_out);
+	// computePBRLighting() returns (diffuse + specular) * light_color * dotNL, with
+	// specShadowFactor in the specular part. Only the diffuse part gets shadowFactor.
+	const float3 specular = specular_out * light_color * saturate(dot(N, L));
+	return ambient * albedo + (col - specular) * shadowFactor + specular;
+}
+
 // Main entry point for PBR shading with Ray-tracing during regular flight.
 // This code expects one TLAS and multiple BLASes/Matrices.
 // NO LONGER USED. Either the RT mask is computed in its own pass (for soft

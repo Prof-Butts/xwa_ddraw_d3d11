@@ -656,7 +656,10 @@ PixelShaderOutput main(PixelShaderInput input)
 	float debug_spec = 0.0;
 	uint i;
 
-	// Compute the shading contribution from the main lights
+	// Compute the shading contribution from the main lights. Their highlights don't get the
+	// black level of the shadows (see specular_shadow_factor()), so there are none in a full
+	// shadow.
+	const float spec_shadow_factor = specular_shadow_factor(total_shadow_factor, get_shadow_caster_black_level(LightCount));
 	[loop]
 	for (i = 0; i < LightCount; i++)
 	{
@@ -740,7 +743,7 @@ PixelShaderOutput main(PixelShaderInput input)
 		float spec_bloom = contactShadow * spec_int_mask * spec_bloom_int * pow(spec, exponent * global_bloom_glossiness_mult);
 		debug_spec = LightIntensity * spec_int_mask * pow(spec, exponent);
 		//spec = /* min(contactShadow, shadow) */ contactShadow * debug_spec;
-		spec = contactShadow * total_shadow_factor * debug_spec;
+		spec = contactShadow * spec_shadow_factor * debug_spec;
 
 		// Avoid harsh transitions (the lines below will also kill glass spec)
 		//spec_col = lerp(spec_col, 0.0, shadeless);
@@ -752,7 +755,7 @@ PixelShaderOutput main(PixelShaderInput input)
 			global_spec_intensity * spec_col * spec
 			/* + diffuse_difference * */ /* color * */ /* ssdoInd */); // diffuse_diff makes it look cartoonish, and mult by color destroys the effect
 		//tmp_bloom += /* min(shadow, contactShadow) */ contactShadow * float4(LightIntensity * spec_col * spec_bloom, spec_bloom);
-		tmp_bloom += total_shadow_factor * contactShadow * float4(LightIntensity * spec_col * spec_bloom, spec_bloom);
+		tmp_bloom += spec_shadow_factor * contactShadow * float4(LightIntensity * spec_col * spec_bloom, spec_bloom);
 	}
 	output.bloom = tmp_bloom;
 

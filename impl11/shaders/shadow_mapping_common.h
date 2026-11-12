@@ -63,3 +63,31 @@ inline void get_black_level_and_minmaxZ(uint idx, out float black_level, out flo
 	minZ = sm_minZ[i][j];
 	maxZ = sm_maxZ[i][j];
 }
+
+// The lowest black level of the lights that cast shadows (black level 0.95 or less), or 1
+// when none of them does
+inline float get_shadow_caster_black_level(uint lightCount)
+{
+	float result = 1.0;
+	for (uint i = 0; i < lightCount; i++)
+	{
+		const float black_level = get_black_level(i);
+		if (black_level <= 0.95)
+			result = min(result, black_level);
+	}
+	return result;
+}
+
+// The shadow factor for the specular reflections of the lights. The ray-traced and the
+// shadow-mapped shadows never go below the black level (shadow_mapping_black_level), so
+// the shadows don't turn completely black: that's a stand-in for the light that fills them.
+// But it's still the sun's light: in a full shadow, the sun's highlights would keep that
+// fraction of their strength, and glossy highlights are many times brighter than 1, so
+// they'd still show inside the shadow. This removes the black level: 0 in a full shadow,
+// 1 in the light, and the penumbras in between.
+inline float specular_shadow_factor(float shadow_factor, float caster_black_level)
+{
+	if (caster_black_level > 0.95)
+		return shadow_factor;
+	return saturate((shadow_factor - caster_black_level) / (1.0 - caster_black_level));
+}

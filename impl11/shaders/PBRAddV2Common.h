@@ -19,8 +19,9 @@
  *   (AmbientInt) and its reflections (Specular), instead of replacing the ambient and
  *   tinting the lights. pbr_ambient_color tints the base ambient and the cubemap's. The
  *   cubemap is converted to linear like the textures, its reflections get sharper on
- *   glossy surfaces (the mip comes from the roughness), and pbr_cubemap_ambient and
- *   pbr_cubemap_specular scale both. See "Sample the cubemaps" below.
+ *   glossy surfaces (the mip comes from the roughness, from a GGX-prefiltered copy with
+ *   pbr_cubemap_prefilter), and pbr_cubemap_ambient and pbr_cubemap_specular scale both.
+ *   See "Sample the cubemaps" below.
  * - An optional color grading step (pbr_grade_*) on the final colors of the lit surfaces.
  * - GTAO (pbr_gtao_*): ambient occlusion and bent normals for the ambient light. It replaces
  *   the SSDO input of the legacy shading, which this pass doesn't use. An optional coarse
@@ -124,6 +125,8 @@ Texture2DArray<float> texShadowMap : register(t7);
 SamplerComparisonState cmpSampler : register(s7);
 
 TextureCube skybox : register(t21);
+// The GGX-prefiltered version of skybox (linear), when env_prefilter is set
+TextureCube prefSkybox : register(t22);
 TextureCube illumSkybox : register(t23);
 
 // We're reusing the same constant buffer used to blur bloom; but here
@@ -704,11 +707,30 @@ PixelShaderOutput main(PixelShaderInput input)
 	{
 		uint faceSize, faceSize2, mipCount;
 		skybox.GetDimensions(0, faceSize, faceSize2, mipCount);
-		const float maxMip = (float)mipCount - 1.0;
-		const float roughnessMip = log2(max(faceSize * roughness * roughness * 0.5, 1.0));
-		const float screenMip = min(reflScreenMip, maxMip - 5.0); // At most 32x32 per face
-		const float reflMip = clamp(max(roughnessMip, screenMip), 0.0, maxMip);
-		skyBoxReflCol = SRGBToLinear(skybox.SampleLevel(sampColor, skyBoxReflected, reflMip).rgb);
+		[branch]
+		if (env_prefilter > 0.5)
+		{
+			// The prefiltered cubemap (pbr_cubemap_prefilter, CubeMapPrefilterCS.hlsl): each mip
+			// is the sky convolved with the GGX lobe of a roughness, from 0 at mip 0 to 1 at the
+			// last one, already linear (and boosted). The screen's limit is in the main
+			// cubemap's mips, and this one is smaller.
+			uint prefSize, prefSize2, prefMips;
+			prefSkybox.GetDimensions(0, prefSize, prefSize2, prefMips);
+			const float prefMaxMip = (float)prefMips - 1.0;
+			const float roughnessMip = roughness * prefMaxMip;
+			const float screenMip = min(reflScreenMip - log2((float)faceSize / (float)prefSize),
+				log2((float)prefSize / 32.0)); // At most 32x32 per face
+			const float reflMip = clamp(max(roughnessMip, screenMip), 0.0, prefMaxMip);
+			skyBoxReflCol = prefSkybox.SampleLevel(sampColor, skyBoxReflected, reflMip).rgb;
+		}
+		else
+		{
+			const float maxMip = (float)mipCount - 1.0;
+			const float roughnessMip = log2(max(faceSize * roughness * roughness * 0.5, 1.0));
+			const float screenMip = min(reflScreenMip, maxMip - 5.0); // At most 32x32 per face
+			const float reflMip = clamp(max(roughnessMip, screenMip), 0.0, maxMip);
+			skyBoxReflCol = SRGBToLinear(skybox.SampleLevel(sampColor, skyBoxReflected, reflMip).rgb);
+		}
 		if (env_sh_valid > 0.5)
 			skyBoxNormalCol = EvalEnvSH(normalize(skyBoxNormal));
 		else if (cubeMappingEnabled == 2)

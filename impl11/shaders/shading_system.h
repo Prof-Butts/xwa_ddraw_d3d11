@@ -64,4 +64,7 @@ cbuffer ConstantBuffer : register(b4)
 	// convolved with the cosine lobe and divided by PI. See ComputeCubeMapSH() in ddraw.
 	float4 env_sh[9];
 	// 1360 bytes
+	float env_prefilter;      // 1: the reflections use the prefiltered cubemap (t22, pbr_cubemap_prefilter)
+	float3 unused_ss5;
+	// 1376 bytes
 };

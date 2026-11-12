@@ -425,6 +425,9 @@ typedef struct PSShadingSystemCBStruct {
 	// convolved with the cosine lobe and divided by PI. See ComputeCubeMapSH().
 	float env_sh[9][4];
 	// 1360 bytes
+	float env_prefilter;         // 1: the reflections use the prefiltered cubemap (t22, pbr_cubemap_prefilter)
+	float unused_ss5[3];
+	// 1376 bytes
 } PSShadingSystemCB;
 
 // The settings of the GTAO passes (ssao_type = PBR). See GTAOCBuffer.h.

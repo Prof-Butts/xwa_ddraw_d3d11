@@ -62,12 +62,14 @@ namespace fs = std::filesystem;
 #include "../Debug/XwaD3dShadowVertexShader.h"
 #include "../Debug/XwaD3dShadowPixelShader.h"
 #include "../Debug/XwaD3DTechRoomPixelShader.h"
+#include "../Debug/CubeMapPrefilterCS.h"
 #else
 #include "../Release/XwaD3dVertexShader.h"
 #include "../Release/XwaD3dPixelShader.h"
 #include "../Release/XwaD3dShadowVertexShader.h"
 #include "../Release/XwaD3dShadowPixelShader.h"
 #include "../Release/XwaD3DTechRoomPixelShader.h"
+#include "../Release/CubeMapPrefilterCS.h"
 #endif
 
 #undef LOGGER_DUMP
@@ -2313,11 +2315,12 @@ std::vector<std::wstring> ListFiles(std::string path)
 /// cosine lobe and divided by PI (Ramamoorthi & Hanrahan, "An Efficient Representation for
 /// Irradiance Environment Maps", 2001), so evaluating them with a normal gives the average
 /// light that a surface facing that way receives from the whole sky: the same units as
-/// the sky's colors. It reads back a small mip (64x64 per face at most); the files are in
-/// sRGB, so the texels are converted to linear. sh[0][3] is set to 1 when it succeeds.
+/// the sky's colors. It reads back a small mip (128x128 per face at most); the files are in
+/// sRGB, so the texels are converted to linear. boost multiplies the brightest texels, like
+/// CubeMapPrefilterCS.hlsl does (1 is off). sh[0][3] is set to 1 when it succeeds.
 /// </summary>
 static bool ComputeCubeMapSH(ID3D11Device* device, ID3D11DeviceContext* context,
-	ID3D11Texture2D* cube, float sh[9][4])
+	ID3D11Texture2D* cube, float sh[9][4], float boost)
 {
 	memset(sh, 0, sizeof(float) * 9 * 4);
 	D3D11_TEXTURE2D_DESC desc;
@@ -2343,9 +2346,9 @@ static bool ComputeCubeMapSH(ID3D11Device* device, ID3D11DeviceContext* context,
 		return false;
 	}
 
-	// The largest mip that's 64x64 or smaller
+	// The largest mip that's 128x128 or smaller
 	UINT mip = 0, size = desc.Width;
-	while (size > 64 && mip + 1 < desc.MipLevels)
+	while (size > 128 && mip + 1 < desc.MipLevels)
 	{
 		size = max(1u, size / 2);
 		mip++;
@@ -2409,9 +2412,19 @@ static bool ComputeCubeMapSH(ID3D11Device* device, ID3D11DeviceContext* context,
 				const float weight = 1.0f / (len2 * sqrtf(len2));
 
 				const uint8_t* texel = row + i * 4;
-				const float r = toLinear[texel[bgr ? 2 : 0]];
-				const float g = toLinear[texel[1]];
-				const float b = toLinear[texel[bgr ? 0 : 2]];
+				float r = toLinear[texel[bgr ? 2 : 0]];
+				float g = toLinear[texel[1]];
+				float b = toLinear[texel[bgr ? 0 : 2]];
+				if (boost != 1.0f)
+				{
+					// Only the bright texels: nothing below 60% of full brightness, the full
+					// boost at 100%
+					const float value = max(texel[0], max(texel[1], texel[2])) / 255.0f;
+					float t = min(max((value - 0.6f) / 0.4f, 0.0f), 1.0f);
+					t = t * t * (3.0f - 2.0f * t);
+					const float factor = 1.0f + (boost - 1.0f) * t * t;
+					r *= factor; g *= factor; b *= factor;
+				}
 
 				const float Y[9] = {
 					0.282095f,
@@ -2443,18 +2456,171 @@ static bool ComputeCubeMapSH(ID3D11Device* device, ID3D11DeviceContext* context,
 }
 
 /// <summary>
+/// Makes the GGX-prefiltered version of a cubemap, for the reflections of the new PBR
+/// shading (pbr_cubemap_prefilter): a 16-bit float, linear cubemap of up to 256x256 per face
+/// and 6 mips, from roughness 0 (mip 0, the sky itself) to roughness 1 (the last mip). It's
+/// computed on the GPU by CubeMapPrefilterCS.hlsl, once, when the cubemap is loaded. boost:
+/// see AllRegionsIllumBoost (1 is off). Needs feature level 11 (compute shaders); without it, the
+/// reflections use the cubemap's own mips.
+/// </summary>
+static bool PrefilterCubeMap(ID3D11Device* device, ID3D11DeviceContext* context,
+	ID3D11Texture2D* src, ID3D11ShaderResourceView* srcSRV, float boost,
+	ID3D11Texture2D** dstTex, ID3D11ShaderResourceView** dstSRV)
+{
+	if (device->GetFeatureLevel() < D3D_FEATURE_LEVEL_11_0)
+	{
+		log_debug("[DBG] [CUBE] Prefilter: needs feature level 11, the reflections use the cubemap's mips");
+		return false;
+	}
+
+	// The shader and its resources, made once per device
+	static ID3D11Device* s_device = nullptr;
+	static ComPtr<ID3D11ComputeShader> s_shader;
+	static ComPtr<ID3D11Buffer> s_constants;
+	static ComPtr<ID3D11SamplerState> s_sampler;
+	if (s_device != device)
+	{
+		s_shader.Release(); s_constants.Release(); s_sampler.Release();
+		if (FAILED(device->CreateComputeShader(g_CubeMapPrefilterCS, sizeof(g_CubeMapPrefilterCS), nullptr, &s_shader)))
+			return false;
+		D3D11_BUFFER_DESC cbDesc = {};
+		cbDesc.ByteWidth = 32;
+		cbDesc.Usage = D3D11_USAGE_DEFAULT;
+		cbDesc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+		if (FAILED(device->CreateBuffer(&cbDesc, nullptr, &s_constants)))
+			return false;
+		D3D11_SAMPLER_DESC samplerDesc = {};
+		samplerDesc.Filter = D3D11_FILTER_MIN_MAG_MIP_LINEAR;
+		samplerDesc.AddressU = samplerDesc.AddressV = samplerDesc.AddressW = D3D11_TEXTURE_ADDRESS_CLAMP;
+		samplerDesc.ComparisonFunc = D3D11_COMPARISON_NEVER;
+		samplerDesc.MaxLOD = FLT_MAX;
+		if (FAILED(device->CreateSamplerState(&samplerDesc, &s_sampler)))
+			return false;
+		s_device = device;
+	}
+
+	D3D11_TEXTURE2D_DESC srcDesc;
+	src->GetDesc(&srcDesc);
+	const bool srcIsSRGB =
+		srcDesc.Format == DXGI_FORMAT_R8G8B8A8_UNORM ||
+		srcDesc.Format == DXGI_FORMAT_B8G8R8A8_UNORM ||
+		srcDesc.Format == DXGI_FORMAT_B8G8R8X8_UNORM;
+
+	// 256x256 per face at most, and mips down to 8x8 (6 of them at 256)
+	const UINT size = min(256u, (UINT)srcDesc.Width);
+	UINT levels = 1;
+	for (UINT s = size; levels < 6 && s > 8; s /= 2)
+		levels++;
+
+	D3D11_TEXTURE2D_DESC desc = {};
+	desc.Width = size;
+	desc.Height = size;
+	desc.MipLevels = levels;
+	desc.ArraySize = 6;
+	desc.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
+	desc.SampleDesc.Count = 1;
+	desc.Usage = D3D11_USAGE_DEFAULT;
+	desc.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_UNORDERED_ACCESS;
+	desc.MiscFlags = D3D11_RESOURCE_MISC_TEXTURECUBE;
+	if (FAILED(device->CreateTexture2D(&desc, nullptr, dstTex)))
+		return false;
+	D3D11_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
+	srvDesc.Format = desc.Format;
+	srvDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURECUBE;
+	srvDesc.TextureCube.MipLevels = levels;
+	if (FAILED(device->CreateShaderResourceView(*dstTex, &srvDesc, dstSRV)))
+	{
+		(*dstTex)->Release();
+		*dstTex = nullptr;
+		return false;
+	}
+
+	// The game doesn't use compute shaders, but their state is restored anyway
+	ComPtr<ID3D11ComputeShader> oldShader;
+	ComPtr<ID3D11ShaderResourceView> oldSRV;
+	ComPtr<ID3D11UnorderedAccessView> oldUAV;
+	ComPtr<ID3D11Buffer> oldConstants;
+	ComPtr<ID3D11SamplerState> oldSampler;
+	context->CSGetShader(&oldShader, nullptr, nullptr);
+	context->CSGetShaderResources(0, 1, &oldSRV);
+	context->CSGetUnorderedAccessViews(0, 1, &oldUAV);
+	context->CSGetConstantBuffers(0, 1, &oldConstants);
+	context->CSGetSamplers(0, 1, &oldSampler);
+
+	context->CSSetShader(s_shader.Get(), nullptr, 0);
+	context->CSSetShaderResources(0, 1, &srcSRV);
+	context->CSSetSamplers(0, 1, s_sampler.GetAddressOf());
+	context->CSSetConstantBuffers(0, 1, s_constants.GetAddressOf());
+	bool ok = true;
+	for (UINT mip = 0; mip < levels; mip++)
+	{
+		D3D11_UNORDERED_ACCESS_VIEW_DESC uavDesc = {};
+		uavDesc.Format = desc.Format;
+		uavDesc.ViewDimension = D3D11_UAV_DIMENSION_TEXTURE2DARRAY;
+		uavDesc.Texture2DArray.MipSlice = mip;
+		uavDesc.Texture2DArray.FirstArraySlice = 0;
+		uavDesc.Texture2DArray.ArraySize = 6;
+		ComPtr<ID3D11UnorderedAccessView> uav;
+		if (FAILED(device->CreateUnorderedAccessView(*dstTex, &uavDesc, &uav)))
+		{
+			ok = false;
+			break;
+		}
+		const UINT mipSize = max(1u, size >> mip);
+		const float constants[8] = {
+			levels > 1 ? (float)mip / (float)(levels - 1) : 0.0f, // roughness
+			(float)srcDesc.Width,
+			(float)mipSize,
+			(float)(srcDesc.MipLevels - 1),
+			max(0.0f, boost),
+			srcIsSRGB ? 1.0f : 0.0f,
+			128.0f, // GGX samples per pixel
+			0.0f,
+		};
+		context->UpdateSubresource(s_constants.Get(), 0, nullptr, constants, 0, 0);
+		context->CSSetUnorderedAccessViews(0, 1, uav.GetAddressOf(), nullptr);
+		context->Dispatch((mipSize + 7) / 8, (mipSize + 7) / 8, 6);
+	}
+
+	ID3D11UnorderedAccessView* nullUAV = nullptr;
+	context->CSSetUnorderedAccessViews(0, 1, &nullUAV, nullptr);
+	context->CSSetShader(oldShader.Get(), nullptr, 0);
+	context->CSSetShaderResources(0, 1, oldSRV.GetAddressOf());
+	context->CSSetUnorderedAccessViews(0, 1, oldUAV.GetAddressOf(), nullptr);
+	context->CSSetConstantBuffers(0, 1, oldConstants.GetAddressOf());
+	context->CSSetSamplers(0, 1, oldSampler.GetAddressOf());
+
+	if (!ok)
+	{
+		(*dstSRV)->Release(); *dstSRV = nullptr;
+		(*dstTex)->Release(); *dstTex = nullptr;
+		return false;
+	}
+	log_debug("[DBG] [CUBE] Prefiltered cubemap: %dx%d, %d mips, boost %0.2f", size, size, levels, boost);
+	return true;
+}
+
+/// <summary>
 /// Loads the 6 faces of a cubemap from path. When sh_out isn't null, it also gets the
-/// cubemap's spherical-harmonic irradiance (see ComputeCubeMapSH()).
+/// cubemap's spherical-harmonic irradiance (see ComputeCubeMapSH()), and when prefTex and
+/// prefSRV aren't null, its GGX-prefiltered version (see PrefilterCubeMap()). illumBoost
+/// applies to both.
 /// </summary>
 bool LoadCubeMap(const std::string path,
 	const float mipResolution, float* texResolution,
 	ID3D11Texture2D** cubeTexture,
 	ID3D11ShaderResourceView** cubeTextureSRV,
 	float *diffuseMipLevel_out,
-	float (*sh_out)[4] = nullptr)
+	float (*sh_out)[4] = nullptr,
+	float illumBoost = 1.0f,
+	ID3D11Texture2D** prefTex = nullptr,
+	ID3D11ShaderResourceView** prefSRV = nullptr)
 {
 	if (sh_out != nullptr)
 		sh_out[0][3] = 0.0f;
+	// The previous prefiltered cubemap is released first, so a failure doesn't leave it in use
+	if (prefSRV != nullptr && *prefSRV != nullptr) { (*prefSRV)->Release(); *prefSRV = nullptr; }
+	if (prefTex != nullptr && *prefTex != nullptr) { (*prefTex)->Release(); *prefTex = nullptr; }
 
 	HRESULT res = S_OK;
 	auto& resources = g_deviceResources;
@@ -2596,7 +2762,9 @@ bool LoadCubeMap(const std::string path,
 	context->GenerateMips(*cubeTextureSRV);
 	//DirectX::SaveDDSTextureToFile(context, *cubeTexture, L"C:\\Temp\\_cubeTexture.dds");
 	if (sh_out != nullptr)
-		ComputeCubeMapSH(device, context, *cubeTexture, sh_out);
+		ComputeCubeMapSH(device, context, *cubeTexture, sh_out, illumBoost);
+	if (prefTex != nullptr && prefSRV != nullptr)
+		PrefilterCubeMap(device, context, *cubeTexture, *cubeTextureSRV, illumBoost, prefTex, prefSRV);
 	return true;
 }
 
@@ -2644,6 +2812,9 @@ void ParseCubeMapMissionIni(const std::vector<std::string>& lines)
 	EulerAnglesToRUF(g_CubeMaps.allRegionsOvrAngX, g_CubeMaps.allRegionsOvrAngY, g_CubeMaps.allRegionsOvrAngZ,
 		g_CubeMaps.editAllRegionsOvrR, g_CubeMaps.editAllRegionsOvrU, g_CubeMaps.editAllRegionsOvrF);
 
+	// Multiplies the brightest parts of the sky for the lighting of the new PBR shading (1: off)
+	g_CubeMaps.allRegionsIllumBoost = max(0.0f, GetFileKeyValueFloat(lines, "AllRegionsIllumBoost", 1.0f));
+
 	g_CubeMaps.allRegionsMipRes = GetFileKeyValueFloat(lines, "AllRegionsReflectionRes", 8.0f);
 	g_CubeMaps.allRegionsDiffuseMipLevel = FindMipLevel(g_CubeMaps.allRegionsTexRes, g_CubeMaps.allRegionsMipRes);
 
@@ -2670,6 +2841,7 @@ void ParseCubeMapMissionIni(const std::vector<std::string>& lines)
 	char* regionOvrAngZ[MAX_MISSION_REGIONS] = {
 		"Region0OverlayRotationZ", "Region1OverlayRotationZ", "Region2OverlayRotationZ", "Region3OverlayRotationZ" };
 	char* regionMipRes[MAX_MISSION_REGIONS] = { "Region0ReflectionRes", "Region1ReflectionRes", "Region2ReflectionRes", "Region3ReflectionRes" };
+	char* regionIllumBoost[MAX_MISSION_REGIONS] = { "Region0IllumBoost", "Region1IllumBoost", "Region2IllumBoost", "Region3IllumBoost" };
 	for (int i = 0; i < MAX_MISSION_REGIONS; i++)
 	{
 		g_CubeMaps.regionSpecular[i]   = GetFileKeyValueFloat(lines, regionSpecNames[i], 0.70f);
@@ -2689,6 +2861,8 @@ void ParseCubeMapMissionIni(const std::vector<std::string>& lines)
 			g_CubeMaps.editRegionOvrR[i], g_CubeMaps.editRegionOvrU[i], g_CubeMaps.editRegionOvrF[i]);
 
 		g_CubeMaps.regionMipRes[i] = GetFileKeyValueFloat(lines, regionMipRes[i], 16.0f);
+		// Defaults to the boost of all the regions
+		g_CubeMaps.regionIllumBoost[i] = max(0.0f, GetFileKeyValueFloat(lines, regionIllumBoost[i], g_CubeMaps.allRegionsIllumBoost));
 		g_CubeMaps.regionDiffuseMipLevel[i] = FindMipLevel(g_CubeMaps.regionTexRes[i], g_CubeMaps.regionMipRes[i]);
 	}
 }
@@ -2802,13 +2976,14 @@ void LoadMissionCubeMaps()
 			g_CubeMaps.bRenderAllRegions = LoadCubeMap(allRegionsPath,
 				g_CubeMaps.allRegionsMipRes, &g_CubeMaps.allRegionsTexRes,
 				&allRegionsCubeTexture, &g_CubeMaps.allRegionsSRV, &g_CubeMaps.allRegionsDiffuseMipLevel,
-				g_CubeMaps.allRegionsSH);
+				g_CubeMaps.allRegionsSH, g_CubeMaps.allRegionsIllumBoost,
+				&g_CubeMaps.allRegionsPrefTex, &g_CubeMaps.allRegionsPrefSRV);
 
 		if (allRegionsIllumPath.size() > 0)
 			g_CubeMaps.bAllRegionsIllum = LoadCubeMap(allRegionsIllumPath,
 				g_CubeMaps.allRegionsIllumMipRes, &g_CubeMaps.allRegionsIllumTexRes,
 				&allRegionsIllumCubeTexture, &g_CubeMaps.allRegionsIllumSRV, &g_CubeMaps.allRegionsIllumDiffuseMipLevel,
-				g_CubeMaps.allRegionsIllumSH);
+				g_CubeMaps.allRegionsIllumSH, g_CubeMaps.allRegionsIllumBoost);
 
 		float dummy1, dummy2;
 		if (allRegionsOvrPath.size() > 0)
@@ -2821,13 +2996,14 @@ void LoadMissionCubeMaps()
 				g_CubeMaps.bRenderInThisRegion[i] = LoadCubeMap(regionPath[i],
 					g_CubeMaps.regionMipRes[i], &(g_CubeMaps.regionTexRes[i]),
 					&cubeTextures[i], &g_CubeMaps.regionSRV[i], &g_CubeMaps.regionDiffuseMipLevel[i],
-					g_CubeMaps.regionSH[i]);
+					g_CubeMaps.regionSH[i], g_CubeMaps.regionIllumBoost[i],
+					&g_CubeMaps.regionPrefTex[i], &g_CubeMaps.regionPrefSRV[i]);
 
 			if (regionIllumPath[i].size() > 0)
 				g_CubeMaps.bRenderIllumInThisRegion[i] = LoadCubeMap(regionIllumPath[i],
 					g_CubeMaps.regionIllumMipRes[i], &(g_CubeMaps.regionIllumTexRes[i]),
 					&cubeTexturesIllum[i], &g_CubeMaps.regionIllumSRV[i], &g_CubeMaps.regionIllumDiffuseMipLevel[i],
-					g_CubeMaps.regionIllumSH[i]);
+					g_CubeMaps.regionIllumSH[i], g_CubeMaps.regionIllumBoost[i]);
 
 			if (regionIllumPath[i].size() > 0)
 				g_CubeMaps.bRenderOvrInThisRegion[i] = LoadCubeMap(regionOvrPath[i], 1024, &dummy1,

@@ -238,6 +238,7 @@ float g_fGTAOLightOcclusion = 1.0f;
 // The cubemap's ambient light and reflections in the new PBR shading
 float g_fPBRCubeMapAmbient = 1.0f, g_fPBRCubeMapSpecular = 1.0f;
 int g_iPBRCubeMapDebug = 0;
+bool g_bPBRCubeMapPrefilter = true;
 // Color grading in the new PBR shading: contrast, saturation and the tints of the dark and
 // bright tones. The defaults don't change anything. See ApplyColorGrade() in PBRShadingV2.h.
 float g_fPBRGradeContrast = 1.0f, g_fPBRGradeSaturation = 1.0f;
@@ -2342,6 +2343,7 @@ bool LoadSSAOParams() {
 	g_fPBRCubeMapAmbient = 1.0f;
 	g_fPBRCubeMapSpecular = 1.0f;
 	g_iPBRCubeMapDebug = 0;
+	g_bPBRCubeMapPrefilter = true;
 	g_fPBRGradeContrast = 1.0f;
 	g_fPBRGradeSaturation = 1.0f;
 	g_PBRGradeShadows = Vector3(1.0f, 1.0f, 1.0f);
@@ -2570,6 +2572,9 @@ bool LoadSSAOParams() {
 			}
 			else if (_stricmp(param, "pbr_cubemap_debug") == 0) {
 				g_iPBRCubeMapDebug = (int)fValue;
+			}
+			else if (_stricmp(param, "pbr_cubemap_prefilter") == 0) {
+				g_bPBRCubeMapPrefilter = (bool)fValue;
 			}
 			else if (_stricmp(param, "pbr_gtao_light_occlusion") == 0) {
 				g_fGTAOLightOcclusion = max(0.0f, min(1.0f, fValue));

@@ -426,7 +426,8 @@ typedef struct PSShadingSystemCBStruct {
 	float env_sh[9][4];
 	// 1360 bytes
 	float env_prefilter;         // 1: the reflections use the prefiltered cubemap (t22, pbr_cubemap_prefilter)
-	float unused_ss5[3];
+	float gtao_cone_spec_occlusion; // 1: cone-based specular occlusion (pbr_gtao_specular_occlusion)
+	float unused_ss5[2];
 	// 1376 bytes
 } PSShadingSystemCB;
 

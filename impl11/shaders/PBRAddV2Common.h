@@ -747,7 +747,9 @@ PixelShaderOutput main(PixelShaderInput input)
 	const float3 envDiffuse  = cubeMappingEnabled ? env_ambient_mult * ambient_tint * cubeMapAmbientInt * skyBoxNormalCol : 0.0;
 	const float3 envSpecular = cubeMappingEnabled ? env_specular_mult * cubeMapSpecInt * skyBoxReflCol : 0.0;
 
-	// Direct light from the XWA lights
+	// Direct light from the XWA lights. Their highlights don't get the black level of the
+	// shadows (see specular_shadow_factor()), so there are none in a full shadow.
+	const float spec_shadow_factor = specular_shadow_factor(total_shadow_factor, get_shadow_caster_black_level(LightCount));
 	float3 direct = 0.0;
 	float4 tmp_bloom = 0.0;
 	uint i;
@@ -787,9 +789,9 @@ PixelShaderOutput main(PixelShaderInput input)
 		float3 diffuseBRDF, specularBRDF;
 		EvaluateDirectBRDF(N_PBR, V_PBR, L, albedo, metallicity, F0, roughness, diffuseBRDF, specularBRDF);
 		// See the light convention in PBRShadingV2.h: the irradiance is PI * lightColor * dotNL
-		const float3 irradiance = PI * lightColor * saturate(dot(N_PBR, L)) * shadow_factor;
-		const float3 diffuse  = diffuseBRDF  * irradiance;
-		const float3 specular = specularBRDF * irradiance;
+		const float3 irradiance = PI * lightColor * saturate(dot(N_PBR, L));
+		const float3 diffuse  = diffuseBRDF  * irradiance * shadow_factor;
+		const float3 specular = specularBRDF * irradiance * (is_shadow_caster > 0.5 ? spec_shadow_factor : 1.0);
 
 		// When there's a glass material, we want to lerp between the current color and
 		// the specular reflection, so that we get a nice white spot when glass reflects
@@ -802,7 +804,7 @@ PixelShaderOutput main(PixelShaderInput input)
 		// only-shadow-casters-emit-bloom * Glass-blooms-more-than-other-surfaces * excess-specular-energy
 		const float excess_energy = smoothstep(0.95, 4.0, spec_val);
 		const float spec_bloom = is_shadow_caster * lerp(0.4, 1.25, glass) * excess_energy;
-		tmp_bloom += total_shadow_factor * spec_bloom;
+		tmp_bloom += spec_shadow_factor * spec_bloom;
 	}
 	output.bloom = tmp_bloom;
 

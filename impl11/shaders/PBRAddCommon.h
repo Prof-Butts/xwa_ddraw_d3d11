@@ -597,6 +597,9 @@ PixelShaderOutput main(PixelShaderInput input)
 		reflectance = 1.0;
 	}
 
+	// The highlights of the lights don't get the black level of the shadows (see
+	// specular_shadow_factor()), so there are none in a full shadow
+	const float spec_shadow_factor = specular_shadow_factor(total_shadow_factor, get_shadow_caster_black_level(LightCount));
 	[loop]
 	for (i = 0; i < LightCount; i++)
 	{
@@ -675,6 +678,8 @@ PixelShaderOutput main(PixelShaderInput input)
 			finalAmbient,
 			//bIsGlass ? 1.0 : shadow_factor * ssdo.x, // Disable RT shadows for glass surfaces
 			shadow_factor * ssdo.x,
+			// The highlights don't get the black level of the shadows (see specular_shadow_factor())
+			(is_shadow_caster > 0.5 ? spec_shadow_factor : 1.0) * ssdo.x,
 			specular_out
 		);
 
@@ -700,7 +705,7 @@ PixelShaderOutput main(PixelShaderInput input)
 		// Add some bloom where appropriate:
 		// only-shadow-casters-emit-bloom * Glass-blooms-more-than-other-surfaces * excess-specular-energy
 		float spec_bloom = is_shadow_caster * lerp(0.4, 1.25, glass) * excess_energy;
-		tmp_bloom += total_shadow_factor * spec_bloom;
+		tmp_bloom += spec_shadow_factor * spec_bloom;
 	}
 	output.bloom = tmp_bloom;
 

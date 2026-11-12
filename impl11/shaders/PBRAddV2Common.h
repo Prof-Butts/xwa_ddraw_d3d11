@@ -28,7 +28,9 @@
  *   pass (pbr_gtao_coarse*) adds the broad occlusion of large structures. Multi-bounce AO
  *   (pbr_gtao_multibounce, Ctrl+Alt+U) lightens it on bright surfaces, see GTAOMultiBounce().
  *   The laser and explosion lights, which have no shadows, are faded by the directions GTAO
- *   found blocked (pbr_gtao_light_occlusion), see the visibility cone below.
+ *   found blocked (pbr_gtao_light_occlusion), see the visibility cone below. The
+ *   reflections are occluded with the same cone (pbr_gtao_specular_occlusion), see
+ *   ConeSpecularOcclusion().
  * The shadows, the material heuristics and the composition with the background and the
  * transparent layers are the same as in PBRAddCommon.h.
  */
@@ -376,6 +378,60 @@ float3 EvalEnvSH(float3 d)
 	return max(result, 0.0);
 }
 
+// The half angle of the cone that holds most of the energy of a GGX reflection, from the
+// perceptual roughness: the roughness is turned into the equivalent Phong exponent, and the
+// cone is the fit of Uludag ("Hi-Z Screen-Space Cone-Traced Reflections", GPU Pro 5). About
+// 3 degrees at roughness 0.2, 17 at 0.5 and 76 at 1.
+float SpecularConeHalfAngle(float roughness)
+{
+	const float alpha = max(roughness * roughness, 1e-3);
+	const float power = 2.0 / (alpha * alpha) - 2.0;
+	return acos(pow(0.244, 1.0 / (power + 1.0)));
+}
+
+// The fraction of a reflection cone (axis reflDir, half angle reflHalfAngle) that's inside
+// a visibility cone (axis visAxis, half angle visHalfAngle), from the area of the overlap
+// of their spherical caps. The overlap is approximated with a smoothstep between "one cap
+// inside the other" and "no overlap" (Oat & Sander, "Ambient Aperture Lighting", 2007; the
+// same approximation as UE4's distance field AO).
+float ReflectionConeVisibility(float visHalfAngle, float3 visAxis, float reflHalfAngle, float3 reflDir)
+{
+	const float d = acos(clamp(dot(visAxis, reflDir), -1.0, 1.0));
+	const float capVis  = 1.0 - cos(visHalfAngle);
+	const float capRefl = 1.0 - cos(reflHalfAngle);
+	const float diff = abs(visHalfAngle - reflHalfAngle);
+	const float t = 1.0 - saturate((d - diff) / max(visHalfAngle + reflHalfAngle - diff, 1e-4));
+	return smoothstep(0.0, 1.0, t) * min(capVis, capRefl) / max(capRefl, 1e-6);
+}
+
+// Specular occlusion from GTAO's visibility cone (Jimenez et al. 2016): how much of the
+// reflection's cone falls in the directions where the point sees open space. A glossy
+// surface in a crevice keeps reflecting the sky when its reflection points out of the
+// crevice, and loses it when it points into a wall; the AO alone only knows how much is
+// occluded, not where. The visibility cone's axis is the bent normal (bentN), and its half
+// angle comes from the AO as a fraction of the hemisphere's solid angle: cos = 1 - AO (the
+// whole hemisphere around n without occlusion). The cone assumes the occluders are spread
+// evenly around it, which isn't true on a hull where they're on one side; the stricter
+// cosine-weighted cone, cos = sqrt(1 - AO), removed the grazing reflections of whole open
+// areas as soon as a large GTAO radius found a few occluders. The result is relative to an
+// unoccluded hemisphere around the geometric normal n, so the part of a grazing reflection
+// that's below the horizon (which the Fresnel term already accounts for) doesn't count as
+// occlusion: without occluders, it's 1. All the directions are unit vectors in the same
+// space.
+//
+// The reflection's cone is at least 15 degrees wide for this test, even for a mirror: the
+// visibility cone is only an approximation, from GTAO buffers at half and a quarter of the
+// resolution, and a narrower cone makes the test all-or-nothing, so the small variations of
+// the bent normal showed as steps and noise.
+float ConeSpecularOcclusion(float ao, float3 bentN, float3 n, float3 reflDir, float roughness)
+{
+	const float reflHalfAngle = max(SpecularConeHalfAngle(roughness), 0.26);
+	const float visHalfAngle = acos(saturate(1.0 - ao));
+	const float occluded = ReflectionConeVisibility(visHalfAngle, bentN, reflHalfAngle, reflDir);
+	const float open = ReflectionConeVisibility(0.5 * 3.14159265, n, reflHalfAngle, reflDir);
+	return saturate(occluded / max(open, 1e-4));
+}
+
 // The AO of the diffuse ambient light: GTAO with multi-bounce (gtao_multibounce = 0 is plain
 // GTAO). It's applied to the combined AO of both passes: it's a function of all the
 // occlusion around a point, and applying it to each pass separately would lighten crevices
@@ -482,8 +538,8 @@ PixelShaderOutput main(PixelShaderInput input)
 	// cubemap's space), and the mip level that the screen can resolve for it: on curved
 	// surfaces it changes fast from pixel to pixel, and the sharp mips would shimmer. It's
 	// computed here, before any pixel can return early, because it uses screen derivatives.
-	const float3 skyBoxReflected = mul(viewMat, float4(reflect(normalize(P),
-		normalize(float3(Normal.x, Normal.y, -Normal.z))), 0)).xyz;
+	const float3 reflDirView = reflect(normalize(P), normalize(float3(Normal.x, Normal.y, -Normal.z)));
+	const float3 skyBoxReflected = mul(viewMat, float4(reflDirView, 0)).xyz;
 	const float reflScreenMip = skybox.CalculateLevelOfDetail(sampColor, skyBoxReflected);
 
 	if (shadeless >= 1.0)
@@ -811,9 +867,18 @@ PixelShaderOutput main(PixelShaderInput input)
 	// Ambient light, added once. It's treated as uniform light coming from all directions,
 	// so it has a diffuse and a specular component.
 	// The ambient occlusion darkens the diffuse ambient light. For the reflections, it's
-	// turned into specular occlusion, which also depends on the roughness and the view angle
-	// (Lagarde & de Rousiers, "Moving Frostbite to PBR", 2014).
-	const float specOcclusion = saturate(pow(abs(dotNV + ao), exp2(-16.0 * roughness - 1.0)) - 1.0 + ao);
+	// turned into specular occlusion: with GTAO, the part of the reflection's cone that's
+	// outside the visibility cone (ConeSpecularOcclusion, pbr_gtao_specular_occlusion = 1);
+	// otherwise, an estimate from the AO, the roughness and the view angle (Lagarde & de
+	// Rousiers, "Moving Frostbite to PBR", 2014).
+	float specOcclusion = saturate(pow(abs(dotNV + ao), exp2(-16.0 * roughness - 1.0)) - 1.0 + ao);
+	[branch]
+	if (bGTAO && gtao_cone_spec_occlusion > 0.5)
+	{
+		// The directions are in the GTAO space: Z+ away from the camera
+		specOcclusion = ConeSpecularOcclusion(ao, normalize(gtao.xyz),
+			normalize(float3(Normal.x, Normal.y, -Normal.z)), reflDirView, roughness);
+	}
 	// Multi-bounce only applies to the diffuse light: the reflections keep the plain AO
 	const float3 ambientDiffuse  = GTAODiffuseAO(ao, albedo) * (baseAmbient + envDiffuse) * albedo * (1.0 - metallicity);
 	const float3 ambientSpecular = specOcclusion * (baseAmbient + envSpecular) * EnvBRDFApprox(F0, roughness, dotNV);

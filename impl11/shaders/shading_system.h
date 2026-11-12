@@ -65,6 +65,7 @@ cbuffer ConstantBuffer : register(b4)
 	float4 env_sh[9];
 	// 1360 bytes
 	float env_prefilter;      // 1: the reflections use the prefiltered cubemap (t22, pbr_cubemap_prefilter)
-	float3 unused_ss5;
+	float gtao_cone_spec_occlusion; // 1: cone-based specular occlusion (pbr_gtao_specular_occlusion)
+	float2 unused_ss5;
 	// 1376 bytes
 };

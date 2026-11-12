@@ -235,6 +235,8 @@ bool g_bGTAOMultiBounce = true;
 float g_fGTAOMultiBounce = 1.0f;
 // The laser/dynamic lights have no shadows: GTAO occludes them
 float g_fGTAOLightOcclusion = 1.0f;
+// The reflections are occluded with GTAO's visibility cone
+bool g_bGTAOConeSpecOcclusion = true;
 // The cubemap's ambient light and reflections in the new PBR shading
 float g_fPBRCubeMapAmbient = 1.0f, g_fPBRCubeMapSpecular = 1.0f;
 int g_iPBRCubeMapDebug = 0;
@@ -2340,6 +2342,7 @@ bool LoadSSAOParams() {
 	g_bGTAOMultiBounce = true;
 	g_fGTAOMultiBounce = 1.0f;
 	g_fGTAOLightOcclusion = 1.0f;
+	g_bGTAOConeSpecOcclusion = true;
 	g_fPBRCubeMapAmbient = 1.0f;
 	g_fPBRCubeMapSpecular = 1.0f;
 	g_iPBRCubeMapDebug = 0;
@@ -2578,6 +2581,9 @@ bool LoadSSAOParams() {
 			}
 			else if (_stricmp(param, "pbr_gtao_light_occlusion") == 0) {
 				g_fGTAOLightOcclusion = max(0.0f, min(1.0f, fValue));
+			}
+			else if (_stricmp(param, "pbr_gtao_specular_occlusion") == 0) {
+				g_bGTAOConeSpecOcclusion = (bool)fValue;
 			}
 			else if (_stricmp(param, "pbr_gtao_height_bias") == 0) {
 				g_fGTAOHeightBias = max(0.0f, min(16.0f, fValue));

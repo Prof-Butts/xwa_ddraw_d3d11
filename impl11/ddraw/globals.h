@@ -139,6 +139,9 @@ extern bool g_bGTAOMultiBounce;
 extern float g_fGTAOMultiBounce;
 // pbr_gtao_light_occlusion: how much GTAO occludes the laser/dynamic lights (0-1, 0 is off)
 extern float g_fGTAOLightOcclusion;
+// pbr_gtao_specular_occlusion: the reflections are occluded with GTAO's visibility cone
+// (otherwise, with an estimate from the AO)
+extern bool g_bGTAOConeSpecOcclusion;
 // pbr_cubemap_ambient, pbr_cubemap_specular: multiply the cubemap's ambient light and
 // reflections in the new PBR shading (the mission's AmbientInt and Specular)
 extern float g_fPBRCubeMapAmbient, g_fPBRCubeMapSpecular;

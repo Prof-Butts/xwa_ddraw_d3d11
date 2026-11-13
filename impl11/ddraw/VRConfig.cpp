@@ -211,8 +211,8 @@ SSAOTypeEnum g_SSAO_Type = SSO_AMBIENT;
 // When g_SSAO_Type is SSO_PBR, this selects the new PBR shading (ssao_type = PBR) instead of
 // the legacy one. Ctrl+Alt+M switches between them.
 bool g_bPBRShadingV2 = false;
-float g_fPBRExposure = 1.0f;
-float g_fPBRMinAlbedo = 0.0f;
+float g_fPBRExposure = 1.5f;
+float g_fPBRMinAlbedo = 0.04f;
 Vector3 g_PBRAmbientColor = Vector3(1.0f, 1.0f, 1.0f);
 // Tints the XWA lights (the suns) in the new PBR shading. See SetLights().
 Vector3 g_PBRLightsColor = Vector3(1.0f, 1.0f, 1.0f);
@@ -2315,29 +2315,31 @@ bool LoadSSAOParams() {
 	g_fSSAOAlphaOfs = 0.5;
 	g_SSAO_Type = SSO_PBR;
 	g_bPBRShadingV2 = false;
-	g_fPBRExposure = 1.0f;
-	g_fPBRMinAlbedo = 0.0f;
+	g_fPBRExposure = 1.5f;
+	g_fPBRMinAlbedo = 0.04f;
 	g_PBRAmbientColor = Vector3(1.0f, 1.0f, 1.0f);
 	g_PBRLightsColor = Vector3(1.0f, 1.0f, 1.0f);
-	g_bGTAOEnabled = false;
-	g_fGTAORadius = 1.0f;
-	g_fGTAOIntensity = 1.5f;
+	g_bGTAOEnabled = true;
+	// Radius, in meters
+	g_fGTAORadius = 150.0f;
+	g_fGTAOIntensity = 1.2f;
 	g_fGTAOMinRadiusPx = 4.0f;
 	g_fGTAOMaxRadiusPx = 64.0f;
-	g_iGTAOSlices = 3;
+	g_iGTAOSlices = 2;
 	g_iGTAOSteps = 4;
 	g_bGTAOGPUTimer = false;
 	g_bGTAOHalfRes = true;
-	g_bGTAOCoarse = false;
-	g_fGTAOCoarseRadius = 10.0f;
-	g_fGTAOCoarseIntensity = 1.0f;
+	g_bGTAOCoarse = true;
+	// Radius, in meters
+	g_fGTAOCoarseRadius = 250.0f;
+	g_fGTAOCoarseIntensity = 2.4f;
 	g_fGTAOCoarseMinRadiusPx = 32.0f;
 	g_fGTAOCoarseMaxRadiusPx = 256.0f;
-	g_iGTAOCoarseSlices = 4;
-	g_iGTAOCoarseSteps = 8;
-	g_fGTAOAngleBias = 2.0f;
-	g_fGTAOCoarseAngleBias = 4.0f;
-	g_fGTAOHeightBias = 1.0f;
+	g_iGTAOCoarseSlices = 3;
+	g_iGTAOCoarseSteps = 4;
+	g_fGTAOAngleBias = 0.0f;
+	g_fGTAOCoarseAngleBias = 5.0f;
+	g_fGTAOHeightBias = 2.0f;
 	g_iGTAODebug = 0;
 	g_bGTAOMultiBounce = true;
 	g_fGTAOMultiBounce = 1.0f;
@@ -2393,10 +2395,10 @@ bool LoadSSAOParams() {
 	g_ShadingSys_PSBuffer.HDR_white_point = g_fHDRWhitePoint;
 	g_fGlobalAmbient = 0.005f;
 	g_fHangarAmbient = 0.05f;
-	g_fPBRAmbient = 0.005f;
-	g_fPBRHangarAmbient = 0.05f;
-	g_fPBRLightsIntensity = 2.8f;
-	g_fPBRLaserLightIntensity = 6.0f;
+	g_fPBRAmbient = 0.2f;
+	g_fPBRHangarAmbient = 0.2f;
+	g_fPBRLightsIntensity = 2.0f;
+	g_fPBRLaserLightIntensity = 5.0f;
 
 	g_ShadertoyBuffer.flare_intensity = 2.0f;
 

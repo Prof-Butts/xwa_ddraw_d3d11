@@ -10,8 +10,19 @@
  * GTAO buffer. At half resolution (gtao_scale = 2) it works on the top-left quarter of the
  * GTAO buffers, and the depths come from the top-left pixel of each 2x2 block of the
  * position buffer, like in the GTAO pass.
+ *
+ * GTAO_GI_DENOISE (GIDenoise.hlsl) filters the indirect light instead (GTAOGI.hlsl, at a
+ * quarter of the resolution): the same average, but the input is a color (rgb, a = 1; a = 0
+ * for the pixels the gather skipped), so it isn't normalized like a bent normal.
  */
 #include "GTAOCBuffer.h"
+
+#ifdef GTAO_GI_DENOISE
+#define DENOISE_SKIPPED(value) ((value).a < 0.5)
+#else
+// The pixels that GTAO skipped have AO = 2
+#define DENOISE_SKIPPED(value) ((value).a > 1.5)
+#endif
 
 #ifdef INSTANCED_RENDERING
 Texture2DArray texGTAO : register(t0);
@@ -44,8 +55,8 @@ float4 main(PixelShaderInput input) : SV_TARGET
 	const float4 center = texGTAO.Load(int3(px, 0));
 	const float z = texPos.Load(int3(px * scale, 0)).z;
 #endif
-	// The background and the pixels that GTAO skipped (AO = 2) are left as they are
-	if (center.a > 1.5)
+	// The background and the pixels that GTAO skipped are left as they are
+	if (DENOISE_SKIPPED(center))
 		return center;
 
 	const float tolerance = max(z * gtao_denoise_depth, 1e-3);
@@ -67,13 +78,17 @@ float4 main(PixelShaderInput input) : SV_TARGET
 #endif
 			// Skipped pixels (AO = 2) aren't blended in. The AO isn't clamped to 1 yet: the
 			// values a bit above and below 1 on open surfaces average to 1 here.
-			const float w = value.a > 1.5 ? 0.0 : saturate(1.0 - abs(sz - z) / tolerance);
+			const float w = DENOISE_SKIPPED(value) ? 0.0 : saturate(1.0 - abs(sz - z) / tolerance);
 			sum += value * w;
 			weightSum += w;
 		}
 	}
 	// The center pixel always has weight 1, so weightSum > 0
 	float4 result = sum / weightSum;
+#ifdef GTAO_GI_DENOISE
+	result.a = 1.0;
+#else
 	result.xyz = length(result.xyz) > 1e-4 ? normalize(result.xyz) : center.xyz;
+#endif
 	return result;
 }

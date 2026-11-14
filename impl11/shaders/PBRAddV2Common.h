@@ -57,6 +57,8 @@ Texture2DArray texGTAOCoarse : register(t8);
 Texture2DArray texBounce : register(t9);
 // The indirect light gathered by GTAOGI.hlsl, at a quarter of the resolution, when gi_enabled
 Texture2DArray texGI : register(t10);
+// The same after the denoise filter (GIDenoise.hlsl)
+Texture2DArray texGIDenoised : register(t11);
 
 // The Background buffer
 Texture2DArray texBackground : register(t2);
@@ -98,6 +100,8 @@ Texture2D texGTAOCoarse : register(t8);
 Texture2D texBounce : register(t9);
 // The indirect light gathered by GTAOGI.hlsl, at a quarter of the resolution, when gi_enabled
 Texture2D texGI : register(t10);
+// The same after the denoise filter (GIDenoise.hlsl)
+Texture2D texGIDenoised : register(t11);
 
 // The Background buffer
 Texture2D texBackground : register(t2);
@@ -278,6 +282,75 @@ float4 LoadGTAO(GTAO_TEXTURE tex, int scale, int2 maxPx, int2 px, uint viewId, f
 	return result;
 #undef GTAO_LOAD
 #undef GTAO_DEPTH
+}
+
+// The indirect light (after the denoise filter) for a full-resolution pixel px at depth z,
+// upsampled from a quarter of the resolution like LoadGTAO(): the four nearest pixels are
+// blended with bilinear weights, skipping the ones at a different depth and the ones the
+// gather skipped (a = 0), so the light doesn't bleed across the edges of objects. When none
+// of them is usable (along silhouettes), the one at the closest depth in the surrounding
+// 4x4, if it's on the same surface; otherwise no indirect light.
+float3 LoadIndirectLight(int2 px, uint viewId, float z)
+{
+#ifdef INSTANCED_RENDERING
+#define GI_LOAD(p) texGIDenoised.Load(int4(p, viewId, 0))
+#define GI_DEPTH(p) texPos.Load(int4(p, viewId, 0)).z
+#else
+#define GI_LOAD(p) texGIDenoised.Load(int3(p, 0))
+#define GI_DEPTH(p) texPos.Load(int3(p, 0)).z
+#endif
+	const int scale = GI_SCALE;
+	const int2 maxPx = int2((uint2(GTAOBufferSize(texGIDenoised)) + (uint)scale - 1) / (uint)scale) - 1;
+	const float2 pos = px / (float)scale;
+	const int2 base = int2(floor(pos));
+	const float2 f = pos - base;
+	const float tolerance = max(z * 0.05, 1e-3);
+	float3 sum = 0;
+	float weightSum = 0;
+	[unroll]
+	for (int y = 0; y < 2; y++)
+	{
+		[unroll]
+		for (int x = 0; x < 2; x++)
+		{
+			const int2 h = min(base + int2(x, y), maxPx);
+			const float4 value = GI_LOAD(h);
+			float w = (x ? f.x : 1.0 - f.x) * (y ? f.y : 1.0 - f.y);
+			w *= saturate(1.0 - abs(GI_DEPTH(h * scale) - z) / tolerance);
+			w *= value.a > 0.5 ? 1.0 : 0.0;
+			sum += w * value.rgb;
+			weightSum += w;
+		}
+	}
+	float3 result = 0;
+	[branch]
+	if (weightSum > 1e-4)
+	{
+		result = sum / weightSum;
+	}
+	else
+	{
+		float bestDiff = 4.0 * tolerance;
+		[loop]
+		for (int sy = -1; sy <= 2; sy++)
+		{
+			[loop]
+			for (int sx = -1; sx <= 2; sx++)
+			{
+				const int2 h = clamp(base + int2(sx, sy), 0, maxPx);
+				const float4 value = GI_LOAD(h);
+				const float diff = abs(GI_DEPTH(h * scale) - z);
+				if (value.a > 0.5 && diff < bestDiff)
+				{
+					bestDiff = diff;
+					result = value.rgb;
+				}
+			}
+		}
+	}
+	return result;
+#undef GI_LOAD
+#undef GI_DEPTH
 }
 
 // From https://www.gamedev.net/tutorials/programming/graphics/effect-area-light-shadows-part-1-pcss-r4971/
@@ -885,22 +958,28 @@ PixelShaderOutput main(PixelShaderInput input)
 		return output;
 	}
 
-	// Debug views (pbr_gi_debug), exposed and tonemapped like the final colors, at a quarter
-	// of the resolution:
-	// 1: the bounce light, the light that the surfaces send back out (GIBounceLight.hlsl);
+	// Debug views (pbr_gi_debug), exposed and tonemapped like the final colors:
+	// 1: the bounce light, the light that the surfaces send back out (GIBounceLight.hlsl, at
+	//    a quarter of the resolution);
 	// 2: the indirect light gathered by GTAOGI.hlsl, before the denoise: the light that each
-	//    surface receives from the others.
+	//    surface receives from the others (at a quarter of the resolution);
+	// 3: the indirect light after the denoise filter, upsampled to full resolution, as the
+	//    shading uses it.
 	[branch]
 	if (gi_enabled > 0.5 && gi_debug > 0.5)
 	{
 		const int2 giPx = int2(uint2(input.pos.xy) / (uint)GI_SCALE);
 #ifdef INSTANCED_RENDERING
-		const float3 debugLight = gi_debug < 1.5 ? texBounce.Load(int4(giPx, input.viewId, 0)).rgb :
-			texGI.Load(int4(giPx, input.viewId, 0)).rgb;
+		const uint giViewId = input.viewId;
+		float3 debugLight = gi_debug < 1.5 ? texBounce.Load(int4(giPx, giViewId, 0)).rgb :
+			texGI.Load(int4(giPx, giViewId, 0)).rgb;
 #else
-		const float3 debugLight = gi_debug < 1.5 ? texBounce.Load(int3(giPx, 0)).rgb :
+		const uint giViewId = 0;
+		float3 debugLight = gi_debug < 1.5 ? texBounce.Load(int3(giPx, 0)).rgb :
 			texGI.Load(int3(giPx, 0)).rgb;
 #endif
+		if (gi_debug > 2.5)
+			debugLight = LoadIndirectLight(int2(input.pos.xy), giViewId, pos3D.z);
 		output.color = float4(lerp(background, LinearToSRGB(ACESFitted(exposure_mult * debugLight)), blendAlpha), 1);
 		return output;
 	}

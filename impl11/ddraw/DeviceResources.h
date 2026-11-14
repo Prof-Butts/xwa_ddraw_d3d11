@@ -507,6 +507,8 @@ public:
 	ComPtr<ID3D11PixelShader> _gtaoGIPS_VR;         // only created with feature level 11)
 	ComPtr<ID3D11PixelShader> _giDenoisePS;         // Indirect light: the denoise filter
 	ComPtr<ID3D11PixelShader> _giDenoisePS_VR;
+	ComPtr<ID3D11PixelShader> _giBlurPS;            // Indirect light: the wider filter (pbr_gi_blur_radius)
+	ComPtr<ID3D11PixelShader> _giBlurPS_VR;
 	ComPtr<ID3D11PixelShader> _headLightsPS;
 	ComPtr<ID3D11PixelShader> _headLightsPS_VR;
 	ComPtr<ID3D11PixelShader> _headLightsSSAOPS;

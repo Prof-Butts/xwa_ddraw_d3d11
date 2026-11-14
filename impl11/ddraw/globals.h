@@ -156,6 +156,10 @@ extern float g_fPBRGIThickness;
 extern float g_fPBRGIRadius, g_fPBRGIMaxRadius;
 // pbr_gi_intensity: multiplies the indirect light
 extern float g_fPBRGIIntensity;
+// pbr_gi_emitter_boost: multiplies the light of the emitters (lights, engine glows) that bounces
+extern float g_fPBRGIEmitterBoost;
+// pbr_gi_blur_radius: the radius of the indirect light's wider filter (quarter-res pixels, 0: off)
+extern int g_iPBRGIBlurRadius;
 extern int g_iPBRGISlices, g_iPBRGISteps;
 // pbr_cubemap_ambient, pbr_cubemap_specular: multiply the cubemap's ambient light and
 // reflections in the new PBR shading (the mission's AmbientInt and Specular)

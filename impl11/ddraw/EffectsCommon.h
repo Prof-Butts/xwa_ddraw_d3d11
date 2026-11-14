@@ -431,7 +431,8 @@ typedef struct PSShadingSystemCBStruct {
 	float gi_debug;              // pbr_gi_debug: 0 off, 1 the bounce light, 2 the raw indirect light, 3 the filtered one, 4 its contribution
 	// 1376 bytes
 	float gi_intensity;          // pbr_gi_intensity: multiplies the indirect light
-	float unused_ss6[3];
+	float gi_emitter_boost;      // pbr_gi_emitter_boost: multiplies the light of the emitters in the bounce light
+	float unused_ss6[2];
 	// 1392 bytes
 } PSShadingSystemCB;
 
@@ -454,6 +455,10 @@ typedef struct GTAOCBufferStruct {
 	float bounce_scale;          // Indirect light: the bounce light's resolution, 1 / scale
 	float thickness;             // Bitmask AO: assumed thickness of the occluders, in meters
 	// 64 bytes
+	float blur_dir[2];           // Indirect light's wider filter: (1, 0) or (0, 1)
+	float blur_radius;           // Its radius, in pixels of its buffer (pbr_gi_blur_radius)
+	float unused3;
+	// 80 bytes
 } GTAOCBuffer;
 
 typedef struct RTConstantsBufferStruct {

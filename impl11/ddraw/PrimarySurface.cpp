@@ -2994,6 +2994,7 @@ void SetLights(DeviceResources *resources, float fSSDOEnabled) {
 		(g_bUseSteamVR ? resources->_gtaoGIPS_VR : resources->_gtaoGIPS) != nullptr) ? 1.0f : 0.0f;
 	g_ShadingSys_PSBuffer.gi_debug = (float)g_iPBRGIDebug;
 	g_ShadingSys_PSBuffer.gi_intensity = g_fPBRGIIntensity;
+	g_ShadingSys_PSBuffer.gi_emitter_boost = g_fPBRGIEmitterBoost;
 	// The cubemap's ambient light and reflections (only the new PBR shading reads them)
 	g_ShadingSys_PSBuffer.env_ambient_mult = g_fPBRCubeMapAmbient;
 	g_ShadingSys_PSBuffer.env_specular_mult = g_fPBRCubeMapSpecular;
@@ -3830,6 +3831,7 @@ static void RenderGTAO(DeviceResources* resources, int scale, float radius, floa
 	cb.gi_thickness   = g_fPBRGIThickness;
 	cb.bounce_scale   = (float)GI_SCALE; // The bounce light's resolution (BounceLightPass())
 	cb.thickness      = g_fGTAOThickness;
+	cb.blur_radius    = (float)g_iPBRGIBlurRadius;
 	resources->InitPSConstantBufferGTAO(&cb);
 
 	// GTAO
@@ -3889,6 +3891,36 @@ static void RenderGTAO(DeviceResources* resources, int scale, float radius, floa
 			context->DrawInstanced(6, 2, 0, 0);
 		else
 			context->Draw(6, 0);
+
+		// The wider filter (GIBlurCommon.h): a separable Gaussian, horizontal into _gtaoBuf
+		// (nothing reads it after the GTAO passes), then vertical back into _giDenoisedBuf.
+		// Its GPU time is in the same section as the denoise filter.
+		if (g_iPBRGIBlurRadius > 0)
+		{
+			resources->InitPixelShader(g_bUseSteamVR ? resources->_giBlurPS_VR : resources->_giBlurPS);
+			for (int pass = 0; pass < 2; pass++)
+			{
+				cb.blur_dir[0] = pass == 0 ? 1.0f : 0.0f;
+				cb.blur_dir[1] = pass == 0 ? 0.0f : 1.0f;
+				resources->InitPSConstantBufferGTAO(&cb);
+				ID3D11RenderTargetView* blurRTVs[1] = {
+					pass == 0 ? resources->_gtaoRTV.Get() : resources->_giDenoisedRTV.Get() };
+				// Unbind the inputs first, so the previous pass's output can be bound as a target
+				ID3D11ShaderResourceView* nullBlurSRVs[3] = { NULL, NULL, NULL };
+				context->PSSetShaderResources(0, 3, nullBlurSRVs);
+				context->OMSetRenderTargets(1, blurRTVs, NULL);
+				ID3D11ShaderResourceView* blurSRVs[3] = {
+					pass == 0 ? resources->_giDenoisedSRV.Get() : resources->_gtaoSRV.Get(), // 0: Indirect light
+					resources->_depthBufSRV.Get(),                                             // 1: Position buffer
+					resources->_normBufSRV.Get(),                                              // 2: Normals buffer
+				};
+				context->PSSetShaderResources(0, 3, blurSRVs);
+				if (g_bUseSteamVR)
+					context->DrawInstanced(6, 2, 0, 0);
+				else
+					context->Draw(6, 0);
+			}
+		}
 	}
 
 	ID3D11ShaderResourceView* nullSRVs[3] = { NULL, NULL, NULL };
@@ -4370,6 +4402,7 @@ void PrimarySurface::DeferredPass()
 				section[GTAO_TIMER_SETUP], section[GTAO_TIMER_BOUNCE], section[GTAO_TIMER_GTAO],
 				section[GTAO_TIMER_DENOISE], section[GTAO_TIMER_COARSE], section[GTAO_TIMER_GATHER],
 				section[GTAO_TIMER_GI_DENOISE], section[GTAO_TIMER_LIGHTING]);
+			// ("gi denoise" includes the wider filter, pbr_gi_blur_radius)
 			// Shown for a bit longer than the reporting window so the message doesn't flicker.
 			// Row 3 (the last one, see MAX_TIMED_MESSAGES), so it doesn't cover the bloom timer.
 			DisplayTimedMessageV(6, 3, "PBR lighting GPU time (GTAO %s): %0.3f ms", gtaoState, stats.avgMs);

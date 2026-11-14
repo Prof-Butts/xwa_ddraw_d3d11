@@ -793,7 +793,12 @@ float3 ComputeDynamicLights(float3 pos3D, float3 N, float lightOcclusion, float3
  *   not sunlight, so it doesn't bounce.
  * - The laser and explosion lights, as the lighting pass adds them (without GTAO's
  *   occlusion, which isn't computed yet).
- * - Shadeless surfaces (engine glows, lights, displays): their own color, as emitters.
+ * - Emitters: the pixels whose shadeless mask is near 1 (illuminated texels such as engine
+ *   glows and cockpit lights, displays): their own color times pbr_gi_emitter_boost. Real
+ *   lights are much brighter than the surfaces they light, but their 8-bit colors aren't.
+ *   They're averaged over the whole GI_SCALE x GI_SCALE block this pixel stands for, so a
+ *   light only a few pixels wide counts with the right energy instead of being missed (or
+ *   flickering). Partly shadeless surfaces ("soft shadeless" materials) aren't boosted.
  * No ambient light: the sky's bounce is approximated by the multi-bounce AO, and it would
  * feed back into itself. The output is linear, before the exposure, like the lighting
  * pass. Alpha is the coverage: 0 on the background.
@@ -828,17 +833,41 @@ float4 main(PixelShaderInput input) : SV_TARGET0
 	const float spec_val_mask = ssMask.y;
 	const float shadeless     = ssMask.z;
 
+	// The emitters of the whole block, averaged (see above). The shadeless mask's alpha is the
+	// coverage (0 on the background).
+	float3 emitted = 0.0;
+	const int2 blockPx = int2(floor(input.pos.xy)) * GI_SCALE;
+	[unroll]
+	for (int by = 0; by < GI_SCALE; by++)
+	{
+		[unroll]
+		for (int bx = 0; bx < GI_SCALE; bx++)
+		{
+#ifdef INSTANCED_RENDERING
+			const float3 blockColor = texColor.Load(int4(blockPx + int2(bx, by), input.viewId, 0)).rgb;
+			const float4 blockMask = texSSMask.Load(int4(blockPx + int2(bx, by), input.viewId, 0));
+#else
+			const float3 blockColor = texColor.Load(int3(blockPx + int2(bx, by), 0)).rgb;
+			const float4 blockMask = texSSMask.Load(int3(blockPx + int2(bx, by), 0));
+#endif
+			emitted += smoothstep(0.9, 1.0, blockMask.z) * saturate(blockMask.a) * SRGBToLinear(blockColor);
+		}
+	}
+	emitted *= gi_emitter_boost / (GI_SCALE * GI_SCALE);
+	// How much of this pixel is an emitter: that part is already in the average
+	const float emitter = smoothstep(0.9, 1.0, shadeless);
+
 	// The same coverage as the lighting pass, where it blends with the background
 	const float blendAlphaSat = saturate(2.0 * Normal.w);
 	const float blendAlpha = blendAlphaSat * blendAlphaSat;
 	if (blendAlpha <= 0.0)
-		return 0;
+		return float4(emitted, 0);
 
 	const float3 P = pos3D.xyz;
 	pos3D.z = -pos3D.z;
 	const float3 color = SRGBToLinear(texelColor.rgb);
 	if (shadeless >= 1.0)
-		return float4(color * blendAlpha, blendAlpha);
+		return float4(emitted, blendAlpha);
 
 	const float3 albedo = albedo_floor + (1.0 - albedo_floor) * color;
 	const float3 N = normalize(Normal.xyz);
@@ -870,7 +899,7 @@ float4 main(PixelShaderInput input) : SV_TARGET0
 
 	float3 radiance = lerp(direct, color, shadeless);
 	radiance += laser_light_intensity * ComputeDynamicLights(pos3D, N, 0.0, float3(0, 0, 1), 0.0);
-	return float4(radiance * blendAlpha, blendAlpha);
+	return float4(radiance * blendAlpha * (1.0 - emitter) + emitted, blendAlpha);
 }
 #else
 PixelShaderOutput main(PixelShaderInput input)

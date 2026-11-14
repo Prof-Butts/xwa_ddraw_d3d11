@@ -104,6 +104,10 @@
 #include "../Debug/PBRAddV2VR.h"
 #include "../Debug/GTAO.h"
 #include "../Debug/GTAOVR.h"
+#include "../Debug/GIBounceLight.h"
+#include "../Debug/GIBounceLightVR.h"
+#include "../Debug/GTAOGI.h"
+#include "../Debug/GTAOGIVR.h"
 #include "../Debug/GTAODenoise.h"
 #include "../Debug/GTAODenoiseVR.h"
 #include "../Debug/PixelShaderVRGeom.h"
@@ -198,6 +202,10 @@
 #include "../Release/PBRAddV2VR.h"
 #include "../Release/GTAO.h"
 #include "../Release/GTAOVR.h"
+#include "../Release/GIBounceLight.h"
+#include "../Release/GIBounceLightVR.h"
+#include "../Release/GTAOGI.h"
+#include "../Release/GTAOGIVR.h"
 #include "../Release/GTAODenoise.h"
 #include "../Release/GTAODenoiseVR.h"
 #include "../Release/PixelShaderVRGeom.h"
@@ -1995,6 +2003,12 @@ HRESULT DeviceResources::OnSizeChanged(HWND hWnd, DWORD dwWidth, DWORD dwHeight)
 		this->_gtaoRTV.Release();
 		this->_gtaoDenoisedRTV.Release();
 		this->_gtaoSRV.Release();
+		this->_bounceLightBuf.Release();
+		this->_bounceLightRTV.Release();
+		this->_bounceLightSRV.Release();
+		this->_giBuf.Release();
+		this->_giRTV.Release();
+		this->_giSRV.Release();
 		this->_gtaoDenoisedSRV.Release();
 		this->_gtaoCoarseBuf.Release();
 		this->_gtaoCoarseRTV.Release();
@@ -3068,6 +3082,25 @@ HRESULT DeviceResources::OnSizeChanged(HWND hWnd, DWORD dwWidth, DWORD dwHeight)
 					goto out;
 				}
 
+				// Indirect light (pbr_gi_*): the bounce light, rendered like GTAO to the top-left
+				// 1 / scale of the buffer
+				step = "_bounceLightBuf";
+				hr = this->_d3dDevice->CreateTexture2D(&desc, nullptr, &this->_bounceLightBuf);
+				if (FAILED(hr)) {
+					log_err("dwWidth, Height: %u, %u\n", dwWidth, dwHeight);
+					log_err_desc(step, hWnd, hr, desc);
+					goto out;
+				}
+
+				// Indirect light: the light gathered by the GTAO pass
+				step = "_giBuf";
+				hr = this->_d3dDevice->CreateTexture2D(&desc, nullptr, &this->_giBuf);
+				if (FAILED(hr)) {
+					log_err("dwWidth, Height: %u, %u\n", dwWidth, dwHeight);
+					log_err_desc(step, hWnd, hr, desc);
+					goto out;
+				}
+
 				// Coarse GTAO, at a quarter of the resolution (rounded up)
 				{
 					const UINT oldW = desc.Width, oldH = desc.Height;
@@ -3478,6 +3511,22 @@ HRESULT DeviceResources::OnSizeChanged(HWND hWnd, DWORD dwWidth, DWORD dwHeight)
 					goto out;
 				}
 
+				step = "_bounceLightSRV";
+				hr = this->_d3dDevice->CreateShaderResourceView(this->_bounceLightBuf, &shaderResourceViewDesc, &this->_bounceLightSRV);
+				if (FAILED(hr)) {
+					log_err("dwWidth, Height: %u, %u\n", dwWidth, dwHeight);
+					log_shaderres_view(step, hWnd, hr, shaderResourceViewDesc);
+					goto out;
+				}
+
+				step = "_giSRV";
+				hr = this->_d3dDevice->CreateShaderResourceView(this->_giBuf, &shaderResourceViewDesc, &this->_giSRV);
+				if (FAILED(hr)) {
+					log_err("dwWidth, Height: %u, %u\n", dwWidth, dwHeight);
+					log_shaderres_view(step, hWnd, hr, shaderResourceViewDesc);
+					goto out;
+				}
+
 				step = "_gtaoDenoisedSRV";
 				hr = this->_d3dDevice->CreateShaderResourceView(this->_gtaoBufDenoised, &shaderResourceViewDesc, &this->_gtaoDenoisedSRV);
 				if (FAILED(hr)) {
@@ -3857,6 +3906,14 @@ HRESULT DeviceResources::OnSizeChanged(HWND hWnd, DWORD dwWidth, DWORD dwHeight)
 
 			step = "_gtaoRTV";
 			hr = this->_d3dDevice->CreateRenderTargetView(this->_gtaoBuf, &GetRtvDesc(false, g_bUseSteamVR, HDR_FORMAT), &this->_gtaoRTV);
+			if (FAILED(hr)) goto out;
+
+			step = "_bounceLightRTV";
+			hr = this->_d3dDevice->CreateRenderTargetView(this->_bounceLightBuf, &GetRtvDesc(false, g_bUseSteamVR, HDR_FORMAT), &this->_bounceLightRTV);
+			if (FAILED(hr)) goto out;
+
+			step = "_giRTV";
+			hr = this->_d3dDevice->CreateRenderTargetView(this->_giBuf, &GetRtvDesc(false, g_bUseSteamVR, HDR_FORMAT), &this->_giRTV);
 			if (FAILED(hr)) goto out;
 
 			step = "_gtaoDenoisedRTV";
@@ -4423,6 +4480,14 @@ HRESULT DeviceResources::LoadMainResources()
 
 			if (FAILED(hr = this->_d3dDevice->CreatePixelShader(g_GTAODenoiseVR, sizeof(g_GTAODenoiseVR), nullptr, &_gtaoDenoisePS_VR)))
 				return hr;
+
+			if (FAILED(hr = this->_d3dDevice->CreatePixelShader(g_GIBounceLightVR, sizeof(g_GIBounceLightVR), nullptr, &_giBounceLightPS_VR)))
+				return hr;
+
+			// Shader model 5.0: only with feature level 11. Without it, the indirect light stays off.
+			if (this->_d3dFeatureLevel >= D3D_FEATURE_LEVEL_11_0 &&
+				FAILED(hr = this->_d3dDevice->CreatePixelShader(g_GTAOGIVR, sizeof(g_GTAOGIVR), nullptr, &_gtaoGIPS_VR)))
+				return hr;
 		}
 		else
 		{
@@ -4451,6 +4516,14 @@ HRESULT DeviceResources::LoadMainResources()
 				return hr;
 
 			if (FAILED(hr = this->_d3dDevice->CreatePixelShader(g_GTAODenoise, sizeof(g_GTAODenoise), nullptr, &_gtaoDenoisePS)))
+				return hr;
+
+			if (FAILED(hr = this->_d3dDevice->CreatePixelShader(g_GIBounceLight, sizeof(g_GIBounceLight), nullptr, &_giBounceLightPS)))
+				return hr;
+
+			// Shader model 5.0: only with feature level 11. Without it, the indirect light stays off.
+			if (this->_d3dFeatureLevel >= D3D_FEATURE_LEVEL_11_0 &&
+				FAILED(hr = this->_d3dDevice->CreatePixelShader(g_GTAOGI, sizeof(g_GTAOGI), nullptr, &_gtaoGIPS)))
 				return hr;
 		}
 
@@ -4894,6 +4967,14 @@ HRESULT DeviceResources::LoadResources()
 
 			if (FAILED(hr = this->_d3dDevice->CreatePixelShader(g_GTAODenoiseVR, sizeof(g_GTAODenoiseVR), nullptr, &_gtaoDenoisePS_VR)))
 				return hr;
+
+			if (FAILED(hr = this->_d3dDevice->CreatePixelShader(g_GIBounceLightVR, sizeof(g_GIBounceLightVR), nullptr, &_giBounceLightPS_VR)))
+				return hr;
+
+			// Shader model 5.0: only with feature level 11. Without it, the indirect light stays off.
+			if (this->_d3dFeatureLevel >= D3D_FEATURE_LEVEL_11_0 &&
+				FAILED(hr = this->_d3dDevice->CreatePixelShader(g_GTAOGIVR, sizeof(g_GTAOGIVR), nullptr, &_gtaoGIPS_VR)))
+				return hr;
 		}
 		else
 		{
@@ -4922,6 +5003,14 @@ HRESULT DeviceResources::LoadResources()
 				return hr;
 
 			if (FAILED(hr = this->_d3dDevice->CreatePixelShader(g_GTAODenoise, sizeof(g_GTAODenoise), nullptr, &_gtaoDenoisePS)))
+				return hr;
+
+			if (FAILED(hr = this->_d3dDevice->CreatePixelShader(g_GIBounceLight, sizeof(g_GIBounceLight), nullptr, &_giBounceLightPS)))
+				return hr;
+
+			// Shader model 5.0: only with feature level 11. Without it, the indirect light stays off.
+			if (this->_d3dFeatureLevel >= D3D_FEATURE_LEVEL_11_0 &&
+				FAILED(hr = this->_d3dDevice->CreatePixelShader(g_GTAOGI, sizeof(g_GTAOGI), nullptr, &_gtaoGIPS)))
 				return hr;
 		}
 

@@ -237,6 +237,12 @@ float g_fGTAOMultiBounce = 1.0f;
 float g_fGTAOLightOcclusion = 1.0f;
 // The reflections are occluded with GTAO's visibility cone
 bool g_bGTAOConeSpecOcclusion = true;
+// The indirect light (one bounce, SSILVB), work in progress: see c:\temp\ssilvb-plan.md
+bool g_bPBRGIEnabled = false;
+int g_iPBRGIDebug = 0;
+float g_fPBRGIThickness = 1.0f;
+float g_fPBRGIRadius = 10.0f, g_fPBRGIMaxRadius = 0.25f;
+int g_iPBRGISlices = 3, g_iPBRGISteps = 8;
 // The cubemap's ambient light and reflections in the new PBR shading
 float g_fPBRCubeMapAmbient = 1.0f, g_fPBRCubeMapSpecular = 1.0f;
 int g_iPBRCubeMapDebug = 0;
@@ -2345,6 +2351,13 @@ bool LoadSSAOParams() {
 	g_fGTAOMultiBounce = 1.0f;
 	g_fGTAOLightOcclusion = 1.0f;
 	g_bGTAOConeSpecOcclusion = true;
+	g_bPBRGIEnabled = false;
+	g_iPBRGIDebug = 0;
+	g_fPBRGIThickness = 1.0f;
+	g_fPBRGIRadius = 10.0f;
+	g_fPBRGIMaxRadius = 0.25f;
+	g_iPBRGISlices = 3;
+	g_iPBRGISteps = 8;
 	g_fPBRCubeMapAmbient = 1.0f;
 	g_fPBRCubeMapSpecular = 1.0f;
 	g_iPBRCubeMapDebug = 0;
@@ -2586,6 +2599,27 @@ bool LoadSSAOParams() {
 			}
 			else if (_stricmp(param, "pbr_gtao_specular_occlusion") == 0) {
 				g_bGTAOConeSpecOcclusion = (bool)fValue;
+			}
+			else if (_stricmp(param, "pbr_gi_enabled") == 0) {
+				g_bPBRGIEnabled = (bool)fValue;
+			}
+			else if (_stricmp(param, "pbr_gi_debug") == 0) {
+				g_iPBRGIDebug = (int)fValue;
+			}
+			else if (_stricmp(param, "pbr_gi_thickness") == 0) {
+				g_fPBRGIThickness = max(0.01f, fValue);
+			}
+			else if (_stricmp(param, "pbr_gi_radius") == 0) {
+				g_fPBRGIRadius = max(0.01f, fValue);
+			}
+			else if (_stricmp(param, "pbr_gi_max_radius") == 0) {
+				g_fPBRGIMaxRadius = max(0.01f, min(1.0f, fValue));
+			}
+			else if (_stricmp(param, "pbr_gi_slices") == 0) {
+				g_iPBRGISlices = max(1, min(8, (int)fValue));
+			}
+			else if (_stricmp(param, "pbr_gi_steps") == 0) {
+				g_iPBRGISteps = max(1, min(32, (int)fValue));
 			}
 			else if (_stricmp(param, "pbr_gtao_height_bias") == 0) {
 				g_fGTAOHeightBias = max(0.0f, min(16.0f, fValue));

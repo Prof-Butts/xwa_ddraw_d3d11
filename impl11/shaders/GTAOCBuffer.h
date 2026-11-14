@@ -19,7 +19,9 @@ cbuffer ConstantBuffer : register(b12)
 	float gtao_angle_bias;      // Radians: occluders this close to the tangent plane are ignored
 	// 48 bytes
 	float gtao_height_bias;     // In 16-bit position steps: bumps this tall are ignored (pbr_gtao_height_bias)
-	float gtao_unused0, gtao_unused1, gtao_unused2;
+	float gtao_gi_thickness;    // Indirect light: assumed thickness of the surfaces, in meters (pbr_gi_thickness)
+	float gtao_bounce_scale;    // Indirect light: the bounce light's resolution, 1 / scale
+	float gtao_unused2;
 	// 64 bytes
 };
 

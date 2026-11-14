@@ -108,6 +108,8 @@
 #include "../Debug/GIBounceLightVR.h"
 #include "../Debug/GTAOGI.h"
 #include "../Debug/GTAOGIVR.h"
+#include "../Debug/GTAOBitmask.h"
+#include "../Debug/GTAOBitmaskVR.h"
 #include "../Debug/GIDenoise.h"
 #include "../Debug/GIDenoiseVR.h"
 #include "../Debug/GTAODenoise.h"
@@ -208,6 +210,8 @@
 #include "../Release/GIBounceLightVR.h"
 #include "../Release/GTAOGI.h"
 #include "../Release/GTAOGIVR.h"
+#include "../Release/GTAOBitmask.h"
+#include "../Release/GTAOBitmaskVR.h"
 #include "../Release/GIDenoise.h"
 #include "../Release/GIDenoiseVR.h"
 #include "../Release/GTAODenoise.h"
@@ -4505,6 +4509,9 @@ HRESULT DeviceResources::LoadMainResources()
 			if (FAILED(hr = this->_d3dDevice->CreatePixelShader(g_GTAOVR, sizeof(g_GTAOVR), nullptr, &_gtaoPS_VR)))
 				return hr;
 
+			if (FAILED(hr = this->_d3dDevice->CreatePixelShader(g_GTAOBitmaskVR, sizeof(g_GTAOBitmaskVR), nullptr, &_gtaoBitmaskPS_VR)))
+				return hr;
+
 			if (FAILED(hr = this->_d3dDevice->CreatePixelShader(g_GTAODenoiseVR, sizeof(g_GTAODenoiseVR), nullptr, &_gtaoDenoisePS_VR)))
 				return hr;
 
@@ -4543,6 +4550,9 @@ HRESULT DeviceResources::LoadMainResources()
 				return hr;
 
 			if (FAILED(hr = this->_d3dDevice->CreatePixelShader(g_GTAO, sizeof(g_GTAO), nullptr, &_gtaoPS)))
+				return hr;
+
+			if (FAILED(hr = this->_d3dDevice->CreatePixelShader(g_GTAOBitmask, sizeof(g_GTAOBitmask), nullptr, &_gtaoBitmaskPS)))
 				return hr;
 
 			if (FAILED(hr = this->_d3dDevice->CreatePixelShader(g_GTAODenoise, sizeof(g_GTAODenoise), nullptr, &_gtaoDenoisePS)))
@@ -4998,6 +5008,9 @@ HRESULT DeviceResources::LoadResources()
 			if (FAILED(hr = this->_d3dDevice->CreatePixelShader(g_GTAOVR, sizeof(g_GTAOVR), nullptr, &_gtaoPS_VR)))
 				return hr;
 
+			if (FAILED(hr = this->_d3dDevice->CreatePixelShader(g_GTAOBitmaskVR, sizeof(g_GTAOBitmaskVR), nullptr, &_gtaoBitmaskPS_VR)))
+				return hr;
+
 			if (FAILED(hr = this->_d3dDevice->CreatePixelShader(g_GTAODenoiseVR, sizeof(g_GTAODenoiseVR), nullptr, &_gtaoDenoisePS_VR)))
 				return hr;
 
@@ -5036,6 +5049,9 @@ HRESULT DeviceResources::LoadResources()
 				return hr;
 
 			if (FAILED(hr = this->_d3dDevice->CreatePixelShader(g_GTAO, sizeof(g_GTAO), nullptr, &_gtaoPS)))
+				return hr;
+
+			if (FAILED(hr = this->_d3dDevice->CreatePixelShader(g_GTAOBitmask, sizeof(g_GTAOBitmask), nullptr, &_gtaoBitmaskPS)))
 				return hr;
 
 			if (FAILED(hr = this->_d3dDevice->CreatePixelShader(g_GTAODenoise, sizeof(g_GTAODenoise), nullptr, &_gtaoDenoisePS)))

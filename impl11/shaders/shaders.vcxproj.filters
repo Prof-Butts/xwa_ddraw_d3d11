@@ -103,6 +103,8 @@
     <FxCompile Include="PBRAddVR.hlsl" />
     <FxCompile Include="GTAO.hlsl" />
     <FxCompile Include="GTAOVR.hlsl" />
+    <FxCompile Include="GTAOBitmask.hlsl" />
+    <FxCompile Include="GTAOBitmaskVR.hlsl" />
     <FxCompile Include="GTAOGI.hlsl" />
     <FxCompile Include="GTAOGIVR.hlsl" />
     <FxCompile Include="GTAODenoise.hlsl" />

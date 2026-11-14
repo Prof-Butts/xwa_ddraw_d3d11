@@ -497,6 +497,8 @@ public:
 	ComPtr<ID3D11PixelShader> _pbrAddV2PS_VR; // ssao_type = PBR
 	ComPtr<ID3D11PixelShader> _gtaoPS;              // GTAO, ssao_type = PBR
 	ComPtr<ID3D11PixelShader> _gtaoPS_VR;
+	ComPtr<ID3D11PixelShader> _gtaoBitmaskPS;       // GTAO with bitmask AO (pbr_gtao_bitmask_ao)
+	ComPtr<ID3D11PixelShader> _gtaoBitmaskPS_VR;
 	ComPtr<ID3D11PixelShader> _gtaoDenoisePS;
 	ComPtr<ID3D11PixelShader> _gtaoDenoisePS_VR;
 	ComPtr<ID3D11PixelShader> _giBounceLightPS;     // Indirect light: the bounce light pass

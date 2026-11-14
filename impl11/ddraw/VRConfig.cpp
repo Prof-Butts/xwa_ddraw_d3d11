@@ -230,6 +230,9 @@ int g_iGTAOCoarseSlices = 4, g_iGTAOCoarseSteps = 8;
 float g_fGTAOAngleBias = 2.0f, g_fGTAOCoarseAngleBias = 4.0f;
 float g_fGTAOHeightBias = 1.0f;
 int g_iGTAODebug = 0;
+// Bitmask AO: the occluders have a thickness
+bool g_bGTAOBitmaskAO = false;
+float g_fGTAOThickness = 1.0f;
 // Multi-bounce AO: lightens the AO on bright surfaces (light bouncing inside the crevices)
 bool g_bGTAOMultiBounce = true;
 float g_fGTAOMultiBounce = 1.0f;
@@ -2348,6 +2351,8 @@ bool LoadSSAOParams() {
 	g_fGTAOCoarseAngleBias = 5.0f;
 	g_fGTAOHeightBias = 2.0f;
 	g_iGTAODebug = 0;
+	g_bGTAOBitmaskAO = false;
+	g_fGTAOThickness = 1.0f;
 	g_bGTAOMultiBounce = true;
 	g_fGTAOMultiBounce = 1.0f;
 	g_fGTAOLightOcclusion = 1.0f;
@@ -2550,6 +2555,12 @@ bool LoadSSAOParams() {
 			}
 			else if (_stricmp(param, "pbr_gtao_debug") == 0) {
 				g_iGTAODebug = (int)fValue;
+			}
+			else if (_stricmp(param, "pbr_gtao_bitmask_ao") == 0) {
+				g_bGTAOBitmaskAO = (bool)fValue;
+			}
+			else if (_stricmp(param, "pbr_gtao_thickness") == 0) {
+				g_fGTAOThickness = max(0.01f, fValue);
 			}
 			else if (_stricmp(param, "pbr_gtao_coarse") == 0) {
 				g_bGTAOCoarse = (bool)fValue;

@@ -58,6 +58,15 @@
  * quarter of the resolution, with its own radius (pbr_gi_radius, pbr_gi_max_radius): see
  * GTAOPass() in ddraw. Its AO output isn't used. The bounce light is at 1 / gtao_bounce_scale
  * of the resolution (also a quarter).
+ *
+ * GTAO_BITMASK_AO (GTAOBitmask.hlsl, pbr_gtao_bitmask_ao) computes the AO and the bent normal
+ * with the same kind of visibility bitmask, instead of the two horizons: each sample hides
+ * the sectors between its front and its back (gtao_thickness further away from the camera),
+ * so a thin object (a strut, an antenna) only hides what's right behind it, while the
+ * horizons treat it as an infinitely deep wall. Each visible sector counts as much as it does
+ * in the regular GTAO (the integral of its arc), so with deep occluders the result is the
+ * same; the bent normal points to the weighted middle of the visible sectors. The biases and
+ * the falloff lower the samples like they lower the horizons.
  */
 #include "GTAOCBuffer.h"
 
@@ -218,6 +227,44 @@ float3 GatherIndirect(float3 P, float3 S, int2 samplePx, uint viewId, float weig
 }
 #endif
 
+#ifdef GTAO_BITMASK_AO
+// The sectors (32 across the slice's half circle above the surface) that sample S hides from
+// the pixel at P: between its front and its back, gtao_thickness further away from the
+// camera. The angles are measured from the normal in the slice plane, like
+// GatherIndirect(); sliceDir is the slice's direction perpendicular to V, and n the angle of
+// the projected normal from V. Like the horizons of the regular GTAO, the sample is lowered
+// by heightBias along the normal and by angleBias towards the tangent plane, and the falloff
+// weight brings it down to the tangent plane.
+uint OccludedSectors(float3 P, float3 S, float weight, float3 N, float3 V, float3 sliceDir,
+	float n, float heightBias, float angleBias)
+{
+	if (weight <= 0.0)
+		return 0;
+	const float3 front = S - P - N * heightBias;
+	const float3 back = front + normalize(S) * gtao_thickness;
+	float2 theta = float2(atan2(dot(front, sliceDir), dot(front, V)), atan2(dot(back, sliceDir), dot(back, V))) - n;
+	theta = clamp(theta, -GTAO_PI_HALF, GTAO_PI_HALF);
+	// The tangent plane on the sample's side
+	const float2 tangent = float2(theta.x >= 0.0 ? GTAO_PI_HALF : -GTAO_PI_HALF,
+	                              theta.y >= 0.0 ? GTAO_PI_HALF : -GTAO_PI_HALF);
+	theta = clamp(theta + sign(tangent) * angleBias, -GTAO_PI_HALF, GTAO_PI_HALF);
+	theta = lerp(tangent, theta, weight);
+	const float2 range = (theta + GTAO_PI_HALF) / GTAO_PI;
+	const float a = min(range.x, range.y);
+	const float b = max(range.x, range.y);
+	const uint start = min((uint)(a * 32.0), 31u);
+	const uint count = min((uint)ceil((b - a) * 32.0), 32u - start);
+	return (count >= 32 ? 0xFFFFFFFFu : ((1u << count) - 1u)) << start;
+}
+
+// The antiderivative of cos(t - n) * sin(t), for the sector weights: the regular GTAO's
+// visible arcs are the integral of cos(t - n) * |sin(t)| (t: the angle from V)
+float SectorArc(float t, float n, float sinN)
+{
+	return (2.0 * t * sinN - cos(2.0 * t - n)) / 4.0;
+}
+#endif
+
 // 4x4 ordered (Bayer) pattern: each value 0..15 appears once in every 4x4 block
 float Bayer4x4(int2 px)
 {
@@ -324,6 +371,11 @@ float4 main(PixelShaderInput input) : SV_TARGET
 		uint sectors = 0;
 		float3 sliceIndirect = 0.0;
 #endif
+#ifdef GTAO_BITMASK_AO
+		// The sectors of this slice that the samples hide
+		const float3 aoSliceDir = normalize(orthoDirVec);
+		uint aoSectors = 0;
+#endif
 
 		[loop]
 		for (int step = 0; step < stepCount; step++)
@@ -349,12 +401,46 @@ float4 main(PixelShaderInput input) : SV_TARGET
 			sliceIndirect += GatherIndirect(P, S0, px + int2(offset), viewId, weight0, V, sliceDir, n, sectors);
 			sliceIndirect += GatherIndirect(P, S1, px - int2(offset), viewId, weight1, V, sliceDir, n, sectors);
 #endif
+#ifdef GTAO_BITMASK_AO
+			aoSectors |= OccludedSectors(P, S0, weight0, N, V, aoSliceDir, n, heightBias, gtao_angle_bias);
+			aoSectors |= OccludedSectors(P, S1, weight1, N, V, aoSliceDir, n, heightBias, gtao_angle_bias);
+#endif
 		}
 #ifdef GTAO_GI
 		// Like the visibility, the slice counts as much as the normal lies in its plane
 		indirect += sliceIndirect * projNormalLength;
 #endif
 
+#ifdef GTAO_BITMASK_AO
+		// The visible sectors, each weighted like the regular GTAO's arcs: the integral of
+		// cos(t - n) * |sin(t)| over the sector (t: the angle from V, the sector spans
+		// n - PI/2 .. n + PI/2). The parts on each side of V (t = 0) are integrated separately.
+		const float sinN = sin(n);
+		const float arcAtV = SectorArc(0.0, n, sinN);
+		float sliceVisible = 0.0;
+		float visibleAngleSum = 0.0;
+		float ta = n - GTAO_PI_HALF;
+		float arcA = SectorArc(ta, n, sinN);
+		[loop]
+		for (uint k = 0; k < 32; k++)
+		{
+			const float tb = ta + GTAO_PI / 32.0;
+			const float arcB = SectorArc(tb, n, sinN);
+			if ((aoSectors & (1u << k)) == 0)
+			{
+				const float w = tb <= 0.0 ? arcA - arcB : (ta >= 0.0 ? arcB - arcA : (arcA - arcAtV) + (arcB - arcAtV));
+				sliceVisible += w;
+				visibleAngleSum += w * 0.5 * (ta + tb);
+			}
+			ta = tb;
+			arcA = arcB;
+		}
+		const float localVisibility = projNormalLength * sliceVisible;
+		visibility += localVisibility;
+		// Bent normal: the normal, rotated towards the weighted middle of the visible sectors
+		// (see below)
+		const float delta = sliceVisible > 1e-6 ? -(visibleAngleSum / sliceVisible - n) : 0.0;
+#else
 		// Angle bias: sin(elevation - bias) = sin * cosBias - cos * sinBias, not below 0
 		elevation0 = max(elevation0 * cosBias - sqrt(saturate(1.0 - elevation0 * elevation0)) * sinBias, 0.0);
 		elevation1 = max(elevation1 * cosBias - sqrt(saturate(1.0 - elevation1 * elevation1)) * sinBias, 0.0);
@@ -376,6 +462,7 @@ float4 main(PixelShaderInput input) : SV_TARGET
 		// Rotating by a positive angle around axisVec moves towards -orthoDirVec, so the
 		// angle is negated (Rodrigues' rotation formula).
 		const float delta = -(0.5 * (h0 + h1) - n);
+#endif
 		const float cosDelta = cos(delta), sinDelta = sin(delta);
 		const float3 rotatedNormal = N * cosDelta + cross(axisVec, N) * sinDelta +
 			axisVec * dot(axisVec, N) * (1.0 - cosDelta);

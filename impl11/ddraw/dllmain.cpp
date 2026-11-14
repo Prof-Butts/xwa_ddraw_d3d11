@@ -811,14 +811,22 @@ LRESULT CALLBACK MyWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam
 					DisplayTimedMessage(3, 0, g_bGTAOEnabled ? "GTAO: on" : "GTAO: off");
 				}
 				return 0;
-			// Ctrl+Alt+U: multi-bounce AO on/off (GTAO in the new PBR shading), for comparisons
+			// Ctrl+Alt+U: the indirect light (pbr_gi_enabled, new PBR shading with GTAO) on/off
 			case 'U':
+				if (g_SSAO_Type == SSO_PBR)
+				{
+					g_bPBRGIEnabled = !g_bPBRGIEnabled;
+					DisplayTimedMessage(3, 0, g_bPBRGIEnabled ? "Indirect light: on" : "Indirect light: off");
+				}
+				return 0;
+			// Ctrl+Alt+U: multi-bounce AO on/off (GTAO in the new PBR shading), for comparisons
+			/*case 'U':
 				if (g_SSAO_Type == SSO_PBR)
 				{
 					g_bGTAOMultiBounce = !g_bGTAOMultiBounce;
 					DisplayTimedMessage(3, 0, g_bGTAOMultiBounce ? "Multi-bounce AO: on" : "Multi-bounce AO: off");
 				}
-				return 0;
+				return 0;*/
 			//case 'T':
 			//	g_bToggleSkipDC = !g_bToggleSkipDC;
 			//	return 0;

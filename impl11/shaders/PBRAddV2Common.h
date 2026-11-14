@@ -26,11 +26,14 @@
  * - GTAO (pbr_gtao_*): ambient occlusion and bent normals for the ambient light. It replaces
  *   the SSDO input of the legacy shading, which this pass doesn't use. An optional coarse
  *   pass (pbr_gtao_coarse*) adds the broad occlusion of large structures. Multi-bounce AO
- *   (pbr_gtao_multibounce, Ctrl+Alt+U) lightens it on bright surfaces, see GTAOMultiBounce().
+ *   (pbr_gtao_multibounce) lightens it on bright surfaces, see GTAOMultiBounce().
  *   The laser and explosion lights, which have no shadows, are faded by the directions GTAO
  *   found blocked (pbr_gtao_light_occlusion), see the visibility cone below. The
  *   reflections are occluded with the same cone (pbr_gtao_specular_occlusion), see
  *   ConeSpecularOcclusion().
+ * - The indirect light (pbr_gi_*, Ctrl+Alt+U): one bounce of the light of the surfaces
+ *   around, gathered by GTAOGI.hlsl from the bounce light (the GI_BOUNCE_LIGHT_PASS entry
+ *   point) and added to the diffuse light. See c:\temp\ssilvb-plan.md.
  * The shadows, the material heuristics and the composition with the background and the
  * transparent layers are the same as in PBRAddCommon.h.
  */
@@ -966,7 +969,7 @@ PixelShaderOutput main(PixelShaderInput input)
 	// 3: the indirect light after the denoise filter, upsampled to full resolution, as the
 	//    shading uses it.
 	[branch]
-	if (gi_enabled > 0.5 && gi_debug > 0.5)
+	if (gi_enabled > 0.5 && gi_debug > 0.5 && gi_debug < 3.5)
 	{
 		const int2 giPx = int2(uint2(input.pos.xy) / (uint)GI_SCALE);
 #ifdef INSTANCED_RENDERING
@@ -1177,7 +1180,33 @@ PixelShaderOutput main(PixelShaderInput input)
 	// Multi-bounce only applies to the diffuse light: the reflections keep the plain AO
 	const float3 ambientDiffuse  = GTAODiffuseAO(ao, albedo) * (baseAmbient + envDiffuse) * albedo * (1.0 - metallicity);
 	const float3 ambientSpecular = specOcclusion * (baseAmbient + envSpecular) * EnvBRDFApprox(F0, roughness, dotNV);
-	float3 tmp_color = ambientDiffuse + ambientSpecular + direct;
+	// The indirect light (pbr_gi_*): the light the surface receives from the surfaces around
+	// it, in the same units as the cubemap's ambient light, so it's added the same way. The
+	// gather's visibility bitmask already accounts for what the surface sees, so it isn't
+	// multiplied by the AO.
+	float3 indirectDiffuse = 0.0;
+	[branch]
+	if (gi_enabled > 0.5)
+	{
+#ifdef INSTANCED_RENDERING
+		const uint giViewId = input.viewId;
+#else
+		const uint giViewId = 0;
+#endif
+		indirectDiffuse = gi_intensity * LoadIndirectLight(int2(input.pos.xy), giViewId, P.z) *
+			albedo * (1.0 - metallicity);
+	}
+	float3 tmp_color = ambientDiffuse + ambientSpecular + direct + indirectDiffuse;
+
+	// Debug view (pbr_gi_debug = 4): only the indirect light's contribution to the surface
+	// (pbr_gi_intensity, the albedo), exposed and tonemapped like the final colors
+	[branch]
+	if (gi_enabled > 0.5 && gi_debug > 3.5)
+	{
+		output.color = float4(lerp(background, LinearToSRGB(ACESFitted(exposure_mult * indirectDiffuse)), blendAlpha), 1);
+		output.bloom = 0;
+		return output;
+	}
 
 	// Debug view (pbr_cubemap_debug): only the cubemap's light, on the surfaces.
 	// 1: the sky the surface reflects, as a perfect mirror with the blur of its roughness

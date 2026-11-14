@@ -2993,6 +2993,7 @@ void SetLights(DeviceResources *resources, float fSSDOEnabled) {
 	g_ShadingSys_PSBuffer.gi_enabled = (g_ShadingSys_PSBuffer.gtao_enabled > 0.5f && g_bPBRGIEnabled &&
 		(g_bUseSteamVR ? resources->_gtaoGIPS_VR : resources->_gtaoGIPS) != nullptr) ? 1.0f : 0.0f;
 	g_ShadingSys_PSBuffer.gi_debug = (float)g_iPBRGIDebug;
+	g_ShadingSys_PSBuffer.gi_intensity = g_fPBRGIIntensity;
 	// The cubemap's ambient light and reflections (only the new PBR shading reads them)
 	g_ShadingSys_PSBuffer.env_ambient_mult = g_fPBRCubeMapAmbient;
 	g_ShadingSys_PSBuffer.env_specular_mult = g_fPBRCubeMapSpecular;

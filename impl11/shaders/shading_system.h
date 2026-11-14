@@ -67,6 +67,9 @@ cbuffer ConstantBuffer : register(b4)
 	float env_prefilter;      // 1: the reflections use the prefiltered cubemap (t22, pbr_cubemap_prefilter)
 	float gtao_cone_spec_occlusion; // 1: cone-based specular occlusion (pbr_gtao_specular_occlusion)
 	float gi_enabled;         // 1: the indirect light is on (pbr_gi_enabled); the bounce light is bound to t9
-	float gi_debug;           // pbr_gi_debug: 0 off, 1 the bounce light, 2 the raw indirect light, 3 the filtered one
+	float gi_debug;           // pbr_gi_debug: 0 off, 1 the bounce light, 2 the raw indirect light, 3 the filtered one, 4 its contribution
 	// 1376 bytes
+	float gi_intensity;       // pbr_gi_intensity: multiplies the indirect light
+	float3 unused_ss6;
+	// 1392 bytes
 };

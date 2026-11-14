@@ -242,6 +242,7 @@ bool g_bPBRGIEnabled = false;
 int g_iPBRGIDebug = 0;
 float g_fPBRGIThickness = 1.0f;
 float g_fPBRGIRadius = 10.0f, g_fPBRGIMaxRadius = 0.25f;
+float g_fPBRGIIntensity = 1.0f;
 int g_iPBRGISlices = 3, g_iPBRGISteps = 8;
 // The cubemap's ambient light and reflections in the new PBR shading
 float g_fPBRCubeMapAmbient = 1.0f, g_fPBRCubeMapSpecular = 1.0f;
@@ -2356,6 +2357,7 @@ bool LoadSSAOParams() {
 	g_fPBRGIThickness = 1.0f;
 	g_fPBRGIRadius = 10.0f;
 	g_fPBRGIMaxRadius = 0.25f;
+	g_fPBRGIIntensity = 1.0f;
 	g_iPBRGISlices = 3;
 	g_iPBRGISteps = 8;
 	g_fPBRCubeMapAmbient = 1.0f;
@@ -2608,6 +2610,9 @@ bool LoadSSAOParams() {
 			}
 			else if (_stricmp(param, "pbr_gi_thickness") == 0) {
 				g_fPBRGIThickness = max(0.01f, fValue);
+			}
+			else if (_stricmp(param, "pbr_gi_intensity") == 0) {
+				g_fPBRGIIntensity = max(0.0f, fValue);
 			}
 			else if (_stricmp(param, "pbr_gi_radius") == 0) {
 				g_fPBRGIRadius = max(0.01f, fValue);

@@ -133,8 +133,7 @@ extern float g_fGTAOAngleBias, g_fGTAOCoarseAngleBias;
 extern float g_fGTAOHeightBias;
 // pbr_gtao_debug: shows the AO instead of the shading. 1 fine, 2 coarse, 3 both, 4 bent normal
 extern int g_iGTAODebug;
-// pbr_gtao_multibounce_enabled, pbr_gtao_multibounce: multi-bounce AO and its strength.
-// Ctrl+Alt+U toggles g_bGTAOMultiBounce.
+// pbr_gtao_multibounce_enabled, pbr_gtao_multibounce: multi-bounce AO and its strength
 extern bool g_bGTAOMultiBounce;
 extern float g_fGTAOMultiBounce;
 // pbr_gtao_light_occlusion: how much GTAO occludes the laser/dynamic lights (0-1, 0 is off)
@@ -151,6 +150,8 @@ extern float g_fPBRGIThickness;
 // pbr_gi_radius (meters), pbr_gi_max_radius (fraction of the screen height), pbr_gi_slices,
 // pbr_gi_steps: the indirect light's own gather pass, at a quarter of the resolution
 extern float g_fPBRGIRadius, g_fPBRGIMaxRadius;
+// pbr_gi_intensity: multiplies the indirect light
+extern float g_fPBRGIIntensity;
 extern int g_iPBRGISlices, g_iPBRGISteps;
 // pbr_cubemap_ambient, pbr_cubemap_specular: multiply the cubemap's ambient light and
 // reflections in the new PBR shading (the mission's AmbientInt and Specular)

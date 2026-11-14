@@ -287,7 +287,8 @@ public:
 	ComPtr<ID3D11Texture2D> _ssaoBufR;		// No MSAA
 	ComPtr<ID3D11Texture2D> _gtaoBuf;			// GTAO: bent normal + AO (No MSAA)
 	ComPtr<ID3D11Texture2D> _bounceLightBuf;	// Indirect light: the bounce light, at GTAO's resolution (No MSAA)
-	ComPtr<ID3D11Texture2D> _giBuf;				// Indirect light: the gathered light, at GTAO's resolution (No MSAA)
+	ComPtr<ID3D11Texture2D> _giBuf;				// Indirect light: the gathered light, at a quarter of the resolution (No MSAA)
+	ComPtr<ID3D11Texture2D> _giDenoisedBuf;		// Indirect light: the gathered light after the denoise filter
 	ComPtr<ID3D11Texture2D> _gtaoBufDenoised;	// GTAO after the denoise pass
 	ComPtr<ID3D11Texture2D> _gtaoCoarseBuf;		// Coarse GTAO, quarter resolution, denoised
 	// Shading System
@@ -370,6 +371,7 @@ public:
 	ComPtr<ID3D11RenderTargetView> _gtaoRTV;
 	ComPtr<ID3D11RenderTargetView> _bounceLightRTV;
 	ComPtr<ID3D11RenderTargetView> _giRTV;
+	ComPtr<ID3D11RenderTargetView> _giDenoisedRTV;
 	ComPtr<ID3D11RenderTargetView> _gtaoDenoisedRTV;
 	ComPtr<ID3D11RenderTargetView> _gtaoCoarseRTV;
 	// Shading System
@@ -417,6 +419,7 @@ public:
 	ComPtr<ID3D11ShaderResourceView> _gtaoSRV;
 	ComPtr<ID3D11ShaderResourceView> _bounceLightSRV;
 	ComPtr<ID3D11ShaderResourceView> _giSRV;
+	ComPtr<ID3D11ShaderResourceView> _giDenoisedSRV;
 	ComPtr<ID3D11ShaderResourceView> _gtaoDenoisedSRV;
 	ComPtr<ID3D11ShaderResourceView> _gtaoCoarseSRV;
 	ComPtr<ID3D11ShaderResourceView> _ssaoBufSRV_R;   // SRV for ssaoBuf
@@ -500,6 +503,8 @@ public:
 	ComPtr<ID3D11PixelShader> _giBounceLightPS_VR;
 	ComPtr<ID3D11PixelShader> _gtaoGIPS;            // GTAO with the indirect light's gather (SM 5.0,
 	ComPtr<ID3D11PixelShader> _gtaoGIPS_VR;         // only created with feature level 11)
+	ComPtr<ID3D11PixelShader> _giDenoisePS;         // Indirect light: the denoise filter
+	ComPtr<ID3D11PixelShader> _giDenoisePS_VR;
 	ComPtr<ID3D11PixelShader> _headLightsPS;
 	ComPtr<ID3D11PixelShader> _headLightsPS_VR;
 	ComPtr<ID3D11PixelShader> _headLightsSSAOPS;

@@ -3778,6 +3778,7 @@ enum GTAOTimerSection
 	GTAO_TIMER_COARSE,   // Coarse GTAO and its denoise pass
 	GTAO_TIMER_BOUNCE,   // The bounce light pass of the indirect light
 	GTAO_TIMER_GATHER,   // The gather pass of the indirect light
+	GTAO_TIMER_GI_DENOISE, // The denoise filter of the indirect light
 };
 
 // The indirect light's buffers (the bounce light and the gathered light) are at 1 / GI_SCALE
@@ -3795,8 +3796,9 @@ static bool IsGTAOActive()
 // denoise filter reads it and writes to outputRTV. scale is the fraction of the resolution
 // (1, 2 or 4): both passes render to the top-left 1 / scale of their buffers. The denoise
 // filter's GPU time goes to denoiseSection (-1: the current section). With gi, the GTAO pass
-// also gathers the indirect light from the bounce light (GTAOGI.hlsl) into _giBuf. Without an
-// outputRTV, there's no denoise filter (the indirect light's pass doesn't use its AO).
+// also gathers the indirect light from the bounce light (GTAOGI.hlsl) into _giBuf, and a
+// denoise filter for it (GIDenoise.hlsl) writes to _giDenoisedBuf. Without an outputRTV,
+// there's no denoise filter for the AO (the indirect light's pass doesn't use its AO).
 static void RenderGTAO(DeviceResources* resources, int scale, float radius, float intensity,
 	float minRadiusPx, float maxRadiusPx, int slices, int steps, float angleBiasDeg,
 	ID3D11RenderTargetView* outputRTV, int denoiseSection, bool gi)
@@ -3860,6 +3862,25 @@ static void RenderGTAO(DeviceResources* resources, int scale, float radius, floa
 		};
 		context->PSSetShaderResources(0, 2, srvs);
 		resources->InitPixelShader(g_bUseSteamVR ? resources->_gtaoDenoisePS_VR : resources->_gtaoDenoisePS);
+		if (g_bUseSteamVR)
+			context->DrawInstanced(6, 2, 0, 0);
+		else
+			context->Draw(6, 0);
+	}
+
+	// The indirect light's denoise filter: the same 4x4 depth-aware average, for colors
+	if (gi)
+	{
+		g_GTAOGPUTimer.Mark(context, GTAO_TIMER_GI_DENOISE);
+		ID3D11RenderTargetView* rtvs[1] = { resources->_giDenoisedRTV.Get() };
+		context->OMSetRenderTargets(1, rtvs, NULL);
+		ID3D11ShaderResourceView* srvs[3] = {
+			resources->_giSRV.Get(),       // 0: Indirect light
+			resources->_depthBufSRV.Get(), // 1: Position buffer
+			NULL,
+		};
+		context->PSSetShaderResources(0, 3, srvs);
+		resources->InitPixelShader(g_bUseSteamVR ? resources->_giDenoisePS_VR : resources->_giDenoisePS);
 		if (g_bUseSteamVR)
 			context->DrawInstanced(6, 2, 0, 0);
 		else
@@ -4285,13 +4306,15 @@ void PrimarySurface::DeferredPass()
 				resources->_shadowMapArraySRV.Get() : NULL,
 		};
 		context->PSSetShaderResources(0, 8, srvs_pass);
-		// Coarse GTAO (t8), and the indirect light's bounce light (t9) and gathered light (t10)
-		ID3D11ShaderResourceView* coarseSRVs[3] = {
+		// Coarse GTAO (t8), and the indirect light's bounce light (t9), gathered light (t10)
+		// and gathered light after the denoise filter (t11)
+		ID3D11ShaderResourceView* coarseSRVs[4] = {
 			(bGTAO && g_bGTAOCoarse) ? resources->_gtaoCoarseSRV.Get() : NULL,
 			bGI ? resources->_bounceLightSRV.Get() : NULL,
 			bGI ? resources->_giSRV.Get() : NULL,
+			bGI ? resources->_giDenoisedSRV.Get() : NULL,
 		};
-		context->PSSetShaderResources(8, 3, coarseSRVs);
+		context->PSSetShaderResources(8, 4, coarseSRVs);
 
 		if (g_bRTEnabled)
 		{
@@ -4325,7 +4348,7 @@ void PrimarySurface::DeferredPass()
 	context->PSSetShaderResources(14, 4, srvs);
 	// Unbind the GTAO buffers and the indirect light's too: the next frame renders to them
 	context->PSSetShaderResources(1, 1, srvs);
-	context->PSSetShaderResources(8, 3, srvs);
+	context->PSSetShaderResources(8, 4, srvs);
 
 	if (bGPUTimer)
 	{
@@ -4339,10 +4362,10 @@ void PrimarySurface::DeferredPass()
 			const double* section = stats.sectionAvgMs;
 			log_debug("[DBG] [GTAO] PBR lighting GPU time, GTAO %s: avg %0.3f ms, min %0.3f ms, max %0.3f ms, %d frames",
 				gtaoState, stats.avgMs, stats.minMs, stats.maxMs, stats.numFrames);
-			log_debug("[DBG] [GTAO]   setup %0.3f, bounce %0.3f, gtao %0.3f, denoise %0.3f, coarse %0.3f, gather %0.3f, lighting %0.3f ms",
+			log_debug("[DBG] [GTAO]   setup %0.3f, bounce %0.3f, gtao %0.3f, denoise %0.3f, coarse %0.3f, gather %0.3f, gi denoise %0.3f, lighting %0.3f ms",
 				section[GTAO_TIMER_SETUP], section[GTAO_TIMER_BOUNCE], section[GTAO_TIMER_GTAO],
 				section[GTAO_TIMER_DENOISE], section[GTAO_TIMER_COARSE], section[GTAO_TIMER_GATHER],
-				section[GTAO_TIMER_LIGHTING]);
+				section[GTAO_TIMER_GI_DENOISE], section[GTAO_TIMER_LIGHTING]);
 			// Shown for a bit longer than the reporting window so the message doesn't flicker.
 			// Row 3 (the last one, see MAX_TIMED_MESSAGES), so it doesn't cover the bloom timer.
 			DisplayTimedMessageV(6, 3, "PBR lighting GPU time (GTAO %s): %0.3f ms", gtaoState, stats.avgMs);

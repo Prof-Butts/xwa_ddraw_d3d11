@@ -428,7 +428,7 @@ typedef struct PSShadingSystemCBStruct {
 	float env_prefilter;         // 1: the reflections use the prefiltered cubemap (t22, pbr_cubemap_prefilter)
 	float gtao_cone_spec_occlusion; // 1: cone-based specular occlusion (pbr_gtao_specular_occlusion)
 	float gi_enabled;            // 1: the indirect light is on (pbr_gi_enabled); the bounce light is bound to t9
-	float gi_debug;              // pbr_gi_debug: 0 off, 1 the bounce light, 2 the raw indirect light
+	float gi_debug;              // pbr_gi_debug: 0 off, 1 the bounce light, 2 the raw indirect light, 3 the filtered one
 	// 1376 bytes
 } PSShadingSystemCB;
 

@@ -39,6 +39,25 @@
  * flipped here. The projection isn't needed: the view ray of a pixel is P.xy / P.z, so the
  * size of a pixel at any depth is measured from the rays of nearby pixels. That works in
  * VR too, where each eye has its own projection.
+ *
+ * GTAO_GI (GTAOGI.hlsl, pbr_gi_enabled) adds the indirect light: one bounce of the light that
+ * the surfaces send back out (the bounce light, GIBounceLight.hlsl), gathered with the same
+ * slices and samples. It's the visibility-bitmask method ("Screen Space Indirect Lighting
+ * with Visibility Bitmask", Therrien et al. 2023): each slice's half circle above the surface
+ * is split into 32 sectors. A sample covers the sectors between its front and its back (the
+ * back is gtao_gi_thickness further away from the camera, so thin objects don't hide
+ * everything behind them), and the sectors it covers first, not yet covered by a closer
+ * sample, add its bounce light. Each sector is weighted by its cosine to the normal, so a
+ * slice fully covered by a uniform light L gathers L: the result is the average incoming
+ * light weighted by the cosine (irradiance / PI), the same units as the cubemap's ambient.
+ * The AO and the bent normal don't change. The indirect light goes to a second render target
+ * (rgb, a = 1, or 0 for the pixels GTAO skips).
+ *
+ * The indirect light needs a much larger radius than the AO (light bounces off surfaces
+ * tens of centimeters away, while the AO is about contact), so it runs in its own pass, at a
+ * quarter of the resolution, with its own radius (pbr_gi_radius, pbr_gi_max_radius): see
+ * GTAOPass() in ddraw. Its AO output isn't used. The bounce light is at 1 / gtao_bounce_scale
+ * of the resolution (also a quarter).
  */
 #include "GTAOCBuffer.h"
 
@@ -48,6 +67,24 @@ Texture2DArray texNormal : register(t1);
 #else
 Texture2D texPos    : register(t0);
 Texture2D texNormal : register(t1);
+#endif
+
+#ifdef GTAO_GI
+// The bounce light (GIBounceLight.hlsl), at this pass's resolution
+#ifdef INSTANCED_RENDERING
+Texture2DArray texBounce : register(t2);
+#else
+Texture2D texBounce : register(t2);
+#endif
+
+struct GTAOOutput
+{
+	float4 gtao : SV_TARGET0; // Bent normal, AO
+	float4 gi   : SV_TARGET1; // Indirect light (rgb), a = 1 (0: skipped)
+};
+#define GTAO_RETURN(gtaoValue, giValue) { GTAOOutput o; o.gtao = (gtaoValue); o.gi = (giValue); return o; }
+#else
+#define GTAO_RETURN(gtaoValue, giValue) return (gtaoValue);
 #endif
 
 struct PixelShaderInput
@@ -129,6 +166,58 @@ float2 RayChangePerPixel(int2 px, float3 P, uint viewId)
 	return result;
 }
 
+#ifdef GTAO_GI
+// The indirect light that sample S (at full-resolution pixel samplePx) adds to the pixel at
+// P, in a slice: sliceDir is the slice's direction perpendicular to V, n the angle of the
+// projected normal from V (positive towards sliceDir). sectors is the slice's visibility
+// bitmask: the sample covers the sectors between its front and its back, and only the ones
+// that weren't covered by a closer sample add its light. weight is GTAO's falloff (0: not
+// geometry).
+float3 GatherIndirect(float3 P, float3 S, int2 samplePx, uint viewId, float weight,
+	float3 V, float3 sliceDir, float n, inout uint sectors)
+{
+	if (weight <= 0.0)
+		return 0;
+	const float3 delta = S - P;
+	// The back of the sample: gtao_gi_thickness further away from the camera
+	const float3 deltaBack = delta + normalize(S) * gtao_gi_thickness;
+	// Their angles in the slice plane, from the normal (-PI/2 and PI/2 are the tangent plane).
+	// atan2 uses the projection on the slice plane, so samples that the rounding moved off the
+	// slice still get the right angle.
+	const float thetaFront = atan2(dot(delta, sliceDir), dot(delta, V)) - n;
+	const float thetaBack  = atan2(dot(deltaBack, sliceDir), dot(deltaBack, V)) - n;
+	// The sectors between them (0..1 across the half circle above the surface)
+	const float2 range = saturate((float2(thetaFront, thetaBack) + GTAO_PI_HALF) / GTAO_PI);
+	const float a = min(range.x, range.y);
+	const float b = max(range.x, range.y);
+	const uint start = min((uint)(a * 32.0), 31u);
+	const uint count = min((uint)ceil((b - a) * 32.0), 32u - start);
+	const uint bits = (count >= 32 ? 0xFFFFFFFFu : ((1u << count) - 1u)) << start;
+	const uint newBits = bits & ~sectors;
+	sectors |= bits;
+	[branch]
+	if (newBits == 0)
+		return 0;
+
+	// The sample's surface must face the pixel: otherwise the pixel would see its back
+	const float4 sampleNormal = LoadNormal(samplePx, viewId);
+	const float3 sampleN = normalize(float3(sampleNormal.x, sampleNormal.y, -sampleNormal.z));
+	const float facing = smoothstep(-0.1, 0.1, dot(sampleN, -normalize(delta)));
+
+	// Its bounce light, from the bounce light's pixel that covers samplePx
+	const int2 bouncePx = int2(uint2(clamp(samplePx, int2(0, 0), int2(gtao_buffer_size) - 1)) / (uint)gtao_bounce_scale);
+#ifdef INSTANCED_RENDERING
+	const float3 bounce = texBounce.Load(int4(bouncePx, viewId, 0)).rgb;
+#else
+	const float3 bounce = texBounce.Load(int3(bouncePx, 0)).rgb;
+#endif
+	// Each sector is PI/32 wide; with the cosine at the middle of the sample, a full half
+	// circle adds up to 2, so the weight is PI/64 per sector
+	const float thetaMid = 0.5 * (a + b) * GTAO_PI - GTAO_PI_HALF;
+	return bounce * (countbits(newBits) * (GTAO_PI / 64.0) * cos(thetaMid) * facing * weight);
+}
+#endif
+
 // 4x4 ordered (Bayer) pattern: each value 0..15 appears once in every 4x4 block
 float Bayer4x4(int2 px)
 {
@@ -137,7 +226,11 @@ float Bayer4x4(int2 px)
 	return (float)bayer[p.y * 4 + p.x];
 }
 
+#ifdef GTAO_GI
+GTAOOutput main(PixelShaderInput input)
+#else
 float4 main(PixelShaderInput input) : SV_TARGET
+#endif
 {
 #ifdef INSTANCED_RENDERING
 	const uint viewId = input.viewId;
@@ -154,7 +247,7 @@ float4 main(PixelShaderInput input) : SV_TARGET
 
 	// Background, and surfaces that aren't fully opaque (their normal.w is low): no occlusion
 	if (!IsGeometry(P) || normalSample.w < 0.5)
-		return float4(N, GTAO_SKIPPED);
+		GTAO_RETURN(float4(N, GTAO_SKIPPED), 0)
 
 	// Size of a pixel at this depth (both axes have the same size), and the signs that map
 	// screen directions to view directions
@@ -163,7 +256,7 @@ float4 main(PixelShaderInput input) : SV_TARGET
 	const float pixelAngle = (absChange.x > 0 && absChange.y > 0) ? 0.5 * (absChange.x + absChange.y) :
 		max(absChange.x, absChange.y);
 	if (pixelAngle <= 0)
-		return float4(N, GTAO_SKIPPED);
+		GTAO_RETURN(float4(N, GTAO_SKIPPED), 0)
 	// Screen y grows downwards and view y grows upwards, so that's the default
 	const float2 axisSign = float2(rayChange.x != 0 ? sign(rayChange.x) : 1.0,
 	                               rayChange.y != 0 ? sign(rayChange.y) : -1.0);
@@ -200,6 +293,9 @@ float4 main(PixelShaderInput input) : SV_TARGET
 	const int stepCount  = (int)gtao_steps;
 	float visibility = 0.0;
 	float3 bentNormal = 0.0;
+#ifdef GTAO_GI
+	float3 indirect = 0.0;
+#endif
 
 	[loop]
 	for (int slice = 0; slice < sliceCount; slice++)
@@ -222,6 +318,12 @@ float4 main(PixelShaderInput input) : SV_TARGET
 		const float invProjNormalLength = 1.0 / max(projNormalLength, 1e-4);
 		float elevation0 = 0.0; // Along +omega
 		float elevation1 = 0.0; // Along -omega
+#ifdef GTAO_GI
+		// The indirect light of this slice, and its visibility bitmask
+		const float3 sliceDir = normalize(orthoDirVec);
+		uint sectors = 0;
+		float3 sliceIndirect = 0.0;
+#endif
 
 		[loop]
 		for (int step = 0; step < stepCount; step++)
@@ -243,7 +345,15 @@ float4 main(PixelShaderInput input) : SV_TARGET
 			const float sinElev1 = saturate((dot(delta1, N) - heightBias) / max(dist1, 1e-4) * invProjNormalLength);
 			elevation0 = max(elevation0, weight0 * sinElev0);
 			elevation1 = max(elevation1, weight1 * sinElev1);
+#ifdef GTAO_GI
+			sliceIndirect += GatherIndirect(P, S0, px + int2(offset), viewId, weight0, V, sliceDir, n, sectors);
+			sliceIndirect += GatherIndirect(P, S1, px - int2(offset), viewId, weight1, V, sliceDir, n, sectors);
+#endif
 		}
+#ifdef GTAO_GI
+		// Like the visibility, the slice counts as much as the normal lies in its plane
+		indirect += sliceIndirect * projNormalLength;
+#endif
 
 		// Angle bias: sin(elevation - bias) = sin * cosBias - cos * sinBias, not below 0
 		elevation0 = max(elevation0 * cosBias - sqrt(saturate(1.0 - elevation0 * elevation0)) * sinBias, 0.0);
@@ -278,5 +388,9 @@ float4 main(PixelShaderInput input) : SV_TARGET
 	// A pixel that's visible can't be fully occluded
 	visibility = max(visibility, 0.03);
 	bentNormal = length(bentNormal) > 1e-4 ? normalize(bentNormal) : N;
+#ifdef GTAO_GI
+	GTAO_RETURN(float4(bentNormal, visibility), float4(indirect / sliceCount, 1.0))
+#else
 	return float4(bentNormal, visibility);
+#endif
 }

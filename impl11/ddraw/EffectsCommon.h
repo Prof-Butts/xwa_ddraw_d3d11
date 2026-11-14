@@ -427,7 +427,8 @@ typedef struct PSShadingSystemCBStruct {
 	// 1360 bytes
 	float env_prefilter;         // 1: the reflections use the prefiltered cubemap (t22, pbr_cubemap_prefilter)
 	float gtao_cone_spec_occlusion; // 1: cone-based specular occlusion (pbr_gtao_specular_occlusion)
-	float unused_ss5[2];
+	float gi_enabled;            // 1: the indirect light is on (pbr_gi_enabled); the bounce light is bound to t9
+	float gi_debug;              // pbr_gi_debug: 0 off, 1 the bounce light, 2 the raw indirect light
 	// 1376 bytes
 } PSShadingSystemCB;
 
@@ -446,7 +447,9 @@ typedef struct GTAOCBufferStruct {
 	float angle_bias;            // Radians: occluders this close to the tangent plane are ignored
 	// 48 bytes
 	float height_bias;           // In 16-bit position steps: bumps this tall are ignored
-	float unused0, unused1, unused2;
+	float gi_thickness;          // Indirect light: assumed thickness of the surfaces, in meters
+	float bounce_scale;          // Indirect light: the bounce light's resolution, 1 / scale
+	float unused2;
 	// 64 bytes
 } GTAOCBuffer;
 

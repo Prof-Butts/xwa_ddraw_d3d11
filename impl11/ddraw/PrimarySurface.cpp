@@ -2987,6 +2987,12 @@ void SetLights(DeviceResources *resources, float fSSDOEnabled) {
 	g_ShadingSys_PSBuffer.gtao_multibounce = g_bGTAOMultiBounce ? g_fGTAOMultiBounce : 0.0f;
 	g_ShadingSys_PSBuffer.gtao_light_occlusion = g_fGTAOLightOcclusion;
 	g_ShadingSys_PSBuffer.gtao_cone_spec_occlusion = g_bGTAOConeSpecOcclusion ? 1.0f : 0.0f;
+	// The indirect light needs GTAO: DeferredPass() runs BounceLightPass() when this is set
+	// It also needs the shader model 5.0 GTAO shader (feature level 11). Only the VR or the
+	// non-VR shaders are created, so it checks the one that GTAOPass() will use.
+	g_ShadingSys_PSBuffer.gi_enabled = (g_ShadingSys_PSBuffer.gtao_enabled > 0.5f && g_bPBRGIEnabled &&
+		(g_bUseSteamVR ? resources->_gtaoGIPS_VR : resources->_gtaoGIPS) != nullptr) ? 1.0f : 0.0f;
+	g_ShadingSys_PSBuffer.gi_debug = (float)g_iPBRGIDebug;
 	// The cubemap's ambient light and reflections (only the new PBR shading reads them)
 	g_ShadingSys_PSBuffer.env_ambient_mult = g_fPBRCubeMapAmbient;
 	g_ShadingSys_PSBuffer.env_specular_mult = g_fPBRCubeMapSpecular;
@@ -3770,7 +3776,13 @@ enum GTAOTimerSection
 	GTAO_TIMER_DENOISE,  // GTAO denoise pass
 	GTAO_TIMER_LIGHTING, // The PBR lighting pass, with the resolves of its inputs
 	GTAO_TIMER_COARSE,   // Coarse GTAO and its denoise pass
+	GTAO_TIMER_BOUNCE,   // The bounce light pass of the indirect light
+	GTAO_TIMER_GATHER,   // The gather pass of the indirect light
 };
+
+// The indirect light's buffers (the bounce light and the gathered light) are at 1 / GI_SCALE
+// of the resolution. Keep in sync with GI_SCALE in PBRAddV2Common.h.
+static const int GI_SCALE = 4;
 
 // True when the new PBR shading uses GTAO this frame. Call it after SetLights(), which
 // decides whether the headlights are on.
@@ -3782,10 +3794,12 @@ static bool IsGTAOActive()
 // Renders one GTAO pass and its denoise filter. The GTAO pass writes to _gtaoBuf, and the
 // denoise filter reads it and writes to outputRTV. scale is the fraction of the resolution
 // (1, 2 or 4): both passes render to the top-left 1 / scale of their buffers. The denoise
-// filter's GPU time goes to denoiseSection (-1: the current section).
+// filter's GPU time goes to denoiseSection (-1: the current section). With gi, the GTAO pass
+// also gathers the indirect light from the bounce light (GTAOGI.hlsl) into _giBuf. Without an
+// outputRTV, there's no denoise filter (the indirect light's pass doesn't use its AO).
 static void RenderGTAO(DeviceResources* resources, int scale, float radius, float intensity,
 	float minRadiusPx, float maxRadiusPx, int slices, int steps, float angleBiasDeg,
-	ID3D11RenderTargetView* outputRTV, int denoiseSection)
+	ID3D11RenderTargetView* outputRTV, int denoiseSection, bool gi)
 {
 	auto& context = resources->_d3dDeviceContext;
 
@@ -3810,18 +3824,24 @@ static void RenderGTAO(DeviceResources* resources, int scale, float radius, floa
 	cb.scale          = (float)scale;
 	cb.angle_bias     = angleBiasDeg * DEG2RAD;
 	cb.height_bias    = g_fGTAOHeightBias;
+	cb.gi_thickness   = g_fPBRGIThickness;
+	cb.bounce_scale   = (float)GI_SCALE; // The bounce light's resolution (BounceLightPass())
 	resources->InitPSConstantBufferGTAO(&cb);
 
 	// GTAO
 	{
-		ID3D11RenderTargetView* rtvs[1] = { resources->_gtaoRTV.Get() };
-		context->OMSetRenderTargets(1, rtvs, NULL);
-		ID3D11ShaderResourceView* srvs[2] = {
-			resources->_depthBufSRV.Get(), // 0: Position buffer
-			resources->_normBufSRV.Get(),  // 1: Normals buffer
+		ID3D11RenderTargetView* rtvs[2] = { resources->_gtaoRTV.Get(), resources->_giRTV.Get() };
+		context->OMSetRenderTargets(gi ? 2 : 1, rtvs, NULL);
+		ID3D11ShaderResourceView* srvs[3] = {
+			resources->_depthBufSRV.Get(),    // 0: Position buffer
+			resources->_normBufSRV.Get(),     // 1: Normals buffer
+			resources->_bounceLightSRV.Get(), // 2: Bounce light (indirect light)
 		};
-		context->PSSetShaderResources(0, 2, srvs);
-		resources->InitPixelShader(g_bUseSteamVR ? resources->_gtaoPS_VR : resources->_gtaoPS);
+		context->PSSetShaderResources(0, gi ? 3 : 2, srvs);
+		if (gi)
+			resources->InitPixelShader(g_bUseSteamVR ? resources->_gtaoGIPS_VR : resources->_gtaoGIPS);
+		else
+			resources->InitPixelShader(g_bUseSteamVR ? resources->_gtaoPS_VR : resources->_gtaoPS);
 		if (g_bUseSteamVR)
 			context->DrawInstanced(6, 2, 0, 0);
 		else
@@ -3829,6 +3849,7 @@ static void RenderGTAO(DeviceResources* resources, int scale, float radius, floa
 	}
 
 	// Denoise
+	if (outputRTV != nullptr)
 	{
 		g_GTAOGPUTimer.Mark(context, denoiseSection);
 		ID3D11RenderTargetView* rtvs[1] = { outputRTV };
@@ -3845,8 +3866,8 @@ static void RenderGTAO(DeviceResources* resources, int scale, float radius, floa
 			context->Draw(6, 0);
 	}
 
-	ID3D11ShaderResourceView* nullSRVs[2] = { NULL, NULL };
-	context->PSSetShaderResources(0, 2, nullSRVs);
+	ID3D11ShaderResourceView* nullSRVs[3] = { NULL, NULL, NULL };
+	context->PSSetShaderResources(0, 3, nullSRVs);
 }
 
 /*
@@ -3857,6 +3878,115 @@ static void RenderGTAO(DeviceResources* resources, int scale, float radius, floa
  * larger radius (-> _gtaoCoarseBuf, bound to t8). See GTAOCommon.h and
  * GTAODenoiseCommon.h.
  */
+/*
+ * The bounce light pass of the indirect light (pbr_gi_enabled): the diffuse light that each
+ * surface sends back out, at a quarter of the resolution (GI_SCALE), into _bounceLightBuf
+ * (bound to t9 for the lighting pass). The gather only reads it at scattered sample points,
+ * so it doesn't need more. See the GI_BOUNCE_LIGHT_PASS entry point in PBRAddV2Common.h. It runs
+ * before GTAO, which will gather it (step 2 of c:\temp\ssilvb-plan.md). It sets its own
+ * render target, viewport, shader and blend state, like GTAOPass().
+ */
+void PrimarySurface::BounceLightPass()
+{
+	this->_deviceResources->BeginAnnotatedEvent(L"BounceLightPass");
+
+	auto& resources = this->_deviceResources;
+	auto& context = resources->_d3dDeviceContext;
+
+	UINT stride = sizeof(MainVertex);
+	UINT offset = 0;
+	resources->InitVertexBuffer(resources->_postProcessVertBuffer.GetAddressOf(), &stride, &offset);
+	resources->InitTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+	resources->InitInputLayout(resources->_mainInputLayout);
+
+	D3D11_DEPTH_STENCIL_DESC desc;
+	ComPtr<ID3D11DepthStencilState> depthState;
+	desc.DepthEnable = FALSE;
+	desc.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ZERO;
+	desc.DepthFunc = D3D11_COMPARISON_ALWAYS;
+	desc.StencilEnable = FALSE;
+	resources->InitDepthStencilState(depthState, &desc);
+
+	// The pass replaces the contents of its buffer, so blending must be off (see GTAOPass())
+	ComPtr<ID3D11BlendState> prevBlendState;
+	FLOAT prevBlendFactor[4];
+	UINT prevSampleMask;
+	context->OMGetBlendState(prevBlendState.GetAddressOf(), prevBlendFactor, &prevSampleMask);
+	D3D11_BLEND_DESC blendDesc{};
+	blendDesc.AlphaToCoverageEnable = FALSE;
+	blendDesc.IndependentBlendEnable = FALSE;
+	blendDesc.RenderTarget[0].BlendEnable = FALSE;
+	blendDesc.RenderTarget[0].SrcBlend = D3D11_BLEND_ONE;
+	blendDesc.RenderTarget[0].DestBlend = D3D11_BLEND_ZERO;
+	blendDesc.RenderTarget[0].BlendOp = D3D11_BLEND_OP_ADD;
+	blendDesc.RenderTarget[0].SrcBlendAlpha = D3D11_BLEND_ONE;
+	blendDesc.RenderTarget[0].DestBlendAlpha = D3D11_BLEND_ZERO;
+	blendDesc.RenderTarget[0].BlendOpAlpha = D3D11_BLEND_OP_ADD;
+	blendDesc.RenderTarget[0].RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL;
+	resources->InitBlendState(nullptr, &blendDesc);
+
+	resources->InitVSConstantBuffer2D(resources->_mainShadersConstantBuffer.GetAddressOf(),
+		0.0f, 1.0f, 1.0f, 1.0f, 0.0f); // Do not use 3D projection matrices
+	resources->InitVertexShader(g_bUseSteamVR ? resources->_mainVertexShaderVR : resources->_mainVertexShader);
+
+	// At a quarter of the resolution, like the gather
+	const int scale = GI_SCALE;
+	D3D11_VIEWPORT viewport{};
+	viewport.Width    = (float)((resources->_backbufferWidth + scale - 1) / scale);
+	viewport.Height   = (float)((resources->_backbufferHeight + scale - 1) / scale);
+	viewport.MaxDepth = D3D11_MAX_DEPTH;
+	viewport.MinDepth = D3D11_MIN_DEPTH;
+	resources->InitViewport(&viewport);
+
+	ID3D11RenderTargetView* rtvs[1] = { resources->_bounceLightRTV.Get() };
+	context->OMSetRenderTargets(1, rtvs, NULL);
+
+	// The color buffer. The lighting pass uses this resolve too (it skips its own with the
+	// indirect light): nothing renders to the color buffer in between.
+	context->ResolveSubresource(resources->_offscreenBufferAsInput, 0, resources->_offscreenBuffer,
+		0, BACKBUFFER_FORMAT);
+	if (g_bUseSteamVR)
+		context->ResolveSubresource(
+			resources->_offscreenBufferAsInput, D3D11CalcSubresource(0, 1, 1),
+			resources->_offscreenBuffer, D3D11CalcSubresource(0, 1, 1), BACKBUFFER_FORMAT);
+
+	ID3D11ShaderResourceView* srvs[8] = {
+		resources->_offscreenAsInputShaderResourceView.Get(), // 0: Color buffer
+		NULL, NULL,
+		resources->_ssaoMaskSRV.Get(),                        // 3: SSAO Mask
+		resources->_depthBufSRV.Get(),                        // 4: Depth buffer
+		resources->_normBufSRV.Get(),                         // 5: Normals buffer
+		resources->_ssMaskSRV.Get(),                          // 6: Shading System buffer
+		g_ShadowMapping.bEnabled ?                            // 7: The shadow map
+			resources->_shadowMapArraySRV.Get() : NULL,
+	};
+	context->PSSetShaderResources(0, 8, srvs);
+	if (g_ShadowMapping.bEnabled)
+		context->PSSetSamplers(7, 1, resources->_shadowPCFSamplerState.GetAddressOf());
+	if (g_bRTEnabled)
+	{
+		ID3D11ShaderResourceView* rtSRVs[] = {
+			resources->_RTBvhSRV.Get(),        // 14
+			resources->_RTMatricesSRV.Get(),   // 15
+			resources->_RTTLASBvhSRV.Get(),    // 16
+			resources->_rtShadowMaskSRV.Get(), // 17
+		};
+		context->PSSetShaderResources(14, 4, rtSRVs);
+	}
+
+	resources->InitPixelShader(g_bUseSteamVR ? resources->_giBounceLightPS_VR : resources->_giBounceLightPS);
+	if (g_bUseSteamVR)
+		context->DrawInstanced(6, 2, 0, 0);
+	else
+		context->Draw(6, 0);
+
+	ID3D11ShaderResourceView* nullSRVs[8] = {};
+	context->PSSetShaderResources(0, 8, nullSRVs);
+	context->OMSetBlendState(prevBlendState.Get(), prevBlendFactor, prevSampleMask);
+
+	this->_deviceResources->EndAnnotatedEvent();
+}
+
 void PrimarySurface::GTAOPass()
 {
 	this->_deviceResources->BeginAnnotatedEvent(L"GTAOPass");
@@ -3907,7 +4037,7 @@ void PrimarySurface::GTAOPass()
 	g_GTAOGPUTimer.Mark(context, GTAO_TIMER_GTAO);
 	RenderGTAO(resources, g_bGTAOHalfRes ? 2 : 1, g_fGTAORadius, g_fGTAOIntensity,
 		g_fGTAOMinRadiusPx, g_fGTAOMaxRadiusPx, g_iGTAOSlices, g_iGTAOSteps, g_fGTAOAngleBias,
-		resources->_gtaoDenoisedRTV.Get(), GTAO_TIMER_DENOISE);
+		resources->_gtaoDenoisedRTV.Get(), GTAO_TIMER_DENOISE, false);
 
 	// Coarse GTAO, at quarter resolution with a larger radius, for the broad occlusion of
 	// large structures. It reuses _gtaoBuf, which the fine pass doesn't need anymore. It has
@@ -3917,7 +4047,20 @@ void PrimarySurface::GTAOPass()
 		g_GTAOGPUTimer.Mark(context, GTAO_TIMER_COARSE);
 		RenderGTAO(resources, 4, g_fGTAOCoarseRadius, g_fGTAOCoarseIntensity,
 			g_fGTAOCoarseMinRadiusPx, g_fGTAOCoarseMaxRadiusPx, g_iGTAOCoarseSlices, g_iGTAOCoarseSteps,
-			g_fGTAOCoarseAngleBias, resources->_gtaoCoarseRTV.Get(), -1);
+			g_fGTAOCoarseAngleBias, resources->_gtaoCoarseRTV.Get(), -1, false);
+	}
+
+	// The indirect light: it gathers the bounce light (BounceLightPass()) into _giBuf, at a
+	// quarter of the resolution, with its own radius. Bounced light comes from surfaces much
+	// farther away than the AO's occluders: the max radius is a fraction of the screen
+	// height, so it covers the same part of the screen at any resolution. Its AO goes to
+	// _gtaoBuf, which nothing reads after the passes above.
+	if (g_ShadingSys_PSBuffer.gi_enabled > 0.5f)
+	{
+		g_GTAOGPUTimer.Mark(context, GTAO_TIMER_GATHER);
+		const float maxRadiusPx = g_fPBRGIMaxRadius * (float)resources->_backbufferHeight;
+		RenderGTAO(resources, GI_SCALE, g_fPBRGIRadius, 1.0f, 16.0f, maxRadiusPx, g_iPBRGISlices, g_iPBRGISteps,
+			g_fGTAOAngleBias, nullptr, -1, true);
 	}
 
 	context->OMSetBlendState(prevBlendState.Get(), prevBlendFactor, prevSampleMask);
@@ -3990,6 +4133,13 @@ void PrimarySurface::DeferredPass()
 	const bool bGPUTimer = g_bGTAOGPUTimer && IsPBRShadingV2Active();
 	if (bGPUTimer)
 		g_GTAOGPUTimer.Begin(device, context, bGTAO ? 1 : 0);
+	// The indirect light: its bounce light pass runs first, GTAO will gather it
+	const bool bGI = bGTAO && g_ShadingSys_PSBuffer.gi_enabled > 0.5f;
+	if (bGI)
+	{
+		g_GTAOGPUTimer.Mark(context, GTAO_TIMER_BOUNCE);
+		BounceLightPass();
+	}
 	if (bGTAO)
 		GTAOPass();
 
@@ -4098,15 +4248,18 @@ void PrimarySurface::DeferredPass()
 		};
 		context->OMSetRenderTargets(5, rtvs, NULL);
 
-		// Resolve offscreenBuf
-		context->ResolveSubresource(resources->_offscreenBufferAsInput, 0, resources->_offscreenBuffer,
-			0, BACKBUFFER_FORMAT);
+		// Resolve offscreenBuf. With the indirect light, BounceLightPass() already did it, and
+		// nothing has rendered to it since (GTAO only writes its own buffers).
+		if (!bGI)
+			context->ResolveSubresource(resources->_offscreenBufferAsInput, 0, resources->_offscreenBuffer,
+				0, BACKBUFFER_FORMAT);
 		context->ResolveSubresource(resources->_backgroundBufferAsInput, 0, resources->_backgroundBuffer,
 			0, BACKBUFFER_FORMAT);
 		if (g_bUseSteamVR) {
-			context->ResolveSubresource(
-				resources->_offscreenBufferAsInput, D3D11CalcSubresource(0, 1, 1),
-				resources->_offscreenBuffer, D3D11CalcSubresource(0, 1, 1), BACKBUFFER_FORMAT);
+			if (!bGI)
+				context->ResolveSubresource(
+					resources->_offscreenBufferAsInput, D3D11CalcSubresource(0, 1, 1),
+					resources->_offscreenBuffer, D3D11CalcSubresource(0, 1, 1), BACKBUFFER_FORMAT);
 			context->ResolveSubresource(
 				resources->_backgroundBufferAsInput, D3D11CalcSubresource(0, 1, 1),
 				resources->_backgroundBuffer, D3D11CalcSubresource(0, 1, 1), BACKBUFFER_FORMAT);
@@ -4132,9 +4285,13 @@ void PrimarySurface::DeferredPass()
 				resources->_shadowMapArraySRV.Get() : NULL,
 		};
 		context->PSSetShaderResources(0, 8, srvs_pass);
-		// Coarse GTAO (t8)
-		ID3D11ShaderResourceView* coarseSRV = (bGTAO && g_bGTAOCoarse) ? resources->_gtaoCoarseSRV.Get() : NULL;
-		context->PSSetShaderResources(8, 1, &coarseSRV);
+		// Coarse GTAO (t8), and the indirect light's bounce light (t9) and gathered light (t10)
+		ID3D11ShaderResourceView* coarseSRVs[3] = {
+			(bGTAO && g_bGTAOCoarse) ? resources->_gtaoCoarseSRV.Get() : NULL,
+			bGI ? resources->_bounceLightSRV.Get() : NULL,
+			bGI ? resources->_giSRV.Get() : NULL,
+		};
+		context->PSSetShaderResources(8, 3, coarseSRVs);
 
 		if (g_bRTEnabled)
 		{
@@ -4166,9 +4323,9 @@ void PrimarySurface::DeferredPass()
 	// Clear RT SRVs slots that are only used for the shadows to avoid DirectX errors
 	ID3D11ShaderResourceView* srvs[] = { NULL, NULL, NULL, NULL };
 	context->PSSetShaderResources(14, 4, srvs);
-	// Unbind the GTAO buffers too: the next frame renders to them
+	// Unbind the GTAO buffers and the indirect light's too: the next frame renders to them
 	context->PSSetShaderResources(1, 1, srvs);
-	context->PSSetShaderResources(8, 1, srvs);
+	context->PSSetShaderResources(8, 3, srvs);
 
 	if (bGPUTimer)
 	{
@@ -4182,9 +4339,10 @@ void PrimarySurface::DeferredPass()
 			const double* section = stats.sectionAvgMs;
 			log_debug("[DBG] [GTAO] PBR lighting GPU time, GTAO %s: avg %0.3f ms, min %0.3f ms, max %0.3f ms, %d frames",
 				gtaoState, stats.avgMs, stats.minMs, stats.maxMs, stats.numFrames);
-			log_debug("[DBG] [GTAO]   setup %0.3f, gtao %0.3f, denoise %0.3f, coarse %0.3f, lighting %0.3f ms",
-				section[GTAO_TIMER_SETUP], section[GTAO_TIMER_GTAO], section[GTAO_TIMER_DENOISE],
-				section[GTAO_TIMER_COARSE], section[GTAO_TIMER_LIGHTING]);
+			log_debug("[DBG] [GTAO]   setup %0.3f, bounce %0.3f, gtao %0.3f, denoise %0.3f, coarse %0.3f, gather %0.3f, lighting %0.3f ms",
+				section[GTAO_TIMER_SETUP], section[GTAO_TIMER_BOUNCE], section[GTAO_TIMER_GTAO],
+				section[GTAO_TIMER_DENOISE], section[GTAO_TIMER_COARSE], section[GTAO_TIMER_GATHER],
+				section[GTAO_TIMER_LIGHTING]);
 			// Shown for a bit longer than the reporting window so the message doesn't flicker.
 			// Row 3 (the last one, see MAX_TIMED_MESSAGES), so it doesn't cover the bloom timer.
 			DisplayTimedMessageV(6, 3, "PBR lighting GPU time (GTAO %s): %0.3f ms", gtaoState, stats.avgMs);

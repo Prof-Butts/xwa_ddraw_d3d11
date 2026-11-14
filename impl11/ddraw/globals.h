@@ -142,6 +142,16 @@ extern float g_fGTAOLightOcclusion;
 // pbr_gtao_specular_occlusion: the reflections are occluded with GTAO's visibility cone
 // (otherwise, with an estimate from the AO)
 extern bool g_bGTAOConeSpecOcclusion;
+// pbr_gi_enabled, pbr_gi_debug: the indirect light (one bounce, SSILVB) in the new PBR shading.
+// It needs GTAO. Ctrl+Alt+U toggles g_bPBRGIEnabled.
+extern bool g_bPBRGIEnabled;
+extern int g_iPBRGIDebug;
+// pbr_gi_thickness: the assumed thickness of the surfaces for the indirect light, in meters
+extern float g_fPBRGIThickness;
+// pbr_gi_radius (meters), pbr_gi_max_radius (fraction of the screen height), pbr_gi_slices,
+// pbr_gi_steps: the indirect light's own gather pass, at a quarter of the resolution
+extern float g_fPBRGIRadius, g_fPBRGIMaxRadius;
+extern int g_iPBRGISlices, g_iPBRGISteps;
 // pbr_cubemap_ambient, pbr_cubemap_specular: multiply the cubemap's ambient light and
 // reflections in the new PBR shading (the mission's AmbientInt and Specular)
 extern float g_fPBRCubeMapAmbient, g_fPBRCubeMapSpecular;

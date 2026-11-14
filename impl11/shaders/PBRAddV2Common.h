@@ -53,6 +53,10 @@ SamplerState sampColor : register(s0);
 Texture2DArray texGTAO : register(t1);
 // Coarse GTAO (quarter resolution, larger radius), when gtao_coarse_enabled
 Texture2DArray texGTAOCoarse : register(t8);
+// The bounce light (GIBounceLight.hlsl), at a quarter of the resolution, when gi_enabled
+Texture2DArray texBounce : register(t9);
+// The indirect light gathered by GTAOGI.hlsl, at a quarter of the resolution, when gi_enabled
+Texture2DArray texGI : register(t10);
 
 // The Background buffer
 Texture2DArray texBackground : register(t2);
@@ -90,6 +94,10 @@ SamplerState sampColor : register(s0);
 Texture2D texGTAO : register(t1);
 // Coarse GTAO (quarter resolution, larger radius), when gtao_coarse_enabled
 Texture2D texGTAOCoarse : register(t8);
+// The bounce light (GIBounceLight.hlsl), at a quarter of the resolution, when gi_enabled
+Texture2D texBounce : register(t9);
+// The indirect light gathered by GTAOGI.hlsl, at a quarter of the resolution, when gi_enabled
+Texture2D texGI : register(t10);
 
 // The Background buffer
 Texture2D texBackground : register(t2);
@@ -146,6 +154,10 @@ cbuffer ConstantBuffer : register(b2)
 	float unused3, depth_weight;
 	uint debug;
 };
+
+// The indirect light's buffers (the bounce light and the gathered light) are at 1 / GI_SCALE
+// of the resolution. Keep in sync with GI_SCALE in PrimarySurface.cpp.
+#define GI_SCALE 4
 
 struct PixelShaderInput
 {
@@ -441,6 +453,350 @@ float3 GTAODiffuseAO(float ao, float3 albedo)
 	return lerp(ao, GTAOMultiBounce(ao, albedo), gtao_multibounce);
 }
 
+// The shadows of the lights that cast them, for a pixel: the ray-traced shadows (the
+// filtered RT shadow mask, or rays traced here) and the shadow maps, multiplied. They never
+// go below the black level. Shared by the lighting pass and the bounce light pass.
+float ComputeSunShadowFactor(PixelShaderInput input, float3 P, float3 N)
+{
+	// Raytraced shadows. The output of this section is written to rt_shadow_factor
+	float rt_shadow_factor = 1.0f;
+	if (bRTEnabled)
+	{
+		if (RTEnableSoftShadows)
+		{
+			int i, j;
+			float2 uv;
+			float rtVal = 0;
+			const int range = 2;
+#ifdef INSTANCED_RENDERING
+			const float rtCenter = rtShadowMask.Sample(sampColor, float3(input.uv, input.viewId)).x;
+#else
+			const float rtCenter = rtShadowMask.Sample(sampColor, input.uv).x;
+#endif
+#ifdef GI_BOUNCE_LIGHT_PASS
+			// The bounce light only needs the shadow at the pixel: the gather samples it sparsely
+			// and the indirect light is blurred anyway. The soft-shadow filter below reads the mask
+			// and the positions about 60 times per pixel, which made the bounce pass expensive.
+			rt_shadow_factor = rtCenter;
+#else
+			// When RTShadowMaskSizeFactor is 1, we won't get soft shadows because the uv_delta
+			// is too small. So we need to set a lower bound to have a good delta.
+			const float rtSizeFactor = max(2.0, RTShadowMaskSizeFactor);
+			const float2 uv_delta = float2(RTShadowMaskPixelSizeX * rtSizeFactor, RTShadowMaskPixelSizeY * rtSizeFactor);
+			const float2 uv_delta_d = uv_delta; // Dilation filter delta
+			const float2 uv_delta_r = range * uv_delta; // Soft shadow delta
+
+			// Apply a quick-and-dirty dilation filter to prevent haloes
+			const float2 uv0_d = input.uv - uv_delta_d;
+			float rtMin = rtCenter;
+			uv = uv0_d;
+			[unroll]
+			for (i = -1; i <= 1; i++)
+			{
+				uv.x = uv0_d.x;
+				[unroll]
+				for (j = -1; j <= 1; j++)
+				{
+#ifdef INSTANCED_RENDERING
+					rtMin = min(rtMin, rtShadowMask.Sample(sampColor, float3(uv, input.viewId)).x);
+#else
+					rtMin = min(rtMin, rtShadowMask.Sample(sampColor, uv).x);
+#endif
+					uv.x += uv_delta_d.x;
+				}
+				uv.y += uv_delta_d.y;
+			}
+
+			float Gsum = 0;
+			const float2 uv0_r = input.uv - range * uv_delta_r;
+			uv = uv0_r;
+			[unroll]
+			for (i = -range; i <= range; i++)
+			{
+				uv.x = uv0_r.x;
+				[unroll]
+				for (j = -range; j <= range; j++)
+				{
+#ifdef INSTANCED_RENDERING
+					const float z = texPos.Sample(sampPos, float3(uv, input.viewId)).z;
+#else
+					const float z = texPos.Sample(sampPos, uv).z;
+#endif
+					const float delta_z = abs(P.z - z);
+					const float delta_ij = -RTGaussFactor * (i * i + j * j);
+					const float G = exp(delta_ij);
+					// Objects far away should have bigger thresholds too
+					if (delta_z < RTSoftShadowThresholdMult * P.z)
+#ifdef INSTANCED_RENDERING
+						rtVal += G * rtShadowMask.Sample(sampColor, float3(uv, input.viewId)).x;
+#else
+						rtVal += G * rtShadowMask.Sample(sampColor, uv).x;
+#endif
+					else
+						rtVal += G * rtMin;
+					Gsum += G;
+					uv.x += uv_delta_r.x;
+				}
+				uv.y += uv_delta_r.y;
+			}
+			rt_shadow_factor = rtVal / Gsum;
+#endif
+		}
+		else
+		{
+			// Do ray-tracing right here, no RTShadowMask
+			for (uint i = 0; i < LightCount; i++)
+			{
+				float black_level, dummyMinZ, dummyMaxZ;
+				get_black_level_and_minmaxZ(i, black_level, dummyMinZ, dummyMaxZ);
+				// Skip lights that won't project black-enough shadows
+				if (black_level > 0.95)
+					continue;
+
+				const float3 L = LightVector[i].xyz;
+				const float dotLFlatN = dot(L, N); // The "flat" normal is needed here (without Normal Mapping)
+				// "hover" prevents noise by displacing the origin of the ray away from the surface
+				// The displacement is directly proportional to the depth of the surface
+				// The position buffer's Z increases with depth
+				// The normal buffer's Z+ points towards the camera
+				// We have to invert N.z:
+				const float3 hover = 0.01 * P.z * float3(N.x, N.y, -N.z);
+				// Don't do raytracing on surfaces that face away from the light source
+				if (dotLFlatN > 0.01)
+				{
+					Ray ray;
+					ray.origin = P + hover; // Metric, Y+ is up, Z+ is forward.
+					ray.dir = float3(L.x, -L.y, -L.z);
+					ray.max_dist = RT_MAX_DIST;
+
+					Intersection inters = TLASTraceRaySimpleHit(ray);
+					if (inters.TriID > -1)
+						rt_shadow_factor *= black_level;
+				}
+				else
+				{
+					rt_shadow_factor *= black_level;
+				}
+			}
+		}
+	}
+
+	// Shadow Mapping.
+	// The shadow casting contribution for both RT and SM ends up in total_shadow_factor.
+	float total_shadow_factor = rt_shadow_factor;
+	// Don't compute shadow mapping if Raytraced shadows are enabled in the cockpit... it's redundant.
+	if (sm_enabled && bRTAllowShadowMapping)
+	{
+		[loop]
+		for (uint i = 0; i < LightCount; i++)
+		{
+			float shadow_factor = 1.0;
+			float black_level, minZ, maxZ;
+			get_black_level_and_minmaxZ(i, black_level, minZ, maxZ);
+			// Skip lights that won't project black-enough shadows or that are
+			// out-of-range for ShadowMapping
+			if (black_level > 0.95 || P.z < minZ || P.z > maxZ)
+				continue;
+			// Apply the same transform we applied to P in ShadowMapVS.hlsl
+			float3 Q = mul(lightWorldMatrix[i], float4(P, 1.0)).xyz;
+			// Distant objects require more bias, here we're using maxZ as a proxy to tell us
+			// how distant is the shadow map and we use that to compensate the bias
+			float bias = sm_bias - 1.0 * step(50.0f, maxZ);
+			// shadow_factor: 1 -- No shadow
+			// shadow_factor: 0 -- Full shadow
+			shadow_factor = ShadowMapPCF(i, float3(Q.xy, MetricZToDepth(i, Q.z + bias)), sm_resolution, sm_pcss_samples, sm_pcss_radius);
+			// Limit how black the shadows can be to a minimum of black_level
+			shadow_factor = max(shadow_factor, black_level);
+			// Accumulate this light's shadow factor with the total shadow factor
+			total_shadow_factor *= shadow_factor;
+		}
+	}
+	return total_shadow_factor;
+}
+
+// The material of a pixel, from the G-buffer masks. These heuristics are the same as in
+// PBRAddCommon.h. color is the linear color, albedo the one used for lighting. It also
+// reduces total_shadow_factor (the shadows, see ComputeSunShadowFactor()) on black areas.
+// Shared by the lighting pass and the bounce light pass.
+void ComputeMaterial(float3 color, float3 albedo, float mask, float gloss_mask, float spec_int_mask,
+	float spec_val_mask, float glass, float metallic, inout float total_shadow_factor,
+	out float blackish, out float metallicity, out float roughness, out float3 F0)
+{
+	// Approximate luma:
+	const float Value = max(dot(float3(0.299f, 0.587f, 0.114f), color.xyz), spec_val_mask);
+	blackish = smoothstep(0.1, 0.0, Value);
+	metallicity = (mask < METAL_HI) ? metallic : 0.25;
+	float glossiness = min(0.93, gloss_mask);
+	float reflectance = lerp(spec_int_mask, 0.0, blackish);
+
+	// The following will reduce the shininess of black areas. This behavior is similar
+	// to the current materials model.
+	total_shadow_factor = lerp(total_shadow_factor, total_shadow_factor * 0.5, blackish);
+
+	// Make glass more glossy
+	if (glass > 0.01)
+	{
+		glossiness = 0.93;
+		reflectance = 1.0;
+	}
+
+	roughness = 1.0 - glossiness * glossiness;
+	F0 = 0.16 * reflectance * reflectance * (1.0 - metallicity) + albedo * metallicity;
+}
+
+// The laser and explosion lights (the dynamic lights) on a pixel: their diffuse light, added
+// to the final color. pos3D has Z inverted, like the light positions, and N is Z+ towards the
+// camera. lightOcclusion, lightConeAxis and lightConeCos: GTAO's occlusion of these lights,
+// see the lighting pass (0 turns it off). Shared by the lighting pass and the bounce light
+// pass.
+#define L_FADEOUT_A_0 30.0
+#define L_FADEOUT_A_1 50.0
+#define L_FADEOUT_B_0 50.0
+#define L_FADEOUT_B_1 1000.0
+#define LIGHT_CONE_SOFTNESS 0.3 // Width of the fade past the cone's edge, in cosine
+float3 ComputeDynamicLights(float3 pos3D, float3 N, float lightOcclusion, float3 lightConeAxis,
+	float lightConeCos)
+{
+	float3 laser_light_sum = 0.0;
+	uint i;
+	[loop]
+	for (i = 0; i < num_lasers; i++)
+	{
+		// P is the original point, pos3D has z inverted:
+		// pos3D = (P.xy, -P.z)
+		// LightPoint already comes with z inverted (-z) from ddraw, so we can subtract LightPoint - pos3D
+		// because both points have -z:
+		float3 L = LightPoint[i].xyz - pos3D;
+		const float Z = -LightPoint[i].z; // Z is positive depth
+		const float falloff = LightPoint[i].w;
+		const float3 LDir = LightPointDirection[i].xyz;
+		const float angle_falloff_cos = LightPointDirection[i].w;
+
+		float attenuation, depth_attenuation, angle_attenuation = 1.0f;
+		const float distance_sqr = dot(L, L);
+		L *= rsqrt(distance_sqr); // Normalize L
+		// calculate the attenuation for laser lights
+		if (falloff == 0.0f) {
+			const float depth_attenuation_A = 0.15 * smoothstep(L_FADEOUT_A_1, L_FADEOUT_A_0, Z); // Fade the cockpit flash quickly
+			const float depth_attenuation_B = 0.1 * smoothstep(L_FADEOUT_B_1, L_FADEOUT_B_0, Z); // Fade the distant flash slowly
+			depth_attenuation = max(depth_attenuation_A, depth_attenuation_B);
+			attenuation = 1.0 / (1.0 + sqr_attenuation * distance_sqr);
+		}
+		// calculate the attenuation for other lights (explosions, etc)
+		else {
+			depth_attenuation = 1.0;
+			attenuation = falloff / distance_sqr;
+		}
+		// calculate the attenuation for directional lights
+		if (angle_falloff_cos != 0.0f) {
+			// compute the angle between the light's direction and the
+			// vector from the current point to the light's center
+			const float angle = max(dot(L, LDir), 0.0);
+			angle_attenuation = smoothstep(angle_falloff_cos, 1.0, angle);
+		}
+		// compute the diffuse contribution
+		const float diff_val = max(dot(N, L), 0.0);
+		// GTAO occlusion: 1 inside the visibility cone, fading to 0 past its edge
+		const float coneVisibility = smoothstep(lightConeCos - LIGHT_CONE_SOFTNESS, lightConeCos, dot(lightConeAxis, L));
+		const float occlusion = lerp(1.0, coneVisibility, lightOcclusion);
+		laser_light_sum += occlusion * depth_attenuation * attenuation * angle_attenuation * diff_val * LightPointColor[i].rgb;
+	}
+	return laser_light_sum;
+}
+
+#ifdef GI_BOUNCE_LIGHT_PASS
+/*
+ * The bounce light pass (GIBounceLight.hlsl, pbr_gi_enabled): the diffuse light that each
+ * surface sends back out, which the indirect light gathers (see c:\temp\ssilvb-plan.md).
+ * It runs before GTAO, at a quarter of the resolution (GI_SCALE), like the gather, which
+ * only reads it at scattered sample points. Its pixel h uses the full-resolution pixel
+ * h * GI_SCALE. It uses the same functions as the lighting pass below, so the light matches
+ * it:
+ * - The lights (the sun and the others), diffuse only. The shadows of the lights that cast
+ *   them don't get their black level: it's a stand-in for the light that fills the shadows,
+ *   not sunlight, so it doesn't bounce.
+ * - The laser and explosion lights, as the lighting pass adds them (without GTAO's
+ *   occlusion, which isn't computed yet).
+ * - Shadeless surfaces (engine glows, lights, displays): their own color, as emitters.
+ * No ambient light: the sky's bounce is approximated by the multi-bounce AO, and it would
+ * feed back into itself. The output is linear, before the exposure, like the lighting
+ * pass. Alpha is the coverage: 0 on the background.
+ */
+float4 main(PixelShaderInput input) : SV_TARGET0
+{
+	// Pixel h uses the full-resolution pixel h * GI_SCALE, like the gather pass
+	uint fullWidth, fullHeight;
+#ifdef INSTANCED_RENDERING
+	uint elements;
+	texPos.GetDimensions(fullWidth, fullHeight, elements);
+	input.uv = (floor(input.pos.xy) * GI_SCALE + 0.5) / float2(fullWidth, fullHeight);
+	const float4 texelColor = texColor.Sample(sampColor, float3(input.uv, input.viewId));
+	const float4 Normal     = texNormal.Sample(samplerNormal, float3(input.uv, input.viewId));
+	float3 pos3D            = texPos.Sample(sampPos, float3(input.uv, input.viewId)).xyz;
+	const float3 ssaoMask   = texSSAOMask.Sample(samplerSSAOMask, float3(input.uv, input.viewId)).xyz;
+	const float3 ssMask     = texSSMask.Sample(samplerSSMask, float3(input.uv, input.viewId)).xyz;
+#else
+	texPos.GetDimensions(fullWidth, fullHeight);
+	input.uv = (floor(input.pos.xy) * GI_SCALE + 0.5) / float2(fullWidth, fullHeight);
+	const float4 texelColor = texColor.Sample(sampColor, input.uv);
+	const float4 Normal     = texNormal.Sample(samplerNormal, input.uv);
+	float3 pos3D            = texPos.Sample(sampPos, input.uv).xyz;
+	const float3 ssaoMask   = texSSAOMask.Sample(samplerSSAOMask, input.uv).xyz;
+	const float3 ssMask     = texSSMask.Sample(samplerSSMask, input.uv).xyz;
+#endif
+	const float mask          = ssaoMask.x;
+	const float gloss_mask    = ssaoMask.y;
+	const float spec_int_mask = ssaoMask.z;
+	const float metallic      = mask / METAL_MAT;
+	const float glass         = ssMask.x;
+	const float spec_val_mask = ssMask.y;
+	const float shadeless     = ssMask.z;
+
+	// The same coverage as the lighting pass, where it blends with the background
+	const float blendAlphaSat = saturate(2.0 * Normal.w);
+	const float blendAlpha = blendAlphaSat * blendAlphaSat;
+	if (blendAlpha <= 0.0)
+		return 0;
+
+	const float3 P = pos3D.xyz;
+	pos3D.z = -pos3D.z;
+	const float3 color = SRGBToLinear(texelColor.rgb);
+	if (shadeless >= 1.0)
+		return float4(color * blendAlpha, blendAlpha);
+
+	const float3 albedo = albedo_floor + (1.0 - albedo_floor) * color;
+	const float3 N = normalize(Normal.xyz);
+	float total_shadow_factor = ComputeSunShadowFactor(input, P, N);
+	float blackish, metallicity, roughness;
+	float3 F0;
+	ComputeMaterial(color, albedo, mask, gloss_mask, spec_int_mask, spec_val_mask, glass, metallic,
+		total_shadow_factor, blackish, metallicity, roughness, F0);
+	// The shadows without their black level
+	const float visibility = specular_shadow_factor(total_shadow_factor, get_shadow_caster_black_level(LightCount));
+
+	// The lights, as in the lighting pass: the ones that don't cast shadows are dimmed
+	float3 N_PBR = N;
+	N_PBR.xy = -N_PBR.xy;
+	const float3 V_PBR = normalize(P);
+	float3 direct = 0.0;
+	[loop]
+	for (uint i = 0; i < LightCount; i++)
+	{
+		const bool isShadowCaster = get_black_level(i) <= 0.95;
+		float3 L = LightVector[i].xyz;
+		L.xy = -L.xy;
+		L = normalize(L);
+		const float3 lightColor = (isShadowCaster ? 1.0 : 0.25) * LightColor[i].rgb;
+		float3 diffuseBRDF, specularBRDF;
+		EvaluateDirectBRDF(N_PBR, V_PBR, L, albedo, metallicity, F0, roughness, diffuseBRDF, specularBRDF);
+		direct += diffuseBRDF * PI * lightColor * saturate(dot(N_PBR, L)) * (isShadowCaster ? visibility : 1.0);
+	}
+
+	float3 radiance = lerp(direct, color, shadeless);
+	radiance += laser_light_intensity * ComputeDynamicLights(pos3D, N, 0.0, float3(0, 0, 1), 0.0);
+	return float4(radiance * blendAlpha, blendAlpha);
+}
+#else
 PixelShaderOutput main(PixelShaderInput input)
 {
 	PixelShaderOutput output;
@@ -529,6 +885,26 @@ PixelShaderOutput main(PixelShaderInput input)
 		return output;
 	}
 
+	// Debug views (pbr_gi_debug), exposed and tonemapped like the final colors, at a quarter
+	// of the resolution:
+	// 1: the bounce light, the light that the surfaces send back out (GIBounceLight.hlsl);
+	// 2: the indirect light gathered by GTAOGI.hlsl, before the denoise: the light that each
+	//    surface receives from the others.
+	[branch]
+	if (gi_enabled > 0.5 && gi_debug > 0.5)
+	{
+		const int2 giPx = int2(uint2(input.pos.xy) / (uint)GI_SCALE);
+#ifdef INSTANCED_RENDERING
+		const float3 debugLight = gi_debug < 1.5 ? texBounce.Load(int4(giPx, input.viewId, 0)).rgb :
+			texGI.Load(int4(giPx, input.viewId, 0)).rgb;
+#else
+		const float3 debugLight = gi_debug < 1.5 ? texBounce.Load(int3(giPx, 0)).rgb :
+			texGI.Load(int3(giPx, 0)).rgb;
+#endif
+		output.color = float4(lerp(background, LinearToSRGB(ACESFitted(exposure_mult * debugLight)), blendAlpha), 1);
+		return output;
+	}
+
 	// We need to invert the Z-axis for illumination because the normals are Z+ when pointing to the camera
 	// so that implies that Z increases towards the viewer and decreases away from the camera.
 	const float3 P = pos3D.xyz;
@@ -562,175 +938,15 @@ PixelShaderOutput main(PixelShaderInput input)
 
 	float3 N = normalize(Normal.xyz);
 
-	// Raytraced shadows. The output of this section is written to rt_shadow_factor
-	float rt_shadow_factor = 1.0f;
-	if (bRTEnabled)
-	{
-		if (RTEnableSoftShadows)
-		{
-			int i, j;
-			float2 uv;
-			float rtVal = 0;
-			const int range = 2;
-#ifdef INSTANCED_RENDERING
-			const float rtCenter = rtShadowMask.Sample(sampColor, float3(input.uv, input.viewId)).x;
-#else
-			const float rtCenter = rtShadowMask.Sample(sampColor, input.uv).x;
-#endif
-			// When RTShadowMaskSizeFactor is 1, we won't get soft shadows because the uv_delta
-			// is too small. So we need to set a lower bound to have a good delta.
-			const float rtSizeFactor = max(2.0, RTShadowMaskSizeFactor);
-			const float2 uv_delta = float2(RTShadowMaskPixelSizeX * rtSizeFactor, RTShadowMaskPixelSizeY * rtSizeFactor);
-			const float2 uv_delta_d = uv_delta; // Dilation filter delta
-			const float2 uv_delta_r = range * uv_delta; // Soft shadow delta
-
-			// Apply a quick-and-dirty dilation filter to prevent haloes
-			const float2 uv0_d = input.uv - uv_delta_d;
-			float rtMin = rtCenter;
-			uv = uv0_d;
-			[unroll]
-			for (i = -1; i <= 1; i++)
-			{
-				uv.x = uv0_d.x;
-				[unroll]
-				for (j = -1; j <= 1; j++)
-				{
-#ifdef INSTANCED_RENDERING
-					rtMin = min(rtMin, rtShadowMask.Sample(sampColor, float3(uv, input.viewId)).x);
-#else
-					rtMin = min(rtMin, rtShadowMask.Sample(sampColor, uv).x);
-#endif
-					uv.x += uv_delta_d.x;
-				}
-				uv.y += uv_delta_d.y;
-			}
-
-			float Gsum = 0;
-			const float2 uv0_r = input.uv - range * uv_delta_r;
-			uv = uv0_r;
-			[unroll]
-			for (i = -range; i <= range; i++)
-			{
-				uv.x = uv0_r.x;
-				[unroll]
-				for (j = -range; j <= range; j++)
-				{
-#ifdef INSTANCED_RENDERING
-					const float z = texPos.Sample(sampPos, float3(uv, input.viewId)).z;
-#else
-					const float z = texPos.Sample(sampPos, uv).z;
-#endif
-					const float delta_z = abs(P.z - z);
-					const float delta_ij = -RTGaussFactor * (i * i + j * j);
-					const float G = exp(delta_ij);
-					// Objects far away should have bigger thresholds too
-					if (delta_z < RTSoftShadowThresholdMult * P.z)
-#ifdef INSTANCED_RENDERING
-						rtVal += G * rtShadowMask.Sample(sampColor, float3(uv, input.viewId)).x;
-#else
-						rtVal += G * rtShadowMask.Sample(sampColor, uv).x;
-#endif
-					else
-						rtVal += G * rtMin;
-					Gsum += G;
-					uv.x += uv_delta_r.x;
-				}
-				uv.y += uv_delta_r.y;
-			}
-			rt_shadow_factor = rtVal / Gsum;
-		}
-		else
-		{
-			// Do ray-tracing right here, no RTShadowMask
-			for (uint i = 0; i < LightCount; i++)
-			{
-				float black_level, dummyMinZ, dummyMaxZ;
-				get_black_level_and_minmaxZ(i, black_level, dummyMinZ, dummyMaxZ);
-				// Skip lights that won't project black-enough shadows
-				if (black_level > 0.95)
-					continue;
-
-				const float3 L = LightVector[i].xyz;
-				const float dotLFlatN = dot(L, N); // The "flat" normal is needed here (without Normal Mapping)
-				// "hover" prevents noise by displacing the origin of the ray away from the surface
-				// The displacement is directly proportional to the depth of the surface
-				// The position buffer's Z increases with depth
-				// The normal buffer's Z+ points towards the camera
-				// We have to invert N.z:
-				const float3 hover = 0.01 * P.z * float3(N.x, N.y, -N.z);
-				// Don't do raytracing on surfaces that face away from the light source
-				if (dotLFlatN > 0.01)
-				{
-					Ray ray;
-					ray.origin = P + hover; // Metric, Y+ is up, Z+ is forward.
-					ray.dir = float3(L.x, -L.y, -L.z);
-					ray.max_dist = RT_MAX_DIST;
-
-					Intersection inters = TLASTraceRaySimpleHit(ray);
-					if (inters.TriID > -1)
-						rt_shadow_factor *= black_level;
-				}
-				else
-				{
-					rt_shadow_factor *= black_level;
-				}
-			}
-		}
-	}
-
-	// Shadow Mapping.
-	// The shadow casting contribution for both RT and SM ends up in total_shadow_factor.
-	float total_shadow_factor = rt_shadow_factor;
-	// Don't compute shadow mapping if Raytraced shadows are enabled in the cockpit... it's redundant.
-	if (sm_enabled && bRTAllowShadowMapping)
-	{
-		[loop]
-		for (uint i = 0; i < LightCount; i++)
-		{
-			float shadow_factor = 1.0;
-			float black_level, minZ, maxZ;
-			get_black_level_and_minmaxZ(i, black_level, minZ, maxZ);
-			// Skip lights that won't project black-enough shadows or that are
-			// out-of-range for ShadowMapping
-			if (black_level > 0.95 || P.z < minZ || P.z > maxZ)
-				continue;
-			// Apply the same transform we applied to P in ShadowMapVS.hlsl
-			float3 Q = mul(lightWorldMatrix[i], float4(P, 1.0)).xyz;
-			// Distant objects require more bias, here we're using maxZ as a proxy to tell us
-			// how distant is the shadow map and we use that to compensate the bias
-			float bias = sm_bias - 1.0 * step(50.0f, maxZ);
-			// shadow_factor: 1 -- No shadow
-			// shadow_factor: 0 -- Full shadow
-			shadow_factor = ShadowMapPCF(i, float3(Q.xy, MetricZToDepth(i, Q.z + bias)), sm_resolution, sm_pcss_samples, sm_pcss_radius);
-			// Limit how black the shadows can be to a minimum of black_level
-			shadow_factor = max(shadow_factor, black_level);
-			// Accumulate this light's shadow factor with the total shadow factor
-			total_shadow_factor *= shadow_factor;
-		}
-	}
+	// The sun's shadows (ray-traced and shadow-mapped), see ComputeSunShadowFactor()
+	float total_shadow_factor = ComputeSunShadowFactor(input, P, N);
 
 	// ************************************************************************************************
-	// Material properties. These heuristics are the same as in PBRAddCommon.h.
-	// Approximate luma:
-	const float Value = max(dot(float3(0.299f, 0.587f, 0.114f), color.xyz), spec_val_mask);
-	const float blackish = smoothstep(0.1, 0.0, Value);
-	const float metallicity = (mask < METAL_HI) ? metallic : 0.25;
-	float glossiness = min(0.93, gloss_mask);
-	float reflectance = lerp(spec_int_mask, 0.0, blackish);
-
-	// The following will reduce the shininess of black areas. This behavior is similar
-	// to the current materials model.
-	total_shadow_factor = lerp(total_shadow_factor, total_shadow_factor * 0.5, blackish);
-
-	// Make glass more glossy
-	if (glass > 0.01)
-	{
-		glossiness = 0.93;
-		reflectance = 1.0;
-	}
-
-	const float roughness = 1.0 - glossiness * glossiness;
-	const float3 F0 = 0.16 * reflectance * reflectance * (1.0 - metallicity) + albedo * metallicity;
+	// Material properties, see ComputeMaterial()
+	float blackish, metallicity, roughness;
+	float3 F0;
+	ComputeMaterial(color, albedo, mask, gloss_mask, spec_int_mask, spec_val_mask, glass, metallic,
+		total_shadow_factor, blackish, metallicity, roughness, F0);
 
 	// The lighting below is done in the same space as PBRAddCommon.h: N, V and L are all
 	// negated with respect to view space, so the dot products are the same.
@@ -909,10 +1125,6 @@ PixelShaderOutput main(PixelShaderInput input)
 
 	// Add the laser/dynamic lights. This is the same as in PBRAddCommon.h, plus the GTAO
 	// occlusion below.
-#define L_FADEOUT_A_0 30.0
-#define L_FADEOUT_A_1 50.0
-#define L_FADEOUT_B_0 50.0
-#define L_FADEOUT_B_1 1000.0
 	// These lights have no shadows, so GTAO occludes them (pbr_gtao_light_occlusion): a
 	// laser going by doesn't light the inside of a trench or the far side of a greeble.
 	// GTAO gives each pixel a visibility cone, the directions it sees open space through
@@ -921,54 +1133,11 @@ PixelShaderOutput main(PixelShaderInput input)
 	// isn't occluded, and it fades out past the cone's edge. GTAO doesn't know how far the
 	// occluders are, so a light closer than them is occluded too, but it only finds
 	// occluders within its radius.
-#define LIGHT_CONE_SOFTNESS 0.3 // Width of the fade past the cone's edge, in cosine
 	const float lightOcclusion = bGTAO ? gtao_light_occlusion : 0.0;
 	// The bent normal is Z+ away from the camera; N and L below are Z+ towards it
 	const float3 lightConeAxis = normalize(float3(gtao.x, gtao.y, -gtao.z));
 	const float lightConeCos = sqrt(saturate(1.0 - ao));
-	float3 laser_light_sum = 0.0;
-	[loop]
-	for (i = 0; i < num_lasers; i++)
-	{
-		// P is the original point, pos3D has z inverted:
-		// pos3D = (P.xy, -P.z)
-		// LightPoint already comes with z inverted (-z) from ddraw, so we can subtract LightPoint - pos3D
-		// because both points have -z:
-		float3 L = LightPoint[i].xyz - pos3D;
-		const float Z = -LightPoint[i].z; // Z is positive depth
-		const float falloff = LightPoint[i].w;
-		const float3 LDir = LightPointDirection[i].xyz;
-		const float angle_falloff_cos = LightPointDirection[i].w;
-
-		float attenuation, depth_attenuation, angle_attenuation = 1.0f;
-		const float distance_sqr = dot(L, L);
-		L *= rsqrt(distance_sqr); // Normalize L
-		// calculate the attenuation for laser lights
-		if (falloff == 0.0f) {
-			const float depth_attenuation_A = 0.15 * smoothstep(L_FADEOUT_A_1, L_FADEOUT_A_0, Z); // Fade the cockpit flash quickly
-			const float depth_attenuation_B = 0.1 * smoothstep(L_FADEOUT_B_1, L_FADEOUT_B_0, Z); // Fade the distant flash slowly
-			depth_attenuation = max(depth_attenuation_A, depth_attenuation_B);
-			attenuation = 1.0 / (1.0 + sqr_attenuation * distance_sqr);
-		}
-		// calculate the attenuation for other lights (explosions, etc)
-		else {
-			depth_attenuation = 1.0;
-			attenuation = falloff / distance_sqr;
-		}
-		// calculate the attenuation for directional lights
-		if (angle_falloff_cos != 0.0f) {
-			// compute the angle between the light's direction and the
-			// vector from the current point to the light's center
-			const float angle = max(dot(L, LDir), 0.0);
-			angle_attenuation = smoothstep(angle_falloff_cos, 1.0, angle);
-		}
-		// compute the diffuse contribution
-		const float diff_val = max(dot(N, L), 0.0);
-		// GTAO occlusion: 1 inside the visibility cone, fading to 0 past its edge
-		const float coneVisibility = smoothstep(lightConeCos - LIGHT_CONE_SOFTNESS, lightConeCos, dot(lightConeAxis, L));
-		const float occlusion = lerp(1.0, coneVisibility, lightOcclusion);
-		laser_light_sum += occlusion * depth_attenuation * attenuation * angle_attenuation * diff_val * LightPointColor[i].rgb;
-	}
+	const float3 laser_light_sum = ComputeDynamicLights(pos3D, N, lightOcclusion, lightConeAxis, lightConeCos);
 	tmp_color += laser_light_intensity * laser_light_sum;
 
 	// Tonemap and convert back to sRGB
@@ -987,3 +1156,4 @@ PixelShaderOutput main(PixelShaderInput input)
 #endif
 	return output;
 }
+#endif // GI_BOUNCE_LIGHT_PASS

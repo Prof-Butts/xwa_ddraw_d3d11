@@ -70,6 +70,7 @@ cbuffer ConstantBuffer : register(b4)
 	float gi_debug;           // pbr_gi_debug: 0 off, 1 the bounce light, 2 the raw indirect light, 3 the filtered one, 4 its contribution
 	// 1376 bytes
 	float gi_intensity;       // pbr_gi_intensity: multiplies the indirect light
-	float3 unused_ss6;
+	float gi_emitter_boost;   // pbr_gi_emitter_boost: multiplies the light of the emitters in the bounce light
+	float2 unused_ss6;
 	// 1392 bytes
 };

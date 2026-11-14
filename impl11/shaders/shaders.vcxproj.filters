@@ -110,6 +110,8 @@
     <FxCompile Include="GTAODenoise.hlsl" />
     <FxCompile Include="GTAODenoiseVR.hlsl" />
     <FxCompile Include="GIDenoise.hlsl" />
+    <FxCompile Include="GIBlur.hlsl" />
+    <FxCompile Include="GIBlurVR.hlsl" />
     <FxCompile Include="GIDenoiseVR.hlsl" />
     <FxCompile Include="CubeMapPrefilterCS.hlsl" />
     <FxCompile Include="PBRAddV2.hlsl" />

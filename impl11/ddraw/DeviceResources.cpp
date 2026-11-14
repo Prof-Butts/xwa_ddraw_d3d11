@@ -112,6 +112,8 @@
 #include "../Debug/GTAOBitmaskVR.h"
 #include "../Debug/GIDenoise.h"
 #include "../Debug/GIDenoiseVR.h"
+#include "../Debug/GIBlur.h"
+#include "../Debug/GIBlurVR.h"
 #include "../Debug/GTAODenoise.h"
 #include "../Debug/GTAODenoiseVR.h"
 #include "../Debug/PixelShaderVRGeom.h"
@@ -214,6 +216,8 @@
 #include "../Release/GTAOBitmaskVR.h"
 #include "../Release/GIDenoise.h"
 #include "../Release/GIDenoiseVR.h"
+#include "../Release/GIBlur.h"
+#include "../Release/GIBlurVR.h"
 #include "../Release/GTAODenoise.h"
 #include "../Release/GTAODenoiseVR.h"
 #include "../Release/PixelShaderVRGeom.h"
@@ -4521,6 +4525,9 @@ HRESULT DeviceResources::LoadMainResources()
 			if (FAILED(hr = this->_d3dDevice->CreatePixelShader(g_GIDenoiseVR, sizeof(g_GIDenoiseVR), nullptr, &_giDenoisePS_VR)))
 				return hr;
 
+			if (FAILED(hr = this->_d3dDevice->CreatePixelShader(g_GIBlurVR, sizeof(g_GIBlurVR), nullptr, &_giBlurPS_VR)))
+				return hr;
+
 			// Shader model 5.0: only with feature level 11. Without it, the indirect light stays off.
 			if (this->_d3dFeatureLevel >= D3D_FEATURE_LEVEL_11_0 &&
 				FAILED(hr = this->_d3dDevice->CreatePixelShader(g_GTAOGIVR, sizeof(g_GTAOGIVR), nullptr, &_gtaoGIPS_VR)))
@@ -4562,6 +4569,9 @@ HRESULT DeviceResources::LoadMainResources()
 				return hr;
 
 			if (FAILED(hr = this->_d3dDevice->CreatePixelShader(g_GIDenoise, sizeof(g_GIDenoise), nullptr, &_giDenoisePS)))
+				return hr;
+
+			if (FAILED(hr = this->_d3dDevice->CreatePixelShader(g_GIBlur, sizeof(g_GIBlur), nullptr, &_giBlurPS)))
 				return hr;
 
 			// Shader model 5.0: only with feature level 11. Without it, the indirect light stays off.
@@ -5020,6 +5030,9 @@ HRESULT DeviceResources::LoadResources()
 			if (FAILED(hr = this->_d3dDevice->CreatePixelShader(g_GIDenoiseVR, sizeof(g_GIDenoiseVR), nullptr, &_giDenoisePS_VR)))
 				return hr;
 
+			if (FAILED(hr = this->_d3dDevice->CreatePixelShader(g_GIBlurVR, sizeof(g_GIBlurVR), nullptr, &_giBlurPS_VR)))
+				return hr;
+
 			// Shader model 5.0: only with feature level 11. Without it, the indirect light stays off.
 			if (this->_d3dFeatureLevel >= D3D_FEATURE_LEVEL_11_0 &&
 				FAILED(hr = this->_d3dDevice->CreatePixelShader(g_GTAOGIVR, sizeof(g_GTAOGIVR), nullptr, &_gtaoGIPS_VR)))
@@ -5061,6 +5074,9 @@ HRESULT DeviceResources::LoadResources()
 				return hr;
 
 			if (FAILED(hr = this->_d3dDevice->CreatePixelShader(g_GIDenoise, sizeof(g_GIDenoise), nullptr, &_giDenoisePS)))
+				return hr;
+
+			if (FAILED(hr = this->_d3dDevice->CreatePixelShader(g_GIBlur, sizeof(g_GIBlur), nullptr, &_giBlurPS)))
 				return hr;
 
 			// Shader model 5.0: only with feature level 11. Without it, the indirect light stays off.
@@ -5231,8 +5247,8 @@ HRESULT DeviceResources::LoadResources()
 		return hr;
 
 	// GTAO constant buffer (ssao_type = PBR)
-	constantBufferDesc.ByteWidth = 64;
-	static_assert(sizeof(GTAOCBuffer) == 64, "sizeof(GTAOCBuffer) must be 64");
+	constantBufferDesc.ByteWidth = 80;
+	static_assert(sizeof(GTAOCBuffer) == 80, "sizeof(GTAOCBuffer) must be 80");
 	if (FAILED(hr = this->_d3dDevice->CreateBuffer(&constantBufferDesc, nullptr, &this->_gtaoConstantBuffer)))
 		return hr;
 

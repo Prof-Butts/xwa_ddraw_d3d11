@@ -23,6 +23,10 @@ cbuffer ConstantBuffer : register(b12)
 	float gtao_bounce_scale;    // Indirect light: the bounce light's resolution, 1 / scale
 	float gtao_thickness;       // Bitmask AO: assumed thickness of the occluders, in meters (pbr_gtao_thickness)
 	// 64 bytes
+	float2 gtao_blur_dir;       // Indirect light's wider filter: (1, 0) or (0, 1) (GIBlurCommon.h)
+	float gtao_blur_radius;     // Its radius, in pixels of its buffer (pbr_gi_blur_radius)
+	float gtao_unused3;
+	// 80 bytes
 };
 
 #endif

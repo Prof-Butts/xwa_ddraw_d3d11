@@ -3829,6 +3829,7 @@ static void RenderGTAO(DeviceResources* resources, int scale, float radius, floa
 	cb.height_bias    = g_fGTAOHeightBias;
 	cb.gi_thickness   = g_fPBRGIThickness;
 	cb.bounce_scale   = (float)GI_SCALE; // The bounce light's resolution (BounceLightPass())
+	cb.thickness      = g_fGTAOThickness;
 	resources->InitPSConstantBufferGTAO(&cb);
 
 	// GTAO
@@ -3843,6 +3844,8 @@ static void RenderGTAO(DeviceResources* resources, int scale, float radius, floa
 		context->PSSetShaderResources(0, gi ? 3 : 2, srvs);
 		if (gi)
 			resources->InitPixelShader(g_bUseSteamVR ? resources->_gtaoGIPS_VR : resources->_gtaoGIPS);
+		else if (g_bGTAOBitmaskAO)
+			resources->InitPixelShader(g_bUseSteamVR ? resources->_gtaoBitmaskPS_VR : resources->_gtaoBitmaskPS);
 		else
 			resources->InitPixelShader(g_bUseSteamVR ? resources->_gtaoPS_VR : resources->_gtaoPS);
 		if (g_bUseSteamVR)

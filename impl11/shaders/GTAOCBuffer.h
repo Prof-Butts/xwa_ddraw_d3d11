@@ -21,7 +21,7 @@ cbuffer ConstantBuffer : register(b12)
 	float gtao_height_bias;     // In 16-bit position steps: bumps this tall are ignored (pbr_gtao_height_bias)
 	float gtao_gi_thickness;    // Indirect light: assumed thickness of the surfaces, in meters (pbr_gi_thickness)
 	float gtao_bounce_scale;    // Indirect light: the bounce light's resolution, 1 / scale
-	float gtao_unused2;
+	float gtao_thickness;       // Bitmask AO: assumed thickness of the occluders, in meters (pbr_gtao_thickness)
 	// 64 bytes
 };
 

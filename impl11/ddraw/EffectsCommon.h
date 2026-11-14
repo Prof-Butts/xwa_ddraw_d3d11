@@ -452,7 +452,7 @@ typedef struct GTAOCBufferStruct {
 	float height_bias;           // In 16-bit position steps: bumps this tall are ignored
 	float gi_thickness;          // Indirect light: assumed thickness of the surfaces, in meters
 	float bounce_scale;          // Indirect light: the bounce light's resolution, 1 / scale
-	float unused2;
+	float thickness;             // Bitmask AO: assumed thickness of the occluders, in meters
 	// 64 bytes
 } GTAOCBuffer;
 

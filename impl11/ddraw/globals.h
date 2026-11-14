@@ -133,6 +133,10 @@ extern float g_fGTAOAngleBias, g_fGTAOCoarseAngleBias;
 extern float g_fGTAOHeightBias;
 // pbr_gtao_debug: shows the AO instead of the shading. 1 fine, 2 coarse, 3 both, 4 bent normal
 extern int g_iGTAODebug;
+// pbr_gtao_bitmask_ao, pbr_gtao_thickness: the AO from a visibility bitmask, with occluders
+// of this thickness (meters), so thin objects don't hide everything behind them
+extern bool g_bGTAOBitmaskAO;
+extern float g_fGTAOThickness;
 // pbr_gtao_multibounce_enabled, pbr_gtao_multibounce: multi-bounce AO and its strength
 extern bool g_bGTAOMultiBounce;
 extern float g_fGTAOMultiBounce;

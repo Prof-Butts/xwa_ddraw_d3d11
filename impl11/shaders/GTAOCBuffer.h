@@ -27,9 +27,9 @@ cbuffer ConstantBuffer : register(b12)
 	float gtao_blur_radius;     // Its radius, in pixels of its buffer (pbr_gi_blur_radius)
 	float gtao_gi_presence;     // Indirect light: 1 skips the pixels with no light nearby (the emitters' gather)
 	// 80 bytes
-	float gtao_gi_mips;         // Indirect light: 1 reads the distant samples from mips (the emitters' gather, pbr_gi_emitter_mips)
-	float gtao_gi_mip_offset;   // Samples closer than 2^offset pixels read the full resolution (pbr_gi_emitter_mip_offset)
-	float gtao_geom_level;      // Indirect light's filters: the level of the positions and normals with mips at their resolution
+	float gtao_mips;            // 1 reads the distant samples from the positions with mips (pbr_gtao_mips, pbr_gi_emitter_mips)
+	float gtao_mip_offset;      // Samples closer than 2^offset pixels (at half resolution) read the full resolution
+	float gtao_geom_level;      // Denoise and GI filters: the level of the positions with mips at their resolution; -1: none
 	float gtao_unused4;
 	// 96 bytes
 };

@@ -17,6 +17,9 @@
  * come from the positions and normals with mips (t1, GIGeomMipsCommon.h), at the level of
  * its resolution (gtao_geom_level): the same values as the position buffer's top-left pixels,
  * but contiguous. Shader model 5.0 (f16tof32).
+ *
+ * The AO's denoise does the same when gtao_geom_level >= 0 (pbr_gtao_mips, with the indirect
+ * light on: the mips only exist then), with t2; otherwise it reads the position buffer (t1).
  */
 #include "GTAOCBuffer.h"
 
@@ -38,15 +41,44 @@ Texture2D<uint4> texGeom  : register(t1);
 #define DENOISE_DEPTH(p) f16tof32(texGeom.Load(int3(p, (int)gtao_geom_level)).z)
 #endif
 #else
+#define GEOM_PACKING_SM4 1
+#include "GIGeomPacking.h"
 #ifdef INSTANCED_RENDERING
-Texture2DArray texGTAO : register(t0);
-Texture2DArray texPos  : register(t1);
-#define DENOISE_DEPTH(p) texPos.Load(int4((p) * scale, viewId, 0)).z
+Texture2DArray texGTAO        : register(t0);
+Texture2DArray texPos         : register(t1);
+Texture2DArray<uint4> texGeom : register(t2);
+#define DENOISE_DEPTH(p) DenoiseDepth(p, viewId, scale, geomLevel, useGeom)
 #else
-Texture2D texGTAO : register(t0);
-Texture2D texPos  : register(t1);
-#define DENOISE_DEPTH(p) texPos.Load(int3((p) * scale, 0)).z
+Texture2D texGTAO        : register(t0);
+Texture2D texPos         : register(t1);
+Texture2D<uint4> texGeom : register(t2);
+#define DENOISE_DEPTH(p) DenoiseDepth(p, 0, scale, geomLevel, useGeom)
 #endif
+
+// The depth of this pass's pixel p: from the positions with mips at geomLevel (useGeom), or
+// from the top-left pixel of its block in the position buffer. useGeom is a constant in
+// each copy of the filter (see main()), so there's no branch per tap.
+float DenoiseDepth(int2 p, uint viewId, int scale, int geomLevel, bool useGeom)
+{
+	float z;
+	if (useGeom)
+	{
+#ifdef INSTANCED_RENDERING
+		z = HalfToFloat(texGeom.Load(int4(p, viewId, geomLevel)).z);
+#else
+		z = HalfToFloat(texGeom.Load(int3(p, geomLevel)).z);
+#endif
+	}
+	else
+	{
+#ifdef INSTANCED_RENDERING
+		z = texPos.Load(int4(p * scale, viewId, 0)).z;
+#else
+		z = texPos.Load(int3(p * scale, 0)).z;
+#endif
+	}
+	return z;
+}
 #endif
 
 struct PixelShaderInput
@@ -58,12 +90,18 @@ struct PixelShaderInput
 #endif
 };
 
-float4 main(PixelShaderInput input) : SV_TARGET
+// The filter. useGeom: the depths come from the positions with mips (the AO's denoise only;
+// the indirect light's always reads them).
+float4 Denoise(PixelShaderInput input, bool useGeom)
 {
 	const int scale = (int)gtao_scale;
 	const int2 px = int2(input.pos.xy);
 	// The part of the GTAO buffer that's used (rounded up at half resolution)
 	const int2 maxPx = int2((uint2(gtao_buffer_size) + (uint)scale - 1) / (uint)scale) - 1;
+#ifndef GTAO_GI_DENOISE
+	// The depths from the positions with mips (gtao_geom_level >= 0) or the position buffer
+	const int geomLevel = (int)gtao_geom_level;
+#endif
 #ifdef INSTANCED_RENDERING
 	const uint viewId = input.viewId;
 	const float4 center = texGTAO.Load(int4(px, viewId, 0));
@@ -111,4 +149,20 @@ float4 main(PixelShaderInput input) : SV_TARGET
 	result.xyz = length(result.xyz) > 1e-4 ? normalize(result.xyz) : center.xyz;
 #endif
 	return result;
+}
+
+float4 main(PixelShaderInput input) : SV_TARGET
+{
+#ifdef GTAO_GI_DENOISE
+	return Denoise(input, true);
+#else
+	// One copy of the filter for each source of the depths, so the choice is made once
+	float4 result;
+	[branch]
+	if (gtao_geom_level >= 0.0)
+		result = Denoise(input, true);
+	else
+		result = Denoise(input, false);
+	return result;
+#endif
 }

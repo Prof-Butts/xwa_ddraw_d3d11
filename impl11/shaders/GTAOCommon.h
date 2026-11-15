@@ -65,8 +65,10 @@
  * XeGTAO reads its depth: the level grows with the distance (log2 of the distance in
  * half-resolution pixels, minus gtao_mip_offset), so the samples spread across the screen
  * stay in the texture cache. The closest samples still read the full-resolution buffers. The
- * emitters' gather also reads their light from its mips, so the distant light is averaged
- * instead of point-sampled. The mips only exist when the indirect light is on.
+ * emitters' gather also reads their light from its mips (gtao_light_mips), so the distant
+ * light is averaged instead of point-sampled; the bounced light (pbr_gi_mips) has no mips, so
+ * its gather reads the positions and normals from the mips, and the light at full detail.
+ * The mips only exist when the indirect light is on.
  *
  * GTAO_BITMASK_AO (GTAOBitmask.hlsl, pbr_gtao_bitmask_ao) computes the AO and the bent normal
  * with the same kind of visibility bitmask, instead of the two horizons: each sample hides
@@ -300,12 +302,12 @@ float3 GatherIndirect(float3 P, float3 S, int2 samplePx, int level, uint viewId,
 	const float3 sampleN = normalize(float3(sampleNormal.x, sampleNormal.y, -sampleNormal.z));
 	const float facing = smoothstep(-0.1, 0.1, dot(sampleN, -normalize(delta)));
 
-	// Its bounce light, from the bounce light's pixel that covers samplePx, at the mip level
-	// with the same texel size as the position's: the average light of the area the position
-	// stands for. The light's level 0 is at 1 / gtao_bounce_scale of the resolution, the
-	// positions' at 1 / GI_GEOM_SCALE.
+	// Its bounce light, from the bounce light's pixel that covers samplePx. When the light has
+	// mips (gtao_light_mips: the emitters'), at the level with the same texel size as the
+	// position's: the average light of the area the position stands for. The light's level 0
+	// is at 1 / gtao_bounce_scale of the resolution, the positions' at 1 / GI_GEOM_SCALE.
 	const int bounceShift = (int)round(log2(gtao_bounce_scale / GI_GEOM_SCALE));
-	const int lightLevel = max(level - bounceShift, 0);
+	const int lightLevel = gtao_light_mips > 0.5 ? max(level - bounceShift, 0) : 0;
 	const uint2 clampedPx = uint2(clamp(samplePx, int2(0, 0), int2(gtao_buffer_size) - 1));
 	const int2 bouncePx = int2((clampedPx / (uint)gtao_bounce_scale) >> (uint)lightLevel);
 #ifdef INSTANCED_RENDERING

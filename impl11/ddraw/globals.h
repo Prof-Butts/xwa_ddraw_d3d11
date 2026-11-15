@@ -168,6 +168,8 @@ extern bool g_bPBRGIEmitters;
 extern int g_iPBRGIEmitterScale, g_iPBRGIEmitterSlices, g_iPBRGIEmitterSteps, g_iPBRGIEmitterBlurRadius;
 extern bool g_bPBRGIEmitterMips;
 extern float g_fPBRGIEmitterMipOffset;
+extern bool g_bPBRGIMips;
+extern float g_fPBRGIMipOffset;
 extern float g_fPBRGIEmitterRadius, g_fPBRGIEmitterMaxRadius;
 extern int g_iPBRGISlices, g_iPBRGISteps;
 // pbr_cubemap_ambient, pbr_cubemap_specular: multiply the cubemap's ambient light and

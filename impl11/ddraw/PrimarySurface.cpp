@@ -3833,12 +3833,15 @@ static bool IsGTAOActive()
 // (sourceSRV, at 1 / sourceScale of the resolution), its output, and the output of its
 // filters (denoise, then the wider blur with blurRadius). With presence, the gather skips the
 // pixels with no light nearby, using the source's mips (the emitters' light has them). With
-// mips, it reads its distant samples from the source's mips and _giGeomMipsSRV (built by
-// BuildGIGeomMips()).
+// mips, it reads its distant samples' positions and normals from _giGeomMipsSRV (built by
+// BuildGIGeomMips()), samples closer than 2^mipOffset half-resolution pixels excepted; with
+// lightMips too, their light from the source's mips.
 struct GIGatherTargets
 {
 	bool presence;
 	bool mips;
+	bool lightMips;
+	float mipOffset;
 	ID3D11ShaderResourceView* sourceSRV;
 	float sourceScale;
 	ID3D11RenderTargetView* rtv;
@@ -3894,7 +3897,8 @@ static void RenderGTAO(DeviceResources* resources, int scale, float radius, floa
 	// already cache-friendly, and choosing the levels cost more than it saved (measured).
 	const bool mips  = gi != nullptr ? gi->mips : (IsGTAOMipsActive() && scale >= 4);
 	cb.mips           = mips ? 1.0f : 0.0f;
-	cb.mip_offset     = gi != nullptr ? g_fPBRGIEmitterMipOffset : g_fGTAOMipOffset;
+	cb.mip_offset     = gi != nullptr ? gi->mipOffset : g_fGTAOMipOffset;
+	cb.light_mips     = (gi != nullptr && gi->lightMips) ? 1.0f : 0.0f;
 	cb.geom_level     = (gi != nullptr || IsGTAOMipsActive()) ? (float)GetGIGeomLevel(scale) : -1.0f;
 	resources->InitPSConstantBufferGTAO(&cb);
 
@@ -4267,7 +4271,9 @@ void PrimarySurface::GTAOPass()
 		const float maxRadiusPx = g_fPBRGIMaxRadius * (float)resources->_backbufferHeight;
 		const GIGatherTargets bounce = {
 			false, // The bounced light is everywhere
-			false, // Its light is already at a quarter of the resolution
+			g_bPBRGIMips, // Its samples reach far: their positions from the mips (pbr_gi_mips)
+			false, // Its light has no mips: it's already at a quarter of the resolution
+			g_fPBRGIMipOffset,
 			resources->_bounceLightSRV.Get(), (float)GI_SCALE,
 			resources->_giRTV.Get(), resources->_giSRV.Get(),
 			resources->_giDenoisedRTV.Get(), resources->_giDenoisedSRV.Get(),
@@ -4286,6 +4292,8 @@ void PrimarySurface::GTAOPass()
 			const GIGatherTargets emitters = {
 				true, // Emitters cover little of the screen: skip the pixels far from them
 				IsGIEmitterMipsActive(),
+				true, // Their light has mips (for the test above)
+				g_fPBRGIEmitterMipOffset,
 				resources->_emittersSRV.Get(), (float)g_iPBRGIEmitterScale,
 				resources->_emitterGIRTV.Get(), resources->_emitterGISRV.Get(),
 				resources->_emitterGIDenoisedRTV.Get(), resources->_emitterGIDenoisedSRV.Get(),

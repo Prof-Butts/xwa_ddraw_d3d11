@@ -62,6 +62,10 @@ Texture2DArray texBounce : register(t9);
 Texture2DArray texGI : register(t10);
 // The same after the denoise filter (GIDenoise.hlsl)
 Texture2DArray texGIDenoised : register(t11);
+// The emitters' indirect light after its filters, and their light (GIEmitters.hlsl), at
+// 1 / gi_emitter_scale of the resolution, when gi_emitters
+Texture2DArray texEmitterGI : register(t12);
+Texture2DArray texEmitters : register(t13);
 
 // The Background buffer
 Texture2DArray texBackground : register(t2);
@@ -105,6 +109,10 @@ Texture2D texBounce : register(t9);
 Texture2D texGI : register(t10);
 // The same after the denoise filter (GIDenoise.hlsl)
 Texture2D texGIDenoised : register(t11);
+// The emitters' indirect light after its filters, and their light (GIEmitters.hlsl), at
+// 1 / gi_emitter_scale of the resolution, when gi_emitters
+Texture2D texEmitterGI : register(t12);
+Texture2D texEmitters : register(t13);
 
 // The Background buffer
 Texture2D texBackground : register(t2);
@@ -287,66 +295,76 @@ float4 LoadGTAO(GTAO_TEXTURE tex, int scale, int2 maxPx, int2 px, uint viewId, f
 #undef GTAO_DEPTH
 }
 
-// The indirect light (after the denoise filter) for a full-resolution pixel px at depth z,
-// upsampled from a quarter of the resolution like LoadGTAO(): the four nearest pixels are
+// An indirect light buffer (after its filters) for a full-resolution pixel px at depth z,
+// upsampled from 1 / scale of the resolution like LoadGTAO(): the four nearest pixels are
 // blended with bilinear weights, skipping the ones at a different depth and the ones the
 // gather skipped (a = 0), so the light doesn't bleed across the edges of objects. When none
 // of them is usable (along silhouettes), the one at the closest depth in the surrounding
 // 4x4, if it's on the same surface; otherwise no indirect light.
-float3 LoadIndirectLight(int2 px, uint viewId, float z)
+float3 LoadIndirectLight(GTAO_TEXTURE tex, int scale, int2 px, uint viewId, float z)
 {
 #ifdef INSTANCED_RENDERING
-#define GI_LOAD(p) texGIDenoised.Load(int4(p, viewId, 0))
+#define GI_LOAD(p) tex.Load(int4(p, viewId, 0))
 #define GI_DEPTH(p) texPos.Load(int4(p, viewId, 0)).z
 #else
-#define GI_LOAD(p) texGIDenoised.Load(int3(p, 0))
+#define GI_LOAD(p) tex.Load(int3(p, 0))
 #define GI_DEPTH(p) texPos.Load(int3(p, 0)).z
 #endif
-	const int scale = GI_SCALE;
-	const int2 maxPx = int2((uint2(GTAOBufferSize(texGIDenoised)) + (uint)scale - 1) / (uint)scale) - 1;
+	// The part of the buffer that's used: the buffers may be smaller than the screen
+	const int2 maxPx = int2((uint2(GTAOBufferSize(texPos)) + (uint)scale - 1) / (uint)scale) - 1;
 	const float2 pos = px / (float)scale;
 	const int2 base = int2(floor(pos));
 	const float2 f = pos - base;
 	const float tolerance = max(z * 0.05, 1e-3);
-	float3 sum = 0;
-	float weightSum = 0;
+	// No light in the four nearest pixels: nothing to upsample (most of the screen, for the
+	// emitters' light), so the depths aren't read
+	int2 h[4];
+	float4 values[4];
 	[unroll]
-	for (int y = 0; y < 2; y++)
+	for (int i = 0; i < 4; i++)
 	{
-		[unroll]
-		for (int x = 0; x < 2; x++)
-		{
-			const int2 h = min(base + int2(x, y), maxPx);
-			const float4 value = GI_LOAD(h);
-			float w = (x ? f.x : 1.0 - f.x) * (y ? f.y : 1.0 - f.y);
-			w *= saturate(1.0 - abs(GI_DEPTH(h * scale) - z) / tolerance);
-			w *= value.a > 0.5 ? 1.0 : 0.0;
-			sum += w * value.rgb;
-			weightSum += w;
-		}
+		h[i] = min(base + int2(i & 1, i >> 1), maxPx);
+		values[i] = GI_LOAD(h[i]);
 	}
+	const float3 maxLight = max(max(values[0].rgb, values[1].rgb), max(values[2].rgb, values[3].rgb));
 	float3 result = 0;
 	[branch]
-	if (weightSum > 1e-4)
+	if (max(maxLight.r, max(maxLight.g, maxLight.b)) > 0.0)
 	{
-		result = sum / weightSum;
-	}
-	else
-	{
-		float bestDiff = 4.0 * tolerance;
-		[loop]
-		for (int sy = -1; sy <= 2; sy++)
+		float3 sum = 0;
+		float weightSum = 0;
+		[unroll]
+		for (int j = 0; j < 4; j++)
 		{
+			const int x = j & 1, y = j >> 1;
+			float w = (x ? f.x : 1.0 - f.x) * (y ? f.y : 1.0 - f.y);
+			w *= saturate(1.0 - abs(GI_DEPTH(h[j] * scale) - z) / tolerance);
+			w *= values[j].a > 0.5 ? 1.0 : 0.0;
+			sum += w * values[j].rgb;
+			weightSum += w;
+		}
+		[branch]
+		if (weightSum > 1e-4)
+		{
+			result = sum / weightSum;
+		}
+		else
+		{
+			float bestDiff = 4.0 * tolerance;
 			[loop]
-			for (int sx = -1; sx <= 2; sx++)
+			for (int sy = -1; sy <= 2; sy++)
 			{
-				const int2 h = clamp(base + int2(sx, sy), 0, maxPx);
-				const float4 value = GI_LOAD(h);
-				const float diff = abs(GI_DEPTH(h * scale) - z);
-				if (value.a > 0.5 && diff < bestDiff)
+				[loop]
+				for (int sx = -1; sx <= 2; sx++)
 				{
-					bestDiff = diff;
-					result = value.rgb;
+					const int2 hs = clamp(base + int2(sx, sy), 0, maxPx);
+					const float4 value = GI_LOAD(hs);
+					const float diff = abs(GI_DEPTH(hs * scale) - z);
+					if (value.a > 0.5 && diff < bestDiff)
+					{
+						bestDiff = diff;
+						result = value.rgb;
+					}
 				}
 			}
 		}
@@ -780,7 +798,40 @@ float3 ComputeDynamicLights(float3 pos3D, float3 N, float lightOcclusion, float3
 	return laser_light_sum;
 }
 
-#ifdef GI_BOUNCE_LIGHT_PASS
+#if defined(GI_EMITTER_PASS)
+/*
+ * The emitter light pass (GIEmitters.hlsl, pbr_gi_emitters): the light of the true emitters
+ * (the pixels whose shadeless mask is near 1: illuminated texels such as cockpit lights and
+ * engine glows, displays), times pbr_gi_emitter_boost, at 1 / gi_emitter_scale of the
+ * resolution. Each pixel averages its whole block, so lights only a few pixels wide count
+ * with the right energy. The emitters' indirect light is gathered from it by its own pass,
+ * at the same resolution, which is higher than the bounce light's: the emitters are small
+ * and bright, so a quarter of the resolution made their light blocky and noisy.
+ */
+float4 main(PixelShaderInput input) : SV_TARGET0
+{
+	const int scale = (int)gi_emitter_scale;
+	const int2 blockPx = int2(floor(input.pos.xy)) * scale;
+	float3 emitted = 0.0;
+	[loop]
+	for (int by = 0; by < scale; by++)
+	{
+		[loop]
+		for (int bx = 0; bx < scale; bx++)
+		{
+#ifdef INSTANCED_RENDERING
+			const float3 blockColor = texColor.Load(int4(blockPx + int2(bx, by), input.viewId, 0)).rgb;
+			const float4 blockMask = texSSMask.Load(int4(blockPx + int2(bx, by), input.viewId, 0));
+#else
+			const float3 blockColor = texColor.Load(int3(blockPx + int2(bx, by), 0)).rgb;
+			const float4 blockMask = texSSMask.Load(int3(blockPx + int2(bx, by), 0));
+#endif
+			emitted += smoothstep(0.9, 1.0, blockMask.z) * saturate(blockMask.a) * SRGBToLinear(blockColor);
+		}
+	}
+	return float4(emitted * gi_emitter_boost / (scale * scale), 1.0);
+}
+#elif defined(GI_BOUNCE_LIGHT_PASS)
 /*
  * The bounce light pass (GIBounceLight.hlsl, pbr_gi_enabled): the diffuse light that each
  * surface sends back out, which the indirect light gathers (see c:\temp\ssilvb-plan.md).
@@ -799,6 +850,8 @@ float3 ComputeDynamicLights(float3 pos3D, float3 N, float lightOcclusion, float3
  *   They're averaged over the whole GI_SCALE x GI_SCALE block this pixel stands for, so a
  *   light only a few pixels wide counts with the right energy instead of being missed (or
  *   flickering). Partly shadeless surfaces ("soft shadeless" materials) aren't boosted.
+ *   With pbr_gi_emitters, the emitters have their own pass instead (GI_EMITTER_PASS, at a
+ *   higher resolution): here they're left out.
  * No ambient light: the sky's bounce is approximated by the multi-bounce AO, and it would
  * feed back into itself. The output is linear, before the exposure, like the lighting
  * pass. Alpha is the coverage: 0 on the background.
@@ -837,8 +890,9 @@ float4 main(PixelShaderInput input) : SV_TARGET0
 	// coverage (0 on the background).
 	float3 emitted = 0.0;
 	const int2 blockPx = int2(floor(input.pos.xy)) * GI_SCALE;
-	[unroll]
-	for (int by = 0; by < GI_SCALE; by++)
+	// (none when the emitters have their own pass)
+	[loop]
+	for (int by = 0; by < (gi_emitters > 0.5 ? 0 : GI_SCALE); by++)
 	{
 		[unroll]
 		for (int bx = 0; bx < GI_SCALE; bx++)
@@ -996,7 +1050,27 @@ PixelShaderOutput main(PixelShaderInput input)
 	// 2: the indirect light gathered by GTAOGI.hlsl, before the denoise: the light that each
 	//    surface receives from the others (at a quarter of the resolution);
 	// 3: the indirect light after the denoise filter, upsampled to full resolution, as the
-	//    shading uses it.
+	//    shading uses it;
+	// 5: the emitters' light (GIEmitters.hlsl, at 1 / gi_emitter_scale of the resolution);
+	// 6: the emitters' indirect light after its filters, upsampled.
+	// (4, the indirect light's contribution, is further below.)
+	[branch]
+	if (gi_enabled > 0.5 && gi_debug > 4.5)
+	{
+#ifdef INSTANCED_RENDERING
+		const uint emitViewId = input.viewId;
+		float3 emitDebug = texEmitters.Load(int4(int2(uint2(input.pos.xy) / (uint)gi_emitter_scale), emitViewId, 0)).rgb;
+#else
+		const uint emitViewId = 0;
+		float3 emitDebug = texEmitters.Load(int3(int2(uint2(input.pos.xy) / (uint)gi_emitter_scale), 0)).rgb;
+#endif
+		if (gi_debug > 5.5)
+			emitDebug = LoadIndirectLight(texEmitterGI, (int)gi_emitter_scale, int2(input.pos.xy), emitViewId, pos3D.z);
+		if (gi_emitters < 0.5)
+			emitDebug = 0;
+		output.color = float4(lerp(background, LinearToSRGB(ACESFitted(exposure_mult * emitDebug)), blendAlpha), 1);
+		return output;
+	}
 	[branch]
 	if (gi_enabled > 0.5 && gi_debug > 0.5 && gi_debug < 3.5)
 	{
@@ -1011,7 +1085,7 @@ PixelShaderOutput main(PixelShaderInput input)
 			texGI.Load(int3(giPx, 0)).rgb;
 #endif
 		if (gi_debug > 2.5)
-			debugLight = LoadIndirectLight(int2(input.pos.xy), giViewId, pos3D.z);
+			debugLight = LoadIndirectLight(texGIDenoised, GI_SCALE, int2(input.pos.xy), giViewId, pos3D.z);
 		output.color = float4(lerp(background, LinearToSRGB(ACESFitted(exposure_mult * debugLight)), blendAlpha), 1);
 		return output;
 	}
@@ -1222,15 +1296,20 @@ PixelShaderOutput main(PixelShaderInput input)
 #else
 		const uint giViewId = 0;
 #endif
-		indirectDiffuse = gi_intensity * LoadIndirectLight(int2(input.pos.xy), giViewId, P.z) *
-			albedo * (1.0 - metallicity);
+		// The light bounced by the surfaces, and the emitters' light (with its own buffer and
+		// gather, pbr_gi_emitters; pbr_gi_emitter_boost is its strength)
+		float3 indirect = gi_intensity * LoadIndirectLight(texGIDenoised, GI_SCALE, int2(input.pos.xy), giViewId, P.z);
+		[branch]
+		if (gi_emitters > 0.5)
+			indirect += LoadIndirectLight(texEmitterGI, (int)gi_emitter_scale, int2(input.pos.xy), giViewId, P.z);
+		indirectDiffuse = indirect * albedo * (1.0 - metallicity);
 	}
 	float3 tmp_color = ambientDiffuse + ambientSpecular + direct + indirectDiffuse;
 
 	// Debug view (pbr_gi_debug = 4): only the indirect light's contribution to the surface
 	// (pbr_gi_intensity, the albedo), exposed and tonemapped like the final colors
 	[branch]
-	if (gi_enabled > 0.5 && gi_debug > 3.5)
+	if (gi_enabled > 0.5 && gi_debug > 3.5 && gi_debug < 4.5)
 	{
 		output.color = float4(lerp(background, LinearToSRGB(ACESFitted(exposure_mult * indirectDiffuse)), blendAlpha), 1);
 		output.bloom = 0;

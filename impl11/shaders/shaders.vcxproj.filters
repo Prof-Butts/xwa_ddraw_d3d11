@@ -107,6 +107,8 @@
     <FxCompile Include="GTAOBitmaskVR.hlsl" />
     <FxCompile Include="GTAOGI.hlsl" />
     <FxCompile Include="GTAOGIVR.hlsl" />
+    <FxCompile Include="GIGeomMips.hlsl" />
+    <FxCompile Include="GIGeomMipsVR.hlsl" />
     <FxCompile Include="GTAODenoise.hlsl" />
     <FxCompile Include="GTAODenoiseVR.hlsl" />
     <FxCompile Include="GIDenoise.hlsl" />
@@ -116,6 +118,8 @@
     <FxCompile Include="CubeMapPrefilterCS.hlsl" />
     <FxCompile Include="PBRAddV2.hlsl" />
     <FxCompile Include="GIBounceLight.hlsl" />
+    <FxCompile Include="GIEmitters.hlsl" />
+    <FxCompile Include="GIEmittersVR.hlsl" />
     <FxCompile Include="GIBounceLightVR.hlsl" />
     <FxCompile Include="PBRAddV2VR.hlsl" />
     <FxCompile Include="RT\RTShadowMaskPS_VR.hlsl" />

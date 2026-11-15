@@ -248,6 +248,11 @@ float g_fPBRGIRadius = 10.0f, g_fPBRGIMaxRadius = 0.25f;
 float g_fPBRGIIntensity = 1.0f;
 float g_fPBRGIEmitterBoost = 4.0f;
 int g_iPBRGIBlurRadius = 4;
+bool g_bPBRGIEmitters = true;
+int g_iPBRGIEmitterScale = 2, g_iPBRGIEmitterSlices = 2, g_iPBRGIEmitterSteps = 6, g_iPBRGIEmitterBlurRadius = 4;
+bool g_bPBRGIEmitterMips = true;
+float g_fPBRGIEmitterMipOffset = 3.3f;
+float g_fPBRGIEmitterRadius = 5.0f, g_fPBRGIEmitterMaxRadius = 0.15f;
 int g_iPBRGISlices = 3, g_iPBRGISteps = 8;
 // The cubemap's ambient light and reflections in the new PBR shading
 float g_fPBRCubeMapAmbient = 1.0f, g_fPBRCubeMapSpecular = 1.0f;
@@ -2367,6 +2372,15 @@ bool LoadSSAOParams() {
 	g_fPBRGIIntensity = 1.0f;
 	g_fPBRGIEmitterBoost = 4.0f;
 	g_iPBRGIBlurRadius = 4;
+	g_bPBRGIEmitters = true;
+	g_iPBRGIEmitterScale = 2;
+	g_iPBRGIEmitterSlices = 2;
+	g_iPBRGIEmitterSteps = 6;
+	g_iPBRGIEmitterBlurRadius = 4;
+	g_bPBRGIEmitterMips = true;
+	g_fPBRGIEmitterMipOffset = 3.3f;
+	g_fPBRGIEmitterRadius = 5.0f;
+	g_fPBRGIEmitterMaxRadius = 0.15f;
 	g_iPBRGISlices = 3;
 	g_iPBRGISteps = 8;
 	g_fPBRCubeMapAmbient = 1.0f;
@@ -2634,6 +2648,34 @@ bool LoadSSAOParams() {
 			}
 			else if (_stricmp(param, "pbr_gi_blur_radius") == 0) {
 				g_iPBRGIBlurRadius = max(0, min(16, (int)fValue));
+			}
+			else if (_stricmp(param, "pbr_gi_emitters") == 0) {
+				g_bPBRGIEmitters = (bool)fValue;
+			}
+			else if (_stricmp(param, "pbr_gi_emitter_scale") == 0) {
+				// 2 (half resolution) or 4 (quarter): the buffers are half the size of the screen
+				g_iPBRGIEmitterScale = ((int)fValue >= 4) ? 4 : 2;
+			}
+			else if (_stricmp(param, "pbr_gi_emitter_radius") == 0) {
+				g_fPBRGIEmitterRadius = max(0.01f, fValue);
+			}
+			else if (_stricmp(param, "pbr_gi_emitter_max_radius") == 0) {
+				g_fPBRGIEmitterMaxRadius = max(0.01f, min(1.0f, fValue));
+			}
+			else if (_stricmp(param, "pbr_gi_emitter_slices") == 0) {
+				g_iPBRGIEmitterSlices = max(1, min(8, (int)fValue));
+			}
+			else if (_stricmp(param, "pbr_gi_emitter_steps") == 0) {
+				g_iPBRGIEmitterSteps = max(1, min(32, (int)fValue));
+			}
+			else if (_stricmp(param, "pbr_gi_emitter_blur_radius") == 0) {
+				g_iPBRGIEmitterBlurRadius = max(0, min(16, (int)fValue));
+			}
+			else if (_stricmp(param, "pbr_gi_emitter_mips") == 0) {
+				g_bPBRGIEmitterMips = (bool)fValue;
+			}
+			else if (_stricmp(param, "pbr_gi_emitter_mip_offset") == 0) {
+				g_fPBRGIEmitterMipOffset = max(0.0f, min(8.0f, fValue));
 			}
 			else if (_stricmp(param, "pbr_gi_radius") == 0) {
 				g_fPBRGIRadius = max(0.01f, fValue);

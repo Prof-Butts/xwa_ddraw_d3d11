@@ -2988,13 +2988,18 @@ void SetLights(DeviceResources *resources, float fSSDOEnabled) {
 	g_ShadingSys_PSBuffer.gtao_light_occlusion = g_fGTAOLightOcclusion;
 	g_ShadingSys_PSBuffer.gtao_cone_spec_occlusion = g_bGTAOConeSpecOcclusion ? 1.0f : 0.0f;
 	// The indirect light needs GTAO: DeferredPass() runs BounceLightPass() when this is set
-	// It also needs the shader model 5.0 GTAO shader (feature level 11). Only the VR or the
-	// non-VR shaders are created, so it checks the one that GTAOPass() will use.
+	// It also needs the shader model 5.0 shaders (feature level 11): the gather, and the
+	// positions and normals with mips. Only the VR or the non-VR shaders are created, so it
+	// checks the ones that GTAOPass() will use.
 	g_ShadingSys_PSBuffer.gi_enabled = (g_ShadingSys_PSBuffer.gtao_enabled > 0.5f && g_bPBRGIEnabled &&
-		(g_bUseSteamVR ? resources->_gtaoGIPS_VR : resources->_gtaoGIPS) != nullptr) ? 1.0f : 0.0f;
+		(g_bUseSteamVR ? resources->_gtaoGIPS_VR : resources->_gtaoGIPS) != nullptr &&
+		(g_bUseSteamVR ? resources->_giGeomMipsPS_VR : resources->_giGeomMipsPS) != nullptr &&
+		resources->_giGeomMipsSRV.Get() != nullptr) ? 1.0f : 0.0f;
 	g_ShadingSys_PSBuffer.gi_debug = (float)g_iPBRGIDebug;
 	g_ShadingSys_PSBuffer.gi_intensity = g_fPBRGIIntensity;
 	g_ShadingSys_PSBuffer.gi_emitter_boost = g_fPBRGIEmitterBoost;
+	g_ShadingSys_PSBuffer.gi_emitters = g_bPBRGIEmitters ? 1.0f : 0.0f;
+	g_ShadingSys_PSBuffer.gi_emitter_scale = (float)g_iPBRGIEmitterScale;
 	// The cubemap's ambient light and reflections (only the new PBR shading reads them)
 	g_ShadingSys_PSBuffer.env_ambient_mult = g_fPBRCubeMapAmbient;
 	g_ShadingSys_PSBuffer.env_specular_mult = g_fPBRCubeMapSpecular;
@@ -3787,6 +3792,29 @@ enum GTAOTimerSection
 // of the resolution. Keep in sync with GI_SCALE in PBRAddV2Common.h.
 static const int GI_SCALE = 4;
 
+// The resolution of level 0 of the positions and normals with mips (_giGeomMipsBuf,
+// BuildGIGeomMips()), 1 / scale: the emitters' resolution, or the bounced light's without
+// them. The indirect light's passes are all at this resolution or lower.
+static int GetGIGeomBaseScale()
+{
+	return g_ShadingSys_PSBuffer.gi_emitters > 0.5f ? g_iPBRGIEmitterScale : GI_SCALE;
+}
+
+// The level of _giGeomMipsBuf at 1 / scale of the resolution
+static int GetGIGeomLevel(int scale)
+{
+	int level = 0;
+	while ((GetGIGeomBaseScale() << level) < scale)
+		level++;
+	return level;
+}
+
+// True when the emitters' gather reads its distant samples from mips (pbr_gi_emitter_mips)
+static bool IsGIEmitterMipsActive()
+{
+	return g_bPBRGIEmitterMips;
+}
+
 // True when the new PBR shading uses GTAO this frame. Call it after SetLights(), which
 // decides whether the headlights are on.
 static bool IsGTAOActive()
@@ -3794,16 +3822,35 @@ static bool IsGTAOActive()
 	return g_bAOEnabled && g_bGTAOEnabled && IsPBRShadingV2Active();
 }
 
+// The buffers of one indirect light gather (RenderGTAO()): the light it gathers from
+// (sourceSRV, at 1 / sourceScale of the resolution), its output, and the output of its
+// filters (denoise, then the wider blur with blurRadius). With presence, the gather skips the
+// pixels with no light nearby, using the source's mips (the emitters' light has them). With
+// mips, it reads its distant samples from the source's mips and _giGeomMipsSRV (built by
+// BuildGIGeomMips()).
+struct GIGatherTargets
+{
+	bool presence;
+	bool mips;
+	ID3D11ShaderResourceView* sourceSRV;
+	float sourceScale;
+	ID3D11RenderTargetView* rtv;
+	ID3D11ShaderResourceView* srv;
+	ID3D11RenderTargetView* denoisedRTV;
+	ID3D11ShaderResourceView* denoisedSRV;
+	int blurRadius;
+};
+
 // Renders one GTAO pass and its denoise filter. The GTAO pass writes to _gtaoBuf, and the
 // denoise filter reads it and writes to outputRTV. scale is the fraction of the resolution
 // (1, 2 or 4): both passes render to the top-left 1 / scale of their buffers. The denoise
 // filter's GPU time goes to denoiseSection (-1: the current section). With gi, the GTAO pass
-// also gathers the indirect light from the bounce light (GTAOGI.hlsl) into _giBuf, and a
-// denoise filter for it (GIDenoise.hlsl) writes to _giDenoisedBuf. Without an outputRTV,
-// there's no denoise filter for the AO (the indirect light's pass doesn't use its AO).
+// also gathers the indirect light from gi->sourceSRV (GTAOGI.hlsl) into gi->rtv, and its
+// filters (GIDenoise.hlsl, GIBlur.hlsl) write to gi->denoisedRTV. Without an outputRTV,
+// there's no denoise filter for the AO (the indirect light's passes don't use their AO).
 static void RenderGTAO(DeviceResources* resources, int scale, float radius, float intensity,
 	float minRadiusPx, float maxRadiusPx, int slices, int steps, float angleBiasDeg,
-	ID3D11RenderTargetView* outputRTV, int denoiseSection, bool gi)
+	ID3D11RenderTargetView* outputRTV, int denoiseSection, const GIGatherTargets* gi)
 {
 	auto& context = resources->_d3dDeviceContext;
 
@@ -3829,21 +3876,28 @@ static void RenderGTAO(DeviceResources* resources, int scale, float radius, floa
 	cb.angle_bias     = angleBiasDeg * DEG2RAD;
 	cb.height_bias    = g_fGTAOHeightBias;
 	cb.gi_thickness   = g_fPBRGIThickness;
-	cb.bounce_scale   = (float)GI_SCALE; // The bounce light's resolution (BounceLightPass())
+	cb.bounce_scale   = gi != nullptr ? gi->sourceScale : (float)GI_SCALE;
 	cb.thickness      = g_fGTAOThickness;
-	cb.blur_radius    = (float)g_iPBRGIBlurRadius;
+	cb.blur_radius    = gi != nullptr ? (float)gi->blurRadius : 0.0f;
+	cb.gi_presence    = (gi != nullptr && gi->presence) ? 1.0f : 0.0f;
+	cb.gi_mips        = (gi != nullptr && gi->mips) ? 1.0f : 0.0f;
+	cb.gi_mip_offset  = g_fPBRGIEmitterMipOffset;
+	cb.geom_level     = gi != nullptr ? (float)GetGIGeomLevel(scale) : 0.0f;
 	resources->InitPSConstantBufferGTAO(&cb);
 
 	// GTAO
 	{
-		ID3D11RenderTargetView* rtvs[2] = { resources->_gtaoRTV.Get(), resources->_giRTV.Get() };
-		context->OMSetRenderTargets(gi ? 2 : 1, rtvs, NULL);
-		ID3D11ShaderResourceView* srvs[3] = {
-			resources->_depthBufSRV.Get(),    // 0: Position buffer
-			resources->_normBufSRV.Get(),     // 1: Normals buffer
-			resources->_bounceLightSRV.Get(), // 2: Bounce light (indirect light)
+		// The indirect light's gather (GTAOGI.hlsl) only outputs the indirect light
+		ID3D11RenderTargetView* rtvs[1] = { gi != nullptr ? gi->rtv : resources->_gtaoRTV.Get() };
+		context->OMSetRenderTargets(1, rtvs, NULL);
+		ID3D11ShaderResourceView* srvs[4] = {
+			resources->_depthBufSRV.Get(),          // 0: Position buffer
+			resources->_normBufSRV.Get(),           // 1: Normals buffer
+			gi != nullptr ? gi->sourceSRV : NULL,   // 2: The light to gather (indirect light)
+			(gi != nullptr && gi->mips) ?           // 3: The positions and normals with mips
+				resources->_giGeomMipsSRV.Get() : NULL,
 		};
-		context->PSSetShaderResources(0, gi ? 3 : 2, srvs);
+		context->PSSetShaderResources(0, gi ? 4 : 2, srvs);
 		if (gi)
 			resources->InitPixelShader(g_bUseSteamVR ? resources->_gtaoGIPS_VR : resources->_gtaoGIPS);
 		else if (g_bGTAOBitmaskAO)
@@ -3878,11 +3932,11 @@ static void RenderGTAO(DeviceResources* resources, int scale, float radius, floa
 	if (gi)
 	{
 		g_GTAOGPUTimer.Mark(context, GTAO_TIMER_GI_DENOISE);
-		ID3D11RenderTargetView* rtvs[1] = { resources->_giDenoisedRTV.Get() };
+		ID3D11RenderTargetView* rtvs[1] = { gi->denoisedRTV };
 		context->OMSetRenderTargets(1, rtvs, NULL);
 		ID3D11ShaderResourceView* srvs[3] = {
-			resources->_giSRV.Get(),       // 0: Indirect light
-			resources->_depthBufSRV.Get(), // 1: Position buffer
+			gi->srv,                         // 0: Indirect light
+			resources->_giGeomMipsSRV.Get(), // 1: Positions and normals with mips
 			NULL,
 		};
 		context->PSSetShaderResources(0, 3, srvs);
@@ -3893,9 +3947,9 @@ static void RenderGTAO(DeviceResources* resources, int scale, float radius, floa
 			context->Draw(6, 0);
 
 		// The wider filter (GIBlurCommon.h): a separable Gaussian, horizontal into _gtaoBuf
-		// (nothing reads it after the GTAO passes), then vertical back into _giDenoisedBuf.
+		// (nothing reads it after the GTAO passes), then vertical back into gi->denoisedRTV.
 		// Its GPU time is in the same section as the denoise filter.
-		if (g_iPBRGIBlurRadius > 0)
+		if (gi->blurRadius > 0)
 		{
 			resources->InitPixelShader(g_bUseSteamVR ? resources->_giBlurPS_VR : resources->_giBlurPS);
 			for (int pass = 0; pass < 2; pass++)
@@ -3904,15 +3958,15 @@ static void RenderGTAO(DeviceResources* resources, int scale, float radius, floa
 				cb.blur_dir[1] = pass == 0 ? 0.0f : 1.0f;
 				resources->InitPSConstantBufferGTAO(&cb);
 				ID3D11RenderTargetView* blurRTVs[1] = {
-					pass == 0 ? resources->_gtaoRTV.Get() : resources->_giDenoisedRTV.Get() };
+					pass == 0 ? resources->_gtaoRTV.Get() : gi->denoisedRTV };
 				// Unbind the inputs first, so the previous pass's output can be bound as a target
 				ID3D11ShaderResourceView* nullBlurSRVs[3] = { NULL, NULL, NULL };
 				context->PSSetShaderResources(0, 3, nullBlurSRVs);
 				context->OMSetRenderTargets(1, blurRTVs, NULL);
 				ID3D11ShaderResourceView* blurSRVs[3] = {
-					pass == 0 ? resources->_giDenoisedSRV.Get() : resources->_gtaoSRV.Get(), // 0: Indirect light
-					resources->_depthBufSRV.Get(),                                             // 1: Position buffer
-					resources->_normBufSRV.Get(),                                              // 2: Normals buffer
+					pass == 0 ? gi->denoisedSRV : resources->_gtaoSRV.Get(),                  // 0: Indirect light
+					resources->_giGeomMipsSRV.Get(),                                           // 1: Positions and normals with mips
+					NULL,
 				};
 				context->PSSetShaderResources(0, 3, blurSRVs);
 				if (g_bUseSteamVR)
@@ -3923,6 +3977,59 @@ static void RenderGTAO(DeviceResources* resources, int scale, float radius, floa
 		}
 	}
 
+	ID3D11ShaderResourceView* nullSRVs[4] = { NULL, NULL, NULL, NULL };
+	context->PSSetShaderResources(0, 4, nullSRVs);
+}
+
+// The positions and normals of the indirect light's passes, with mips (GIGeomMipsCommon.h):
+// the GI filters read them at their resolution, and the emitters' gather reads its distant
+// samples from them (pbr_gi_emitter_mips). Level 0 is at 1 / scale of the resolution, from
+// the full-resolution buffers; each other level is from the one above. The caller sets the
+// vertex shader, the vertex buffer and the states, like for the other full-screen passes.
+static void BuildGIGeomMips(DeviceResources* resources, int scale)
+{
+	auto& context = resources->_d3dDeviceContext;
+	resources->InitPixelShader(g_bUseSteamVR ? resources->_giGeomMipsPS_VR : resources->_giGeomMipsPS);
+
+	int inputW = resources->_backbufferWidth, inputH = resources->_backbufferHeight;
+	int outputW = (inputW + scale - 1) / scale, outputH = (inputH + scale - 1) / scale;
+	for (int level = 0; level < DeviceResources::GI_GEOM_MIP_LEVELS; level++)
+	{
+		GTAOCBuffer cb = {};
+		cb.buffer_size[0] = (float)inputW; // The input's size
+		cb.buffer_size[1] = (float)inputH;
+		cb.scale = level == 0 ? (float)scale : 1.0f; // 1: from the level above, in 2x2 blocks
+		resources->InitPSConstantBufferGTAO(&cb);
+
+		D3D11_VIEWPORT viewport{};
+		viewport.Width    = (float)outputW;
+		viewport.Height   = (float)outputH;
+		viewport.MaxDepth = D3D11_MAX_DEPTH;
+		viewport.MinDepth = D3D11_MIN_DEPTH;
+		resources->InitViewport(&viewport);
+
+		// Unbind the level above first: it was the previous level's target
+		ID3D11ShaderResourceView* nullSRVs[3] = { NULL, NULL, NULL };
+		context->PSSetShaderResources(0, 3, nullSRVs);
+		ID3D11RenderTargetView* rtvs[1] = { resources->_giGeomMipRTVs[level].Get() };
+		context->OMSetRenderTargets(1, rtvs, NULL);
+		ID3D11ShaderResourceView* srvs[3] = {
+			resources->_depthBufSRV.Get(),                                          // 0: Position buffer
+			resources->_normBufSRV.Get(),                                           // 1: Normals buffer
+			level > 0 ? resources->_giGeomMipSRVs[level - 1].Get() : NULL,          // 2: The level above
+		};
+		context->PSSetShaderResources(0, 3, srvs);
+		if (g_bUseSteamVR)
+			context->DrawInstanced(6, 2, 0, 0);
+		else
+			context->Draw(6, 0);
+
+		inputW = outputW;
+		inputH = outputH;
+		outputW = max(1, (outputW + 1) / 2);
+		outputH = max(1, (outputH + 1) / 2);
+	}
+	context->OMSetRenderTargets(0, nullptr, nullptr);
 	ID3D11ShaderResourceView* nullSRVs[3] = { NULL, NULL, NULL };
 	context->PSSetShaderResources(0, 3, nullSRVs);
 }
@@ -4037,6 +4144,33 @@ void PrimarySurface::BounceLightPass()
 	else
 		context->Draw(6, 0);
 
+	// The emitters' light (pbr_gi_emitters, GIEmitters.hlsl), at 1 / pbr_gi_emitter_scale of the
+	// resolution, into _emittersBuf. It reads the same color and shading-system buffers.
+	if (g_ShadingSys_PSBuffer.gi_emitters > 0.5f)
+	{
+		const int emitterScale = g_iPBRGIEmitterScale;
+		viewport.Width  = (float)((resources->_backbufferWidth + emitterScale - 1) / emitterScale);
+		viewport.Height = (float)((resources->_backbufferHeight + emitterScale - 1) / emitterScale);
+		resources->InitViewport(&viewport);
+		ID3D11RenderTargetView* emitterRTVs[1] = { resources->_emittersRTV.Get() };
+		// Cleared, so the part outside the viewport (at a quarter of the resolution) doesn't
+		// leave old light in the mips
+		const float black[4] = { 0, 0, 0, 0 };
+		context->ClearRenderTargetView(resources->_emittersRTV, black);
+		context->OMSetRenderTargets(1, emitterRTVs, NULL);
+		resources->InitPixelShader(g_bUseSteamVR ? resources->_giEmittersPS_VR : resources->_giEmittersPS);
+		if (g_bUseSteamVR)
+			context->DrawInstanced(6, 2, 0, 0);
+		else
+			context->Draw(6, 0);
+		// Its mips, for the emitter gather's test (GTAOCommon.h)
+		context->OMSetRenderTargets(0, nullptr, nullptr);
+		context->GenerateMips(resources->_emittersSRV);
+	}
+
+	// The positions and normals with mips, for the GI filters and the emitters' gather
+	BuildGIGeomMips(resources, GetGIGeomBaseScale());
+
 	ID3D11ShaderResourceView* nullSRVs[8] = {};
 	context->PSSetShaderResources(0, 8, nullSRVs);
 	context->OMSetBlendState(prevBlendState.Get(), prevBlendFactor, prevSampleMask);
@@ -4094,7 +4228,7 @@ void PrimarySurface::GTAOPass()
 	g_GTAOGPUTimer.Mark(context, GTAO_TIMER_GTAO);
 	RenderGTAO(resources, g_bGTAOHalfRes ? 2 : 1, g_fGTAORadius, g_fGTAOIntensity,
 		g_fGTAOMinRadiusPx, g_fGTAOMaxRadiusPx, g_iGTAOSlices, g_iGTAOSteps, g_fGTAOAngleBias,
-		resources->_gtaoDenoisedRTV.Get(), GTAO_TIMER_DENOISE, false);
+		resources->_gtaoDenoisedRTV.Get(), GTAO_TIMER_DENOISE, nullptr);
 
 	// Coarse GTAO, at quarter resolution with a larger radius, for the broad occlusion of
 	// large structures. It reuses _gtaoBuf, which the fine pass doesn't need anymore. It has
@@ -4104,7 +4238,7 @@ void PrimarySurface::GTAOPass()
 		g_GTAOGPUTimer.Mark(context, GTAO_TIMER_COARSE);
 		RenderGTAO(resources, 4, g_fGTAOCoarseRadius, g_fGTAOCoarseIntensity,
 			g_fGTAOCoarseMinRadiusPx, g_fGTAOCoarseMaxRadiusPx, g_iGTAOCoarseSlices, g_iGTAOCoarseSteps,
-			g_fGTAOCoarseAngleBias, resources->_gtaoCoarseRTV.Get(), -1, false);
+			g_fGTAOCoarseAngleBias, resources->_gtaoCoarseRTV.Get(), -1, nullptr);
 	}
 
 	// The indirect light: it gathers the bounce light (BounceLightPass()) into _giBuf, at a
@@ -4116,8 +4250,35 @@ void PrimarySurface::GTAOPass()
 	{
 		g_GTAOGPUTimer.Mark(context, GTAO_TIMER_GATHER);
 		const float maxRadiusPx = g_fPBRGIMaxRadius * (float)resources->_backbufferHeight;
+		const GIGatherTargets bounce = {
+			false, // The bounced light is everywhere
+			false, // Its light is already at a quarter of the resolution
+			resources->_bounceLightSRV.Get(), (float)GI_SCALE,
+			resources->_giRTV.Get(), resources->_giSRV.Get(),
+			resources->_giDenoisedRTV.Get(), resources->_giDenoisedSRV.Get(),
+			g_iPBRGIBlurRadius,
+		};
 		RenderGTAO(resources, GI_SCALE, g_fPBRGIRadius, 1.0f, 16.0f, maxRadiusPx, g_iPBRGISlices, g_iPBRGISteps,
-			g_fGTAOAngleBias, nullptr, -1, true);
+			g_fGTAOAngleBias, nullptr, -1, &bounce);
+
+		// The emitters' indirect light (pbr_gi_emitters): the same, at a higher resolution, from
+		// their own light (EmitterLightPass()), with their own radius, samples and filter. Its
+		// GPU time goes to the same sections as the bounce light's gather and filters.
+		if (g_ShadingSys_PSBuffer.gi_emitters > 0.5f)
+		{
+			g_GTAOGPUTimer.Mark(context, GTAO_TIMER_GATHER);
+			const float emitterMaxRadiusPx = g_fPBRGIEmitterMaxRadius * (float)resources->_backbufferHeight;
+			const GIGatherTargets emitters = {
+				true, // Emitters cover little of the screen: skip the pixels far from them
+				IsGIEmitterMipsActive(),
+				resources->_emittersSRV.Get(), (float)g_iPBRGIEmitterScale,
+				resources->_emitterGIRTV.Get(), resources->_emitterGISRV.Get(),
+				resources->_emitterGIDenoisedRTV.Get(), resources->_emitterGIDenoisedSRV.Get(),
+				g_iPBRGIEmitterBlurRadius,
+			};
+			RenderGTAO(resources, g_iPBRGIEmitterScale, g_fPBRGIEmitterRadius, 1.0f, 8.0f, emitterMaxRadiusPx,
+				g_iPBRGIEmitterSlices, g_iPBRGIEmitterSteps, g_fGTAOAngleBias, nullptr, -1, &emitters);
+		}
 	}
 
 	context->OMSetBlendState(prevBlendState.Get(), prevBlendFactor, prevSampleMask);
@@ -4342,15 +4503,19 @@ void PrimarySurface::DeferredPass()
 				resources->_shadowMapArraySRV.Get() : NULL,
 		};
 		context->PSSetShaderResources(0, 8, srvs_pass);
-		// Coarse GTAO (t8), and the indirect light's bounce light (t9), gathered light (t10)
-		// and gathered light after the denoise filter (t11)
-		ID3D11ShaderResourceView* coarseSRVs[4] = {
+		// Coarse GTAO (t8), and the indirect light's bounce light (t9), gathered light (t10),
+		// gathered light after its filters (t11), and the emitters' gathered light after its
+		// filters (t12) and their light (t13)
+		const bool bEmitters = bGI && g_ShadingSys_PSBuffer.gi_emitters > 0.5f;
+		ID3D11ShaderResourceView* coarseSRVs[6] = {
 			(bGTAO && g_bGTAOCoarse) ? resources->_gtaoCoarseSRV.Get() : NULL,
 			bGI ? resources->_bounceLightSRV.Get() : NULL,
 			bGI ? resources->_giSRV.Get() : NULL,
 			bGI ? resources->_giDenoisedSRV.Get() : NULL,
+			bEmitters ? resources->_emitterGIDenoisedSRV.Get() : NULL,
+			bEmitters ? resources->_emittersSRV.Get() : NULL,
 		};
-		context->PSSetShaderResources(8, 4, coarseSRVs);
+		context->PSSetShaderResources(8, 6, coarseSRVs);
 
 		if (g_bRTEnabled)
 		{
@@ -4385,6 +4550,7 @@ void PrimarySurface::DeferredPass()
 	// Unbind the GTAO buffers and the indirect light's too: the next frame renders to them
 	context->PSSetShaderResources(1, 1, srvs);
 	context->PSSetShaderResources(8, 4, srvs);
+	context->PSSetShaderResources(12, 2, srvs);
 
 	if (bGPUTimer)
 	{

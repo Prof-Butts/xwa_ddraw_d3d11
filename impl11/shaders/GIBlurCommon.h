@@ -7,25 +7,24 @@
  * Neighbors at a different depth (another object) or facing another way (across a crease)
  * get less weight, so the light doesn't spread to them. Licensed under the MIT license.
  *
- * Input: t0 = the indirect light (rgb, a = 1; a = 0: skipped), t1 = position buffer,
- * t2 = normal buffer (both at full resolution). Output: the same as t0.
+ * Input: t0 = the indirect light (rgb, a = 1; a = 0: skipped), t1 = the positions and
+ * normals with mips (GIGeomMipsCommon.h), read at the level of this filter's resolution
+ * (gtao_geom_level): the full-resolution buffers' top-left pixels, packed and contiguous.
+ * Output: the same as t0. Shader model 5.0 (f16tof32).
  */
 #include "GTAOCBuffer.h"
+#include "GIGeomPacking.h"
 
 #ifdef INSTANCED_RENDERING
-Texture2DArray texGI     : register(t0);
-Texture2DArray texPos    : register(t1);
-Texture2DArray texNormal : register(t2);
+Texture2DArray texGI          : register(t0);
+Texture2DArray<uint4> texGeom : register(t1);
 #define GI_LOAD(p) texGI.Load(int4(p, viewId, 0))
-#define GI_POS(p) texPos.Load(int4(p, viewId, 0)).xyz
-#define GI_NORMAL(p) texNormal.Load(int4(p, viewId, 0)).xyz
+#define GI_GEOM(p) texGeom.Load(int4(p, viewId, (int)gtao_geom_level))
 #else
-Texture2D texGI     : register(t0);
-Texture2D texPos    : register(t1);
-Texture2D texNormal : register(t2);
+Texture2D texGI          : register(t0);
+Texture2D<uint4> texGeom : register(t1);
 #define GI_LOAD(p) texGI.Load(int3(p, 0))
-#define GI_POS(p) texPos.Load(int3(p, 0)).xyz
-#define GI_NORMAL(p) texNormal.Load(int3(p, 0)).xyz
+#define GI_GEOM(p) texGeom.Load(int3(p, (int)gtao_geom_level))
 #endif
 
 struct PixelShaderInput
@@ -48,11 +47,14 @@ float4 main(PixelShaderInput input) : SV_TARGET
 	const int2 px = int2(input.pos.xy);
 	const int2 maxPx = int2((uint2(gtao_buffer_size) + (uint)scale - 1) / (uint)scale) - 1;
 	const float4 center = GI_LOAD(px);
-	if (center.a < 0.5)
+	// The pixels the gather skipped (a = 0) or that have no light nearby (a = GI_EMPTY, see
+	// GTAOCommon.h) are left as they are
+	if (center.a < 0.9)
 		return center;
 
-	const float z = GI_POS(px * scale).z;
-	const float3 n = normalize(GI_NORMAL(px * scale));
+	const uint4 g = GI_GEOM(px);
+	const float z = f16tof32(g.z);
+	const float3 n = UnpackGeomNormal(g);
 	const float tolerance = max(z * gtao_denoise_depth, 1e-3);
 	const int radius = (int)gtao_blur_radius;
 	const float invTwoSigma2 = 1.0 / (2.0 * max(0.25 * radius * radius, 0.25));
@@ -67,8 +69,9 @@ float4 main(PixelShaderInput input) : SV_TARGET
 		const float4 value = GI_LOAD(p);
 		if (value.a < 0.5)
 			continue;
-		const float sz = GI_POS(p * scale).z;
-		const float3 sn = normalize(GI_NORMAL(p * scale));
+		const uint4 sg = GI_GEOM(p);
+		const float sz = f16tof32(sg.z);
+		const float3 sn = UnpackGeomNormal(sg);
 		float w = exp(-t * t * invTwoSigma2);
 		w *= saturate(1.0 - abs(sz - z) / tolerance);
 		const float facing = saturate(dot(n, sn));

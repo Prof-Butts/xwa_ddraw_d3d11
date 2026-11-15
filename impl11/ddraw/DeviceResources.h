@@ -289,6 +289,20 @@ public:
 	ComPtr<ID3D11Texture2D> _bounceLightBuf;	// Indirect light: the bounce light, at GTAO's resolution (No MSAA)
 	ComPtr<ID3D11Texture2D> _giBuf;				// Indirect light: the gathered light, at a quarter of the resolution (No MSAA)
 	ComPtr<ID3D11Texture2D> _giDenoisedBuf;		// Indirect light: the gathered light after the denoise filter
+	// The emitters' indirect light (pbr_gi_emitters), at half the size of the screen: the
+	// emitters' light, the light gathered from it, and the same after its filters
+	ComPtr<ID3D11Texture2D> _emittersBuf;
+	ComPtr<ID3D11Texture2D> _emitterGIBuf;
+	ComPtr<ID3D11Texture2D> _emitterGIDenoisedBuf;
+	// The positions and normals of the indirect light's passes, with mips (GIGeomMipsCommon.h):
+	// the GI filters read them, and so does the emitters' gather (pbr_gi_emitter_mips). Half
+	// the size, rounded up so every level holds its used part. _giGeomMipsSRV sees all the
+	// mips, the others one mip each, to build them.
+	static const int GI_GEOM_MIP_LEVELS = 6;
+	ComPtr<ID3D11Texture2D> _giGeomMipsBuf;
+	ComPtr<ID3D11ShaderResourceView> _giGeomMipsSRV;
+	ComPtr<ID3D11ShaderResourceView> _giGeomMipSRVs[GI_GEOM_MIP_LEVELS];
+	ComPtr<ID3D11RenderTargetView> _giGeomMipRTVs[GI_GEOM_MIP_LEVELS];
 	ComPtr<ID3D11Texture2D> _gtaoBufDenoised;	// GTAO after the denoise pass
 	ComPtr<ID3D11Texture2D> _gtaoCoarseBuf;		// Coarse GTAO, quarter resolution, denoised
 	// Shading System
@@ -372,6 +386,9 @@ public:
 	ComPtr<ID3D11RenderTargetView> _bounceLightRTV;
 	ComPtr<ID3D11RenderTargetView> _giRTV;
 	ComPtr<ID3D11RenderTargetView> _giDenoisedRTV;
+	ComPtr<ID3D11RenderTargetView> _emittersRTV;
+	ComPtr<ID3D11RenderTargetView> _emitterGIRTV;
+	ComPtr<ID3D11RenderTargetView> _emitterGIDenoisedRTV;
 	ComPtr<ID3D11RenderTargetView> _gtaoDenoisedRTV;
 	ComPtr<ID3D11RenderTargetView> _gtaoCoarseRTV;
 	// Shading System
@@ -420,6 +437,9 @@ public:
 	ComPtr<ID3D11ShaderResourceView> _bounceLightSRV;
 	ComPtr<ID3D11ShaderResourceView> _giSRV;
 	ComPtr<ID3D11ShaderResourceView> _giDenoisedSRV;
+	ComPtr<ID3D11ShaderResourceView> _emittersSRV;
+	ComPtr<ID3D11ShaderResourceView> _emitterGISRV;
+	ComPtr<ID3D11ShaderResourceView> _emitterGIDenoisedSRV;
 	ComPtr<ID3D11ShaderResourceView> _gtaoDenoisedSRV;
 	ComPtr<ID3D11ShaderResourceView> _gtaoCoarseSRV;
 	ComPtr<ID3D11ShaderResourceView> _ssaoBufSRV_R;   // SRV for ssaoBuf
@@ -509,6 +529,10 @@ public:
 	ComPtr<ID3D11PixelShader> _giDenoisePS_VR;
 	ComPtr<ID3D11PixelShader> _giBlurPS;            // Indirect light: the wider filter (pbr_gi_blur_radius)
 	ComPtr<ID3D11PixelShader> _giBlurPS_VR;
+	ComPtr<ID3D11PixelShader> _giEmittersPS;        // Indirect light: the emitters' light (pbr_gi_emitters)
+	ComPtr<ID3D11PixelShader> _giEmittersPS_VR;
+	ComPtr<ID3D11PixelShader> _giGeomMipsPS;        // Indirect light: the mips of the emitters' gather (pbr_gi_emitter_mips)
+	ComPtr<ID3D11PixelShader> _giGeomMipsPS_VR;
 	ComPtr<ID3D11PixelShader> _headLightsPS;
 	ComPtr<ID3D11PixelShader> _headLightsPS_VR;
 	ComPtr<ID3D11PixelShader> _headLightsSSAOPS;

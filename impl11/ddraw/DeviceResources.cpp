@@ -114,6 +114,10 @@
 #include "../Debug/GIDenoiseVR.h"
 #include "../Debug/GIBlur.h"
 #include "../Debug/GIBlurVR.h"
+#include "../Debug/GIEmitters.h"
+#include "../Debug/GIEmittersVR.h"
+#include "../Debug/GIGeomMips.h"
+#include "../Debug/GIGeomMipsVR.h"
 #include "../Debug/GTAODenoise.h"
 #include "../Debug/GTAODenoiseVR.h"
 #include "../Debug/PixelShaderVRGeom.h"
@@ -218,6 +222,10 @@
 #include "../Release/GIDenoiseVR.h"
 #include "../Release/GIBlur.h"
 #include "../Release/GIBlurVR.h"
+#include "../Release/GIEmitters.h"
+#include "../Release/GIEmittersVR.h"
+#include "../Release/GIGeomMips.h"
+#include "../Release/GIGeomMipsVR.h"
 #include "../Release/GTAODenoise.h"
 #include "../Release/GTAODenoiseVR.h"
 #include "../Release/PixelShaderVRGeom.h"
@@ -2024,6 +2032,21 @@ HRESULT DeviceResources::OnSizeChanged(HWND hWnd, DWORD dwWidth, DWORD dwHeight)
 		this->_giDenoisedBuf.Release();
 		this->_giDenoisedRTV.Release();
 		this->_giDenoisedSRV.Release();
+		this->_emittersBuf.Release();
+		this->_emittersRTV.Release();
+		this->_emittersSRV.Release();
+		this->_emitterGIBuf.Release();
+		this->_emitterGIRTV.Release();
+		this->_emitterGISRV.Release();
+		this->_emitterGIDenoisedBuf.Release();
+		this->_emitterGIDenoisedRTV.Release();
+		this->_emitterGIDenoisedSRV.Release();
+		this->_giGeomMipsBuf.Release();
+		this->_giGeomMipsSRV.Release();
+		for (int i = 0; i < GI_GEOM_MIP_LEVELS; i++) {
+			this->_giGeomMipSRVs[i].Release();
+			this->_giGeomMipRTVs[i].Release();
+		}
 		this->_gtaoDenoisedSRV.Release();
 		this->_gtaoCoarseBuf.Release();
 		this->_gtaoCoarseRTV.Release();
@@ -3124,6 +3147,108 @@ HRESULT DeviceResources::OnSizeChanged(HWND hWnd, DWORD dwWidth, DWORD dwHeight)
 					goto out;
 				}
 
+				// The emitters' indirect light: at half the size (rounded up), since it's rendered
+				// at a half or a quarter of the resolution
+				{
+					const UINT oldW = desc.Width, oldH = desc.Height;
+					desc.Width = (desc.Width + 1) / 2;
+					desc.Height = (desc.Height + 1) / 2;
+					// The emitters' light has mips: their emitter gather uses them to skip the
+					// pixels with no emitter nearby
+					const UINT oldMipLevels = desc.MipLevels, oldMiscFlags = desc.MiscFlags;
+					desc.MipLevels = 0;
+					desc.MiscFlags |= D3D11_RESOURCE_MISC_GENERATE_MIPS;
+					step = "_emittersBuf";
+					hr = this->_d3dDevice->CreateTexture2D(&desc, nullptr, &this->_emittersBuf);
+					desc.MipLevels = oldMipLevels;
+					desc.MiscFlags = oldMiscFlags;
+					if (SUCCEEDED(hr)) {
+						step = "_emitterGIBuf";
+						hr = this->_d3dDevice->CreateTexture2D(&desc, nullptr, &this->_emitterGIBuf);
+					}
+					if (SUCCEEDED(hr)) {
+						step = "_emitterGIDenoisedBuf";
+						hr = this->_d3dDevice->CreateTexture2D(&desc, nullptr, &this->_emitterGIDenoisedBuf);
+					}
+					desc.Width = oldW;
+					desc.Height = oldH;
+					if (FAILED(hr)) {
+						log_err("dwWidth, Height: %u, %u\n", dwWidth, dwHeight);
+						log_err_desc(step, hWnd, hr, desc);
+						goto out;
+					}
+				}
+
+				// The emitters' gather's positions and normals, with mips (GIGeomMipsCommon.h), the
+				// same size as _emittersBuf, and their views
+				{
+					CD3D11_TEXTURE2D_DESC geomDesc = desc;
+					// Rounded up to a multiple of 2^(levels - 1), so every level is at least as large as
+					// the part of it that's used (rounded up at each level)
+					const UINT geomAlign = 1u << (GI_GEOM_MIP_LEVELS - 1);
+					geomDesc.Width = (((desc.Width + 1) / 2) + geomAlign - 1) & ~(geomAlign - 1);
+					geomDesc.Height = (((desc.Height + 1) / 2) + geomAlign - 1) & ~(geomAlign - 1);
+					geomDesc.MipLevels = GI_GEOM_MIP_LEVELS;
+					geomDesc.MiscFlags = 0;
+					geomDesc.Format = DXGI_FORMAT_R16G16B16A16_UINT;
+					geomDesc.SampleDesc.Count = 1;
+					geomDesc.SampleDesc.Quality = 0;
+					geomDesc.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET;
+					step = "_giGeomMipsBuf";
+					hr = this->_d3dDevice->CreateTexture2D(&geomDesc, nullptr, &this->_giGeomMipsBuf);
+					if (FAILED(hr)) {
+						log_err("dwWidth, Height: %u, %u\n", dwWidth, dwHeight);
+						log_err_desc(step, hWnd, hr, geomDesc);
+						goto out;
+					}
+
+					// mip = -1: all the mips
+					auto CreateGeomSRV = [&](int mip, ID3D11ShaderResourceView** srv) {
+						D3D11_SHADER_RESOURCE_VIEW_DESC srvDesc{};
+						srvDesc.Format = geomDesc.Format;
+						if (g_bUseSteamVR) {
+							srvDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2DARRAY;
+							srvDesc.Texture2DArray.MostDetailedMip = mip < 0 ? 0 : mip;
+							srvDesc.Texture2DArray.MipLevels = mip < 0 ? GI_GEOM_MIP_LEVELS : 1;
+							srvDesc.Texture2DArray.FirstArraySlice = 0;
+							srvDesc.Texture2DArray.ArraySize = 2;
+						}
+						else {
+							srvDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
+							srvDesc.Texture2D.MostDetailedMip = mip < 0 ? 0 : mip;
+							srvDesc.Texture2D.MipLevels = mip < 0 ? GI_GEOM_MIP_LEVELS : 1;
+						}
+						return this->_d3dDevice->CreateShaderResourceView(this->_giGeomMipsBuf, &srvDesc, srv);
+					};
+					step = "_giGeomMipsSRV";
+					hr = CreateGeomSRV(-1, &this->_giGeomMipsSRV);
+					for (int i = 0; i < GI_GEOM_MIP_LEVELS && SUCCEEDED(hr); i++) {
+						step = "_giGeomMipSRVs";
+						hr = CreateGeomSRV(i, &this->_giGeomMipSRVs[i]);
+						if (FAILED(hr))
+							break;
+						D3D11_RENDER_TARGET_VIEW_DESC rtvDesc{};
+						rtvDesc.Format = geomDesc.Format;
+						if (g_bUseSteamVR) {
+							rtvDesc.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2DARRAY;
+							rtvDesc.Texture2DArray.MipSlice = i;
+							rtvDesc.Texture2DArray.FirstArraySlice = 0;
+							rtvDesc.Texture2DArray.ArraySize = 2;
+						}
+						else {
+							rtvDesc.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2D;
+							rtvDesc.Texture2D.MipSlice = i;
+						}
+						step = "_giGeomMipRTVs";
+						hr = this->_d3dDevice->CreateRenderTargetView(this->_giGeomMipsBuf, &rtvDesc, &this->_giGeomMipRTVs[i]);
+					}
+					if (FAILED(hr)) {
+						log_err("dwWidth, Height: %u, %u\n", dwWidth, dwHeight);
+						log_err("%s failed, hr: 0x%x\n", step, hr);
+						goto out;
+					}
+				}
+
 				// Coarse GTAO, at a quarter of the resolution (rounded up)
 				{
 					const UINT oldW = desc.Width, oldH = desc.Height;
@@ -3558,6 +3683,36 @@ HRESULT DeviceResources::OnSizeChanged(HWND hWnd, DWORD dwWidth, DWORD dwHeight)
 					goto out;
 				}
 
+				step = "_emittersSRV";
+				{
+					// With all its mips (Texture2D and Texture2DArray have MipLevels at the same place)
+					D3D11_SHADER_RESOURCE_VIEW_DESC emittersSRVDesc = shaderResourceViewDesc;
+					emittersSRVDesc.Texture2D.MostDetailedMip = 0;
+					emittersSRVDesc.Texture2D.MipLevels = -1;
+					hr = this->_d3dDevice->CreateShaderResourceView(this->_emittersBuf, &emittersSRVDesc, &this->_emittersSRV);
+				}
+				if (FAILED(hr)) {
+					log_err("dwWidth, Height: %u, %u\n", dwWidth, dwHeight);
+					log_shaderres_view(step, hWnd, hr, shaderResourceViewDesc);
+					goto out;
+				}
+
+				step = "_emitterGISRV";
+				hr = this->_d3dDevice->CreateShaderResourceView(this->_emitterGIBuf, &shaderResourceViewDesc, &this->_emitterGISRV);
+				if (FAILED(hr)) {
+					log_err("dwWidth, Height: %u, %u\n", dwWidth, dwHeight);
+					log_shaderres_view(step, hWnd, hr, shaderResourceViewDesc);
+					goto out;
+				}
+
+				step = "_emitterGIDenoisedSRV";
+				hr = this->_d3dDevice->CreateShaderResourceView(this->_emitterGIDenoisedBuf, &shaderResourceViewDesc, &this->_emitterGIDenoisedSRV);
+				if (FAILED(hr)) {
+					log_err("dwWidth, Height: %u, %u\n", dwWidth, dwHeight);
+					log_shaderres_view(step, hWnd, hr, shaderResourceViewDesc);
+					goto out;
+				}
+
 				step = "_gtaoDenoisedSRV";
 				hr = this->_d3dDevice->CreateShaderResourceView(this->_gtaoBufDenoised, &shaderResourceViewDesc, &this->_gtaoDenoisedSRV);
 				if (FAILED(hr)) {
@@ -3949,6 +4104,18 @@ HRESULT DeviceResources::OnSizeChanged(HWND hWnd, DWORD dwWidth, DWORD dwHeight)
 
 			step = "_giDenoisedRTV";
 			hr = this->_d3dDevice->CreateRenderTargetView(this->_giDenoisedBuf, &GetRtvDesc(false, g_bUseSteamVR, HDR_FORMAT), &this->_giDenoisedRTV);
+			if (FAILED(hr)) goto out;
+
+			step = "_emittersRTV";
+			hr = this->_d3dDevice->CreateRenderTargetView(this->_emittersBuf, &GetRtvDesc(false, g_bUseSteamVR, HDR_FORMAT), &this->_emittersRTV);
+			if (FAILED(hr)) goto out;
+
+			step = "_emitterGIRTV";
+			hr = this->_d3dDevice->CreateRenderTargetView(this->_emitterGIBuf, &GetRtvDesc(false, g_bUseSteamVR, HDR_FORMAT), &this->_emitterGIRTV);
+			if (FAILED(hr)) goto out;
+
+			step = "_emitterGIDenoisedRTV";
+			hr = this->_d3dDevice->CreateRenderTargetView(this->_emitterGIDenoisedBuf, &GetRtvDesc(false, g_bUseSteamVR, HDR_FORMAT), &this->_emitterGIDenoisedRTV);
 			if (FAILED(hr)) goto out;
 
 			step = "_gtaoDenoisedRTV";
@@ -4522,15 +4689,25 @@ HRESULT DeviceResources::LoadMainResources()
 			if (FAILED(hr = this->_d3dDevice->CreatePixelShader(g_GIBounceLightVR, sizeof(g_GIBounceLightVR), nullptr, &_giBounceLightPS_VR)))
 				return hr;
 
-			if (FAILED(hr = this->_d3dDevice->CreatePixelShader(g_GIDenoiseVR, sizeof(g_GIDenoiseVR), nullptr, &_giDenoisePS_VR)))
+			// Shader model 5.0: only with feature level 11, like the gather
+			if (this->_d3dFeatureLevel >= D3D_FEATURE_LEVEL_11_0 &&
+				FAILED(hr = this->_d3dDevice->CreatePixelShader(g_GIDenoiseVR, sizeof(g_GIDenoiseVR), nullptr, &_giDenoisePS_VR)))
 				return hr;
 
-			if (FAILED(hr = this->_d3dDevice->CreatePixelShader(g_GIBlurVR, sizeof(g_GIBlurVR), nullptr, &_giBlurPS_VR)))
+			// Shader model 5.0: only with feature level 11, like the gather
+			if (this->_d3dFeatureLevel >= D3D_FEATURE_LEVEL_11_0 &&
+				FAILED(hr = this->_d3dDevice->CreatePixelShader(g_GIBlurVR, sizeof(g_GIBlurVR), nullptr, &_giBlurPS_VR)))
+				return hr;
+
+			if (FAILED(hr = this->_d3dDevice->CreatePixelShader(g_GIEmittersVR, sizeof(g_GIEmittersVR), nullptr, &_giEmittersPS_VR)))
 				return hr;
 
 			// Shader model 5.0: only with feature level 11. Without it, the indirect light stays off.
 			if (this->_d3dFeatureLevel >= D3D_FEATURE_LEVEL_11_0 &&
 				FAILED(hr = this->_d3dDevice->CreatePixelShader(g_GTAOGIVR, sizeof(g_GTAOGIVR), nullptr, &_gtaoGIPS_VR)))
+				return hr;
+			if (this->_d3dFeatureLevel >= D3D_FEATURE_LEVEL_11_0 &&
+				FAILED(hr = this->_d3dDevice->CreatePixelShader(g_GIGeomMipsVR, sizeof(g_GIGeomMipsVR), nullptr, &_giGeomMipsPS_VR)))
 				return hr;
 		}
 		else
@@ -4568,15 +4745,25 @@ HRESULT DeviceResources::LoadMainResources()
 			if (FAILED(hr = this->_d3dDevice->CreatePixelShader(g_GIBounceLight, sizeof(g_GIBounceLight), nullptr, &_giBounceLightPS)))
 				return hr;
 
-			if (FAILED(hr = this->_d3dDevice->CreatePixelShader(g_GIDenoise, sizeof(g_GIDenoise), nullptr, &_giDenoisePS)))
+			// Shader model 5.0: only with feature level 11, like the gather
+			if (this->_d3dFeatureLevel >= D3D_FEATURE_LEVEL_11_0 &&
+				FAILED(hr = this->_d3dDevice->CreatePixelShader(g_GIDenoise, sizeof(g_GIDenoise), nullptr, &_giDenoisePS)))
 				return hr;
 
-			if (FAILED(hr = this->_d3dDevice->CreatePixelShader(g_GIBlur, sizeof(g_GIBlur), nullptr, &_giBlurPS)))
+			// Shader model 5.0: only with feature level 11, like the gather
+			if (this->_d3dFeatureLevel >= D3D_FEATURE_LEVEL_11_0 &&
+				FAILED(hr = this->_d3dDevice->CreatePixelShader(g_GIBlur, sizeof(g_GIBlur), nullptr, &_giBlurPS)))
+				return hr;
+
+			if (FAILED(hr = this->_d3dDevice->CreatePixelShader(g_GIEmitters, sizeof(g_GIEmitters), nullptr, &_giEmittersPS)))
 				return hr;
 
 			// Shader model 5.0: only with feature level 11. Without it, the indirect light stays off.
 			if (this->_d3dFeatureLevel >= D3D_FEATURE_LEVEL_11_0 &&
 				FAILED(hr = this->_d3dDevice->CreatePixelShader(g_GTAOGI, sizeof(g_GTAOGI), nullptr, &_gtaoGIPS)))
+				return hr;
+			if (this->_d3dFeatureLevel >= D3D_FEATURE_LEVEL_11_0 &&
+				FAILED(hr = this->_d3dDevice->CreatePixelShader(g_GIGeomMips, sizeof(g_GIGeomMips), nullptr, &_giGeomMipsPS)))
 				return hr;
 		}
 
@@ -5027,15 +5214,25 @@ HRESULT DeviceResources::LoadResources()
 			if (FAILED(hr = this->_d3dDevice->CreatePixelShader(g_GIBounceLightVR, sizeof(g_GIBounceLightVR), nullptr, &_giBounceLightPS_VR)))
 				return hr;
 
-			if (FAILED(hr = this->_d3dDevice->CreatePixelShader(g_GIDenoiseVR, sizeof(g_GIDenoiseVR), nullptr, &_giDenoisePS_VR)))
+			// Shader model 5.0: only with feature level 11, like the gather
+			if (this->_d3dFeatureLevel >= D3D_FEATURE_LEVEL_11_0 &&
+				FAILED(hr = this->_d3dDevice->CreatePixelShader(g_GIDenoiseVR, sizeof(g_GIDenoiseVR), nullptr, &_giDenoisePS_VR)))
 				return hr;
 
-			if (FAILED(hr = this->_d3dDevice->CreatePixelShader(g_GIBlurVR, sizeof(g_GIBlurVR), nullptr, &_giBlurPS_VR)))
+			// Shader model 5.0: only with feature level 11, like the gather
+			if (this->_d3dFeatureLevel >= D3D_FEATURE_LEVEL_11_0 &&
+				FAILED(hr = this->_d3dDevice->CreatePixelShader(g_GIBlurVR, sizeof(g_GIBlurVR), nullptr, &_giBlurPS_VR)))
+				return hr;
+
+			if (FAILED(hr = this->_d3dDevice->CreatePixelShader(g_GIEmittersVR, sizeof(g_GIEmittersVR), nullptr, &_giEmittersPS_VR)))
 				return hr;
 
 			// Shader model 5.0: only with feature level 11. Without it, the indirect light stays off.
 			if (this->_d3dFeatureLevel >= D3D_FEATURE_LEVEL_11_0 &&
 				FAILED(hr = this->_d3dDevice->CreatePixelShader(g_GTAOGIVR, sizeof(g_GTAOGIVR), nullptr, &_gtaoGIPS_VR)))
+				return hr;
+			if (this->_d3dFeatureLevel >= D3D_FEATURE_LEVEL_11_0 &&
+				FAILED(hr = this->_d3dDevice->CreatePixelShader(g_GIGeomMipsVR, sizeof(g_GIGeomMipsVR), nullptr, &_giGeomMipsPS_VR)))
 				return hr;
 		}
 		else
@@ -5073,15 +5270,25 @@ HRESULT DeviceResources::LoadResources()
 			if (FAILED(hr = this->_d3dDevice->CreatePixelShader(g_GIBounceLight, sizeof(g_GIBounceLight), nullptr, &_giBounceLightPS)))
 				return hr;
 
-			if (FAILED(hr = this->_d3dDevice->CreatePixelShader(g_GIDenoise, sizeof(g_GIDenoise), nullptr, &_giDenoisePS)))
+			// Shader model 5.0: only with feature level 11, like the gather
+			if (this->_d3dFeatureLevel >= D3D_FEATURE_LEVEL_11_0 &&
+				FAILED(hr = this->_d3dDevice->CreatePixelShader(g_GIDenoise, sizeof(g_GIDenoise), nullptr, &_giDenoisePS)))
 				return hr;
 
-			if (FAILED(hr = this->_d3dDevice->CreatePixelShader(g_GIBlur, sizeof(g_GIBlur), nullptr, &_giBlurPS)))
+			// Shader model 5.0: only with feature level 11, like the gather
+			if (this->_d3dFeatureLevel >= D3D_FEATURE_LEVEL_11_0 &&
+				FAILED(hr = this->_d3dDevice->CreatePixelShader(g_GIBlur, sizeof(g_GIBlur), nullptr, &_giBlurPS)))
+				return hr;
+
+			if (FAILED(hr = this->_d3dDevice->CreatePixelShader(g_GIEmitters, sizeof(g_GIEmitters), nullptr, &_giEmittersPS)))
 				return hr;
 
 			// Shader model 5.0: only with feature level 11. Without it, the indirect light stays off.
 			if (this->_d3dFeatureLevel >= D3D_FEATURE_LEVEL_11_0 &&
 				FAILED(hr = this->_d3dDevice->CreatePixelShader(g_GTAOGI, sizeof(g_GTAOGI), nullptr, &_gtaoGIPS)))
+				return hr;
+			if (this->_d3dFeatureLevel >= D3D_FEATURE_LEVEL_11_0 &&
+				FAILED(hr = this->_d3dDevice->CreatePixelShader(g_GIGeomMips, sizeof(g_GIGeomMips), nullptr, &_giGeomMipsPS)))
 				return hr;
 		}
 
@@ -5247,8 +5454,8 @@ HRESULT DeviceResources::LoadResources()
 		return hr;
 
 	// GTAO constant buffer (ssao_type = PBR)
-	constantBufferDesc.ByteWidth = 80;
-	static_assert(sizeof(GTAOCBuffer) == 80, "sizeof(GTAOCBuffer) must be 80");
+	constantBufferDesc.ByteWidth = 96;
+	static_assert(sizeof(GTAOCBuffer) == 96, "sizeof(GTAOCBuffer) must be 96");
 	if (FAILED(hr = this->_d3dDevice->CreateBuffer(&constantBufferDesc, nullptr, &this->_gtaoConstantBuffer)))
 		return hr;
 

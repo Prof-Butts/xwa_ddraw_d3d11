@@ -50,14 +50,22 @@
  * sample, add its bounce light. Each sector is weighted by its cosine to the normal, so a
  * slice fully covered by a uniform light L gathers L: the result is the average incoming
  * light weighted by the cosine (irradiance / PI), the same units as the cubemap's ambient.
- * The AO and the bent normal don't change. The indirect light goes to a second render target
- * (rgb, a = 1, or 0 for the pixels GTAO skips).
+ * Neither gather uses the AO, so the GTAO_GI variant only outputs the indirect light (rgb,
+ * a = 1; a = 0 for the pixels GTAO skips, GI_EMPTY for the ones with no light nearby), and
+ * the compiler drops the AO's math.
  *
  * The indirect light needs a much larger radius than the AO (light bounces off surfaces
  * tens of centimeters away, while the AO is about contact), so it runs in its own pass, at a
  * quarter of the resolution, with its own radius (pbr_gi_radius, pbr_gi_max_radius): see
  * GTAOPass() in ddraw. Its AO output isn't used. The bounce light is at 1 / gtao_bounce_scale
  * of the resolution (also a quarter).
+ *
+ * The emitters' gather (gtao_gi_mips, pbr_gi_emitter_mips) reads its distant samples from mips
+ * of the positions, normals (GIGeomMipsCommon.h) and light, like XeGTAO reads its depth: the
+ * level grows with the distance (log2 of the distance in the light's pixels, minus
+ * gtao_gi_mip_offset), so the samples spread across the screen stay in the texture cache, and
+ * the distant light is averaged instead of point-sampled. The closest samples still read the
+ * full-resolution buffers.
  *
  * GTAO_BITMASK_AO (GTAOBitmask.hlsl, pbr_gtao_bitmask_ao) computes the AO and the bent normal
  * with the same kind of visibility bitmask, instead of the two horizons: each sample hides
@@ -79,19 +87,22 @@ Texture2D texNormal : register(t1);
 #endif
 
 #ifdef GTAO_GI
+#include "GIGeomPacking.h"
 // The bounce light (GIBounceLight.hlsl), at this pass's resolution
 #ifdef INSTANCED_RENDERING
 Texture2DArray texBounce : register(t2);
+// The positions and normals with mips (gtao_gi_mips, GIGeomMipsCommon.h), at the same
+// resolution as texBounce
+Texture2DArray<uint4> texGeomMips : register(t3);
 #else
 Texture2D texBounce : register(t2);
+Texture2D<uint4> texGeomMips : register(t3);
 #endif
 
-struct GTAOOutput
-{
-	float4 gtao : SV_TARGET0; // Bent normal, AO
-	float4 gi   : SV_TARGET1; // Indirect light (rgb), a = 1 (0: skipped)
-};
-#define GTAO_RETURN(gtaoValue, giValue) { GTAOOutput o; o.gtao = (gtaoValue); o.gi = (giValue); return o; }
+// The pixels skipped because there's no light nearby (gtao_gi_presence): no light, but valid,
+// so the filters blend them as 0. They return early from the filters.
+static const float GI_EMPTY = 0.75;
+#define GTAO_RETURN(gtaoValue, giValue) return (giValue);
 #else
 #define GTAO_RETURN(gtaoValue, giValue) return (gtaoValue);
 #endif
@@ -176,13 +187,43 @@ float2 RayChangePerPixel(int2 px, float3 P, uint viewId)
 }
 
 #ifdef GTAO_GI
-// The indirect light that sample S (at full-resolution pixel samplePx) adds to the pixel at
-// P, in a slice: sliceDir is the slice's direction perpendicular to V, n the angle of the
-// projected normal from V (positive towards sliceDir). sectors is the slice's visibility
-// bitmask: the sample covers the sectors between its front and its back, and only the ones
-// that weren't covered by a closer sample add its light. weight is GTAO's falloff (0: not
-// geometry).
-float3 GatherIndirect(float3 P, float3 S, int2 samplePx, uint viewId, float weight,
+// The texel of texBounce and texGeomMips that covers full-resolution pixel samplePx, at a mip
+// level
+int2 GeomTexel(int2 samplePx, int level)
+{
+	const uint2 p = uint2(clamp(samplePx, int2(0, 0), int2(gtao_buffer_size) - 1));
+	return int2((p / (uint)gtao_bounce_scale) >> (uint)level);
+}
+
+uint4 LoadGeomMip(int2 samplePx, int level, uint viewId)
+{
+#ifdef INSTANCED_RENDERING
+	return texGeomMips.Load(int4(GeomTexel(samplePx, level), viewId, level));
+#else
+	return texGeomMips.Load(int3(GeomTexel(samplePx, level), level));
+#endif
+}
+
+// The position of the sample at full-resolution pixel samplePx: from the full-resolution
+// buffer when level < 0, otherwise from that mip level of texGeomMips
+float3 LoadSamplePos(int2 samplePx, int level, uint viewId)
+{
+	float3 S;
+	[branch]
+	if (level >= 0)
+		S = UnpackGeomPos(LoadGeomMip(samplePx, level, viewId));
+	else
+		S = LoadPos(samplePx, viewId);
+	return S;
+}
+
+// The indirect light that sample S (at full-resolution pixel samplePx, read at mip level
+// level, see LoadSamplePos()) adds to the pixel at P, in a slice: sliceDir is the slice's
+// direction perpendicular to V, n the angle of the projected normal from V (positive towards
+// sliceDir). sectors is the slice's visibility bitmask: the sample covers the sectors between
+// its front and its back, and only the ones that weren't covered by a closer sample add its
+// light. weight is GTAO's falloff (0: not geometry).
+float3 GatherIndirect(float3 P, float3 S, int2 samplePx, int level, uint viewId, float weight,
 	float3 V, float3 sliceDir, float n, inout uint sectors)
 {
 	if (weight <= 0.0)
@@ -209,16 +250,23 @@ float3 GatherIndirect(float3 P, float3 S, int2 samplePx, uint viewId, float weig
 		return 0;
 
 	// The sample's surface must face the pixel: otherwise the pixel would see its back
-	const float4 sampleNormal = LoadNormal(samplePx, viewId);
+	float3 sampleNormal;
+	[branch]
+	if (level >= 0)
+		sampleNormal = UnpackGeomNormal(LoadGeomMip(samplePx, level, viewId));
+	else
+		sampleNormal = LoadNormal(samplePx, viewId).xyz;
 	const float3 sampleN = normalize(float3(sampleNormal.x, sampleNormal.y, -sampleNormal.z));
 	const float facing = smoothstep(-0.1, 0.1, dot(sampleN, -normalize(delta)));
 
-	// Its bounce light, from the bounce light's pixel that covers samplePx
-	const int2 bouncePx = int2(uint2(clamp(samplePx, int2(0, 0), int2(gtao_buffer_size) - 1)) / (uint)gtao_bounce_scale);
+	// Its bounce light, from the bounce light's pixel that covers samplePx (at the same mip
+	// level as the position: the average light of the area the position stands for)
+	const int lightLevel = max(level, 0);
+	const int2 bouncePx = GeomTexel(samplePx, lightLevel);
 #ifdef INSTANCED_RENDERING
-	const float3 bounce = texBounce.Load(int4(bouncePx, viewId, 0)).rgb;
+	const float3 bounce = texBounce.Load(int4(bouncePx, viewId, lightLevel)).rgb;
 #else
-	const float3 bounce = texBounce.Load(int3(bouncePx, 0)).rgb;
+	const float3 bounce = texBounce.Load(int3(bouncePx, lightLevel)).rgb;
 #endif
 	// Each sector is PI/32 wide; with the cosine at the middle of the sample, a full half
 	// circle adds up to 2, so the weight is PI/64 per sector
@@ -273,11 +321,7 @@ float Bayer4x4(int2 px)
 	return (float)bayer[p.y * 4 + p.x];
 }
 
-#ifdef GTAO_GI
-GTAOOutput main(PixelShaderInput input)
-#else
 float4 main(PixelShaderInput input) : SV_TARGET
-#endif
 {
 #ifdef INSTANCED_RENDERING
 	const uint viewId = input.viewId;
@@ -312,6 +356,44 @@ float4 main(PixelShaderInput input) : SV_TARGET
 	// The radius of the effect, in pixels and in meters. It's clamped in pixels: close
 	// surfaces don't sample half of the screen, and far ones still get some occlusion.
 	const float screenRadius = clamp(gtao_radius / pixelSize, gtao_min_radius_px, gtao_max_radius_px);
+#ifdef GTAO_GI
+	// The emitters' gather (gtao_gi_presence) skips the pixels with no emitter within the
+	// radius: emitters cover little of the screen. A mip level of their light averages the
+	// area each texel covers, and the light is never negative, so 0 means no emitter there.
+	// The level whose texels are at least as wide as the radius, read in the 3x3 texels
+	// around the pixel, covers the whole radius.
+	[branch]
+	if (gtao_gi_presence > 0.5)
+	{
+		uint sourceWidth, sourceHeight, sourceLevels;
+#ifdef INSTANCED_RENDERING
+		uint sourceElements;
+		texBounce.GetDimensions(0, sourceWidth, sourceHeight, sourceElements, sourceLevels);
+#else
+		texBounce.GetDimensions(0, sourceWidth, sourceHeight, sourceLevels);
+#endif
+		const uint level = (uint)min(ceil(log2(max(screenRadius / gtao_bounce_scale, 1.0))), (float)sourceLevels - 1.0);
+		const int2 levelSize = max(int2(uint2(sourceWidth, sourceHeight) >> level), int2(1, 1));
+		const int2 center = int2((uint2(px) / (uint)gtao_bounce_scale) >> level);
+		float3 nearby = 0;
+		[unroll]
+		for (int y = -1; y <= 1; y++)
+		{
+			[unroll]
+			for (int x = -1; x <= 1; x++)
+			{
+				const int2 t = clamp(center + int2(x, y), int2(0, 0), levelSize - 1);
+#ifdef INSTANCED_RENDERING
+				nearby += texBounce.Load(int4(t, viewId, level)).rgb;
+#else
+				nearby += texBounce.Load(int3(t, level)).rgb;
+#endif
+			}
+		}
+		if (max(nearby.r, max(nearby.g, nearby.b)) <= 0.0)
+			return float4(0, 0, 0, GI_EMPTY);
+	}
+#endif
 	const float radius = screenRadius * pixelSize;
 	// Samples fade out between falloffFrom and the radius, so occluders at the edge of the
 	// radius don't pop in and out
@@ -342,6 +424,20 @@ float4 main(PixelShaderInput input) : SV_TARGET
 	float3 bentNormal = 0.0;
 #ifdef GTAO_GI
 	float3 indirect = 0.0;
+	// The last mip level the distant samples can read (gtao_gi_mips); -1: none
+	int lastLevel = -1;
+	[branch]
+	if (gtao_gi_mips > 0.5)
+	{
+		uint geomWidth, geomHeight, geomLevels;
+#ifdef INSTANCED_RENDERING
+		uint geomElements;
+		texGeomMips.GetDimensions(0, geomWidth, geomHeight, geomElements, geomLevels);
+#else
+		texGeomMips.GetDimensions(0, geomWidth, geomHeight, geomLevels);
+#endif
+		lastLevel = (int)geomLevels - 1;
+	}
 #endif
 
 	[loop]
@@ -385,8 +481,22 @@ float4 main(PixelShaderInput input) : SV_TARGET
 			s = s * s;
 			const float2 offset = round(omega * max(s * screenRadius, 1.0));
 
+#ifdef GTAO_GI
+			// The mip level of both samples (see the top of this file): -1 for the full resolution
+			int level = -1;
+			[branch]
+			if (lastLevel >= 0)
+			{
+				const float offsetPx = length(offset) / gtao_bounce_scale;
+				level = min((int)floor(log2(max(offsetPx, 1.0)) - gtao_gi_mip_offset), lastLevel);
+				level = max(level, -1);
+			}
+			const float3 S0 = LoadSamplePos(px + int2(offset), level, viewId);
+			const float3 S1 = LoadSamplePos(px - int2(offset), level, viewId);
+#else
 			const float3 S0 = LoadPos(px + int2(offset), viewId);
 			const float3 S1 = LoadPos(px - int2(offset), viewId);
+#endif
 			const float3 delta0 = S0 - P;
 			const float3 delta1 = S1 - P;
 			const float dist0 = length(delta0);
@@ -398,8 +508,8 @@ float4 main(PixelShaderInput input) : SV_TARGET
 			elevation0 = max(elevation0, weight0 * sinElev0);
 			elevation1 = max(elevation1, weight1 * sinElev1);
 #ifdef GTAO_GI
-			sliceIndirect += GatherIndirect(P, S0, px + int2(offset), viewId, weight0, V, sliceDir, n, sectors);
-			sliceIndirect += GatherIndirect(P, S1, px - int2(offset), viewId, weight1, V, sliceDir, n, sectors);
+			sliceIndirect += GatherIndirect(P, S0, px + int2(offset), level, viewId, weight0, V, sliceDir, n, sectors);
+			sliceIndirect += GatherIndirect(P, S1, px - int2(offset), level, viewId, weight1, V, sliceDir, n, sectors);
 #endif
 #ifdef GTAO_BITMASK_AO
 			aoSectors |= OccludedSectors(P, S0, weight0, N, V, aoSliceDir, n, heightBias, gtao_angle_bias);

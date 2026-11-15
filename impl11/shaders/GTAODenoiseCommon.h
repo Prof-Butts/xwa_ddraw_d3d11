@@ -13,7 +13,10 @@
  *
  * GTAO_GI_DENOISE (GIDenoise.hlsl) filters the indirect light instead (GTAOGI.hlsl, at a
  * quarter of the resolution): the same average, but the input is a color (rgb, a = 1; a = 0
- * for the pixels the gather skipped), so it isn't normalized like a bent normal.
+ * for the pixels the gather skipped), so it isn't normalized like a bent normal. Its depths
+ * come from the positions and normals with mips (t1, GIGeomMipsCommon.h), at the level of
+ * its resolution (gtao_geom_level): the same values as the position buffer's top-left pixels,
+ * but contiguous. Shader model 5.0 (f16tof32).
  */
 #include "GTAOCBuffer.h"
 
@@ -24,12 +27,26 @@
 #define DENOISE_SKIPPED(value) ((value).a > 1.5)
 #endif
 
+#ifdef GTAO_GI_DENOISE
+#ifdef INSTANCED_RENDERING
+Texture2DArray texGTAO         : register(t0);
+Texture2DArray<uint4> texGeom  : register(t1);
+#define DENOISE_DEPTH(p) f16tof32(texGeom.Load(int4(p, viewId, (int)gtao_geom_level)).z)
+#else
+Texture2D texGTAO         : register(t0);
+Texture2D<uint4> texGeom  : register(t1);
+#define DENOISE_DEPTH(p) f16tof32(texGeom.Load(int3(p, (int)gtao_geom_level)).z)
+#endif
+#else
 #ifdef INSTANCED_RENDERING
 Texture2DArray texGTAO : register(t0);
 Texture2DArray texPos  : register(t1);
+#define DENOISE_DEPTH(p) texPos.Load(int4((p) * scale, viewId, 0)).z
 #else
 Texture2D texGTAO : register(t0);
 Texture2D texPos  : register(t1);
+#define DENOISE_DEPTH(p) texPos.Load(int3((p) * scale, 0)).z
+#endif
 #endif
 
 struct PixelShaderInput
@@ -50,14 +67,18 @@ float4 main(PixelShaderInput input) : SV_TARGET
 #ifdef INSTANCED_RENDERING
 	const uint viewId = input.viewId;
 	const float4 center = texGTAO.Load(int4(px, viewId, 0));
-	const float z = texPos.Load(int4(px * scale, viewId, 0)).z;
 #else
 	const float4 center = texGTAO.Load(int3(px, 0));
-	const float z = texPos.Load(int3(px * scale, 0)).z;
 #endif
+	const float z = DENOISE_DEPTH(px);
 	// The background and the pixels that GTAO skipped are left as they are
 	if (DENOISE_SKIPPED(center))
 		return center;
+#ifdef GTAO_GI_DENOISE
+	// So are the ones with no light nearby (GI_EMPTY in GTAOCommon.h)
+	if (center.a < 0.9)
+		return center;
+#endif
 
 	const float tolerance = max(z * gtao_denoise_depth, 1e-3);
 	float4 sum = 0;
@@ -71,11 +92,10 @@ float4 main(PixelShaderInput input) : SV_TARGET
 			const int2 p = clamp(px + int2(x, y), int2(0, 0), maxPx);
 #ifdef INSTANCED_RENDERING
 			const float4 value = texGTAO.Load(int4(p, viewId, 0));
-			const float sz = texPos.Load(int4(p * scale, viewId, 0)).z;
 #else
 			const float4 value = texGTAO.Load(int3(p, 0));
-			const float sz = texPos.Load(int3(p * scale, 0)).z;
 #endif
+			const float sz = DENOISE_DEPTH(p);
 			// Skipped pixels (AO = 2) aren't blended in. The AO isn't clamped to 1 yet: the
 			// values a bit above and below 1 on open surfaces average to 1 here.
 			const float w = DENOISE_SKIPPED(value) ? 0.0 : saturate(1.0 - abs(sz - z) / tolerance);

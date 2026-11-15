@@ -71,6 +71,7 @@ cbuffer ConstantBuffer : register(b4)
 	// 1376 bytes
 	float gi_intensity;       // pbr_gi_intensity: multiplies the indirect light
 	float gi_emitter_boost;   // pbr_gi_emitter_boost: multiplies the light of the emitters in the bounce light
-	float2 unused_ss6;
+	float gi_emitters;        // 1: the emitters have their own light buffer and gather (pbr_gi_emitters, t12-t13)
+	float gi_emitter_scale;   // The emitter light's resolution, 1 / scale (pbr_gi_emitter_scale)
 	// 1392 bytes
 };

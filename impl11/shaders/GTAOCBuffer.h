@@ -30,7 +30,7 @@ cbuffer ConstantBuffer : register(b12)
 	float gtao_mips;            // 1 reads the distant samples from the positions with mips (pbr_gtao_mips, pbr_gi_emitter_mips)
 	float gtao_mip_offset;      // Samples closer than 2^offset pixels (at half resolution) read the full resolution
 	float gtao_geom_level;      // Denoise and GI filters: the level of the positions with mips at their resolution; -1: none
-	float gtao_unused4;
+	float gtao_light_mips;      // Indirect light: 1 when the gathered light has mips (the emitters'), so the distant samples read it at their level
 	// 96 bytes
 };
 

@@ -256,6 +256,8 @@ bool g_bPBRGIEmitters = true;
 int g_iPBRGIEmitterScale = 2, g_iPBRGIEmitterSlices = 2, g_iPBRGIEmitterSteps = 6, g_iPBRGIEmitterBlurRadius = 4;
 bool g_bPBRGIEmitterMips = true;
 float g_fPBRGIEmitterMipOffset = 3.3f;
+bool g_bPBRGIMips = true;
+float g_fPBRGIMipOffset = 3.3f;
 float g_fPBRGIEmitterRadius = 5.0f, g_fPBRGIEmitterMaxRadius = 0.15f;
 int g_iPBRGISlices = 3, g_iPBRGISteps = 8;
 // The cubemap's ambient light and reflections in the new PBR shading
@@ -2385,6 +2387,8 @@ bool LoadSSAOParams() {
 	g_iPBRGIEmitterBlurRadius = 4;
 	g_bPBRGIEmitterMips = true;
 	g_fPBRGIEmitterMipOffset = 3.3f;
+	g_bPBRGIMips = true;
+	g_fPBRGIMipOffset = 3.3f;
 	g_fPBRGIEmitterRadius = 5.0f;
 	g_fPBRGIEmitterMaxRadius = 0.15f;
 	g_iPBRGISlices = 3;
@@ -2688,6 +2692,12 @@ bool LoadSSAOParams() {
 			}
 			else if (_stricmp(param, "pbr_gi_emitter_mip_offset") == 0) {
 				g_fPBRGIEmitterMipOffset = max(0.0f, min(8.0f, fValue));
+			}
+			else if (_stricmp(param, "pbr_gi_mips") == 0) {
+				g_bPBRGIMips = (bool)fValue;
+			}
+			else if (_stricmp(param, "pbr_gi_mip_offset") == 0) {
+				g_fPBRGIMipOffset = max(0.0f, min(8.0f, fValue));
 			}
 			else if (_stricmp(param, "pbr_gi_radius") == 0) {
 				g_fPBRGIRadius = max(0.01f, fValue);

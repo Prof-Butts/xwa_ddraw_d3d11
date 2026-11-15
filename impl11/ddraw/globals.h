@@ -125,6 +125,8 @@ extern int g_iGTAOSlices, g_iGTAOSteps;
 extern bool g_bGTAOHalfRes;
 // pbr_gtao_coarse*: a second GTAO pass at quarter resolution with a larger radius
 extern bool g_bGTAOCoarse;
+extern bool g_bGTAOMips;
+extern float g_fGTAOMipOffset;
 extern float g_fGTAOCoarseRadius, g_fGTAOCoarseIntensity, g_fGTAOCoarseMinRadiusPx, g_fGTAOCoarseMaxRadiusPx;
 extern int g_iGTAOCoarseSlices, g_iGTAOCoarseSteps;
 // pbr_gtao_angle_bias, pbr_gtao_coarse_angle_bias: degrees above the tangent plane that don't count as occlusion

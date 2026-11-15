@@ -3792,21 +3792,28 @@ enum GTAOTimerSection
 // of the resolution. Keep in sync with GI_SCALE in PBRAddV2Common.h.
 static const int GI_SCALE = 4;
 
-// The resolution of level 0 of the positions and normals with mips (_giGeomMipsBuf,
-// BuildGIGeomMips()), 1 / scale: the emitters' resolution, or the bounced light's without
-// them. The indirect light's passes are all at this resolution or lower.
-static int GetGIGeomBaseScale()
-{
-	return g_ShadingSys_PSBuffer.gi_emitters > 0.5f ? g_iPBRGIEmitterScale : GI_SCALE;
-}
+// Level 0 of the positions and normals with mips (_giGeomMipsBuf, BuildGIGeomMips()) is at
+// 1 / GI_GEOM_SCALE of the resolution: half, like GTAO's half-resolution pass. The other
+// passes that read it (the indirect light, the coarse AO) are at this resolution or lower.
+// Keep in sync with GI_GEOM_SCALE in GIGeomPacking.h.
+static const int GI_GEOM_SCALE = 2;
 
-// The level of _giGeomMipsBuf at 1 / scale of the resolution
+// The level of _giGeomMipsBuf at 1 / scale of the resolution; -1 at full resolution
 static int GetGIGeomLevel(int scale)
 {
+	if (scale < GI_GEOM_SCALE)
+		return -1;
 	int level = 0;
-	while ((GetGIGeomBaseScale() << level) < scale)
+	while ((GI_GEOM_SCALE << level) < scale)
 		level++;
 	return level;
+}
+
+// True when GTAO (fine and coarse) reads _giGeomMipsBuf (pbr_gtao_mips): it only exists when
+// the indirect light is on (BounceLightPass() builds it before GTAOPass())
+static bool IsGTAOMipsActive()
+{
+	return g_bGTAOMips && g_ShadingSys_PSBuffer.gi_enabled > 0.5f;
 }
 
 // True when the emitters' gather reads its distant samples from mips (pbr_gi_emitter_mips)
@@ -3880,9 +3887,15 @@ static void RenderGTAO(DeviceResources* resources, int scale, float radius, floa
 	cb.thickness      = g_fGTAOThickness;
 	cb.blur_radius    = gi != nullptr ? (float)gi->blurRadius : 0.0f;
 	cb.gi_presence    = (gi != nullptr && gi->presence) ? 1.0f : 0.0f;
-	cb.gi_mips        = (gi != nullptr && gi->mips) ? 1.0f : 0.0f;
-	cb.gi_mip_offset  = g_fPBRGIEmitterMipOffset;
-	cb.geom_level     = gi != nullptr ? (float)GetGIGeomLevel(scale) : 0.0f;
+	// The positions and normals with mips: the indirect light's filters always read them, and
+	// so does GTAO's denoise with pbr_gtao_mips. The distant samples read them in the gathers
+	// with gi->mips, and in the coarse GTAO with pbr_gtao_mips. Not in the fine GTAO: its
+	// radius is small (at most pbr_gtao_max_radius_px), so its samples are close together and
+	// already cache-friendly, and choosing the levels cost more than it saved (measured).
+	const bool mips  = gi != nullptr ? gi->mips : (IsGTAOMipsActive() && scale >= 4);
+	cb.mips           = mips ? 1.0f : 0.0f;
+	cb.mip_offset     = gi != nullptr ? g_fPBRGIEmitterMipOffset : g_fGTAOMipOffset;
+	cb.geom_level     = (gi != nullptr || IsGTAOMipsActive()) ? (float)GetGIGeomLevel(scale) : -1.0f;
 	resources->InitPSConstantBufferGTAO(&cb);
 
 	// GTAO
@@ -3894,10 +3907,10 @@ static void RenderGTAO(DeviceResources* resources, int scale, float radius, floa
 			resources->_depthBufSRV.Get(),          // 0: Position buffer
 			resources->_normBufSRV.Get(),           // 1: Normals buffer
 			gi != nullptr ? gi->sourceSRV : NULL,   // 2: The light to gather (indirect light)
-			(gi != nullptr && gi->mips) ?           // 3: The positions and normals with mips
-				resources->_giGeomMipsSRV.Get() : NULL,
+			mips ? resources->_giGeomMipsSRV.Get()  // 3: The positions and normals with mips
+				: NULL,
 		};
-		context->PSSetShaderResources(0, gi ? 4 : 2, srvs);
+		context->PSSetShaderResources(0, 4, srvs);
 		if (gi)
 			resources->InitPixelShader(g_bUseSteamVR ? resources->_gtaoGIPS_VR : resources->_gtaoGIPS);
 		else if (g_bGTAOBitmaskAO)
@@ -3916,11 +3929,13 @@ static void RenderGTAO(DeviceResources* resources, int scale, float radius, floa
 		g_GTAOGPUTimer.Mark(context, denoiseSection);
 		ID3D11RenderTargetView* rtvs[1] = { outputRTV };
 		context->OMSetRenderTargets(1, rtvs, NULL);
-		ID3D11ShaderResourceView* srvs[2] = {
+		ID3D11ShaderResourceView* srvs[3] = {
 			resources->_gtaoSRV.Get(),     // 0: GTAO buffer
 			resources->_depthBufSRV.Get(), // 1: Position buffer
+			cb.geom_level >= 0.0f ?        // 2: The positions with mips (pbr_gtao_mips)
+				resources->_giGeomMipsSRV.Get() : NULL,
 		};
-		context->PSSetShaderResources(0, 2, srvs);
+		context->PSSetShaderResources(0, 3, srvs);
 		resources->InitPixelShader(g_bUseSteamVR ? resources->_gtaoDenoisePS_VR : resources->_gtaoDenoisePS);
 		if (g_bUseSteamVR)
 			context->DrawInstanced(6, 2, 0, 0);
@@ -4169,7 +4184,7 @@ void PrimarySurface::BounceLightPass()
 	}
 
 	// The positions and normals with mips, for the GI filters and the emitters' gather
-	BuildGIGeomMips(resources, GetGIGeomBaseScale());
+	BuildGIGeomMips(resources, GI_GEOM_SCALE);
 
 	ID3D11ShaderResourceView* nullSRVs[8] = {};
 	context->PSSetShaderResources(0, 8, nullSRVs);

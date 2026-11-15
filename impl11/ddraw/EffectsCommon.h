@@ -460,9 +460,9 @@ typedef struct GTAOCBufferStruct {
 	float blur_radius;           // Its radius, in pixels of its buffer (pbr_gi_blur_radius)
 	float gi_presence;           // Indirect light: 1 skips the pixels with no light nearby (the emitters' gather)
 	// 80 bytes
-	float gi_mips;               // Indirect light: 1 reads the distant samples from mips (the emitters' gather)
-	float gi_mip_offset;         // Samples closer than 2^offset pixels read the full resolution
-	float geom_level;            // Indirect light's filters: the level of _giGeomMipsBuf at their resolution
+	float mips;                  // 1 reads the distant samples from _giGeomMipsBuf (pbr_gtao_mips, pbr_gi_emitter_mips)
+	float mip_offset;            // Samples closer than 2^offset pixels (at half resolution) read the full resolution
+	float geom_level;            // Denoise and GI filters: the level of _giGeomMipsBuf at their resolution; -1: none
 	float unused4;
 	// 96 bytes
 } GTAOCBuffer;

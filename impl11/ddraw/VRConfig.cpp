@@ -224,6 +224,10 @@ bool g_bGTAOGPUTimer = false;
 bool g_bGTAOHalfRes = true;
 // Two-scale AO: a coarse GTAO pass for the broad occlusion of large structures
 bool g_bGTAOCoarse = false;
+// GTAO reads its distant samples and its denoise depths from the indirect light's positions
+// with mips (_giGeomMipsBuf), when the indirect light is on
+bool g_bGTAOMips = true;
+float g_fGTAOMipOffset = 3.3f;
 float g_fGTAOCoarseRadius = 10.0f, g_fGTAOCoarseIntensity = 1.0f;
 float g_fGTAOCoarseMinRadiusPx = 32.0f, g_fGTAOCoarseMaxRadiusPx = 256.0f;
 int g_iGTAOCoarseSlices = 4, g_iGTAOCoarseSteps = 8;
@@ -2347,6 +2351,8 @@ bool LoadSSAOParams() {
 	g_bGTAOGPUTimer = false;
 	g_bGTAOHalfRes = true;
 	g_bGTAOCoarse = true;
+	g_bGTAOMips = true;
+	g_fGTAOMipOffset = 3.3f;
 	// Radius, in meters
 	g_fGTAOCoarseRadius = 250.0f;
 	g_fGTAOCoarseIntensity = 2.4f;
@@ -2582,6 +2588,12 @@ bool LoadSSAOParams() {
 			}
 			else if (_stricmp(param, "pbr_gtao_coarse") == 0) {
 				g_bGTAOCoarse = (bool)fValue;
+			}
+			else if (_stricmp(param, "pbr_gtao_mips") == 0) {
+				g_bGTAOMips = (bool)fValue;
+			}
+			else if (_stricmp(param, "pbr_gtao_mip_offset") == 0) {
+				g_fGTAOMipOffset = max(0.0f, min(8.0f, fValue));
 			}
 			else if (_stricmp(param, "pbr_gtao_coarse_radius") == 0) {
 				g_fGTAOCoarseRadius = max(0.01f, fValue);

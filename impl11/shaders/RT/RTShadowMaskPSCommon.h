@@ -51,12 +51,15 @@ PixelShaderOutput main(PixelShaderInput input)
 	const float3 N      = Normal.xyz;
 
 	float rt_shadow_factor = 1.0f;
-	float occ_dist = RT_MAX_DIST;
+	// The mask's y is the depth of the pixel the shadow was traced from: the soft-shadow
+	// filter (SoftShadowFilter() in PBRAddV2Common.h) compares the depths of its taps with it,
+	// so it doesn't read the full-resolution position buffer. (It used to be the distance to
+	// the occluder, which nothing read.)
 
 	// If I remove the following, then the bloom mask is messed up!
 	// The skybox gets alpha = 0, but when MSAA is on, alpha goes from 0 to 0.5
 	if (Normal.w < 0.475) {
-		output.color = float4(rt_shadow_factor, occ_dist, 0, 1);
+		output.color = float4(rt_shadow_factor, P.z, 0, 1);
 		return output;
 	}
 
@@ -88,18 +91,14 @@ PixelShaderOutput main(PixelShaderInput input)
 
 			Intersection inters = TLASTraceRaySimpleHit(ray);
 			if (inters.TriID > -1)
-			{
 				rt_shadow_factor *= black_level;
-				occ_dist = inters.T * 0.024414; // Convert to meters (1/40.96)
-			}
 		}
 		else
 		{
 			rt_shadow_factor *= black_level;
-			occ_dist = 0; // This surface faces away from the light. Distance to occluder: 0
 		}
 	}
 
-	output.color = float4(rt_shadow_factor, occ_dist, 0, 1);
+	output.color = float4(rt_shadow_factor, P.z, 0, 1);
 	return output;
 }

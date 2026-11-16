@@ -547,6 +547,116 @@ float3 GTAODiffuseAO(float ao, float3 albedo)
 	return lerp(ao, GTAOMultiBounce(ao, albedo), gtao_multibounce);
 }
 
+// The soft-shadow filter of the RT shadow mask (raytracing_enable_soft_shadows), at a pixel
+// at P whose mask value is rtCenter. The mask is at 1 / RTShadowMaskSizeFactor of the
+// resolution: x is the shadow, y the depth of the pixel it was traced from
+// (RTShadowMaskPSCommon.h). The filter is a 5x5 Gaussian of the mask, 2 mask texels apart;
+// the taps on another surface (a depth more than RTSoftShadowThresholdMult * P.z away) use
+// the darkest value of the 3x3 texels around the pixel instead, so the shadows don't get a
+// lit halo at the edges of objects.
+// maskDepths: the taps' depths come from the mask's y. The position buffer (false: the old
+// filter) is at full resolution, and its scattered taps were mostly cache misses (about
+// 0.9 ms at 4K with RTShadowMaskSizeFactor = 2, half of the lighting pass; 0.64 ms with the
+// mask's depths). The mask is RTShadowMaskSizeFactor^2 times smaller.
+float SoftShadowFilter(PixelShaderInput input, float3 P, float rtCenter, bool maskDepths)
+{
+	const int range = 2;
+	int i, j;
+	float2 uv;
+	// When RTShadowMaskSizeFactor is 1, we won't get soft shadows because the uv_delta
+	// is too small. So we need to set a lower bound to have a good delta.
+	const float rtSizeFactor = max(2.0, RTShadowMaskSizeFactor);
+	const float2 uv_delta = float2(RTShadowMaskPixelSizeX * rtSizeFactor, RTShadowMaskPixelSizeY * rtSizeFactor);
+	const float2 uv_delta_d = uv_delta; // Dilation filter delta
+	const float2 uv_delta_r = range * uv_delta; // Soft shadow delta
+
+	// Apply a quick-and-dirty dilation filter to prevent haloes
+	const float2 uv0_d = input.uv - uv_delta_d;
+	float rtMin = rtCenter;
+	uv = uv0_d;
+	[unroll]
+	for (i = -1; i <= 1; i++)
+	{
+		uv.x = uv0_d.x;
+		[unroll]
+		for (j = -1; j <= 1; j++)
+		{
+#ifdef INSTANCED_RENDERING
+			rtMin = min(rtMin, rtShadowMask.Sample(sampColor, float3(uv, input.viewId)).x);
+#else
+			rtMin = min(rtMin, rtShadowMask.Sample(sampColor, uv).x);
+#endif
+			uv.x += uv_delta_d.x;
+		}
+		uv.y += uv_delta_d.y;
+	}
+
+	// The mask's size, to read its depths at the taps (without filtering: a blend of the
+	// depths of two objects would be a surface between them)
+	uint maskW, maskH;
+#ifdef INSTANCED_RENDERING
+	uint maskElems;
+	rtShadowMask.GetDimensions(maskW, maskH, maskElems);
+#else
+	rtShadowMask.GetDimensions(maskW, maskH);
+#endif
+	const float2 maskSize = float2(maskW, maskH);
+	const int2 maskMax = int2(maskW, maskH) - 1;
+	// The Gaussian weights, exp(-RTGaussFactor * (i^2 + j^2)), are powers of one value
+	const float g1 = exp(-RTGaussFactor);
+	const float g2 = g1 * g1;
+	const float g4 = g2 * g2;
+
+	float rtVal = 0;
+	float Gsum = 0;
+	const float2 uv0_r = input.uv - range * uv_delta_r;
+	uv = uv0_r;
+	[unroll]
+	for (i = -range; i <= range; i++)
+	{
+		uv.x = uv0_r.x;
+		[unroll]
+		for (j = -range; j <= range; j++)
+		{
+			float z;
+			if (maskDepths)
+			{
+				const int2 maskPx = clamp(int2(uv * maskSize), int2(0, 0), maskMax);
+#ifdef INSTANCED_RENDERING
+				z = rtShadowMask.Load(int4(maskPx, input.viewId, 0)).y;
+#else
+				z = rtShadowMask.Load(int3(maskPx, 0)).y;
+#endif
+			}
+			else
+			{
+#ifdef INSTANCED_RENDERING
+				z = texPos.Sample(sampPos, float3(uv, input.viewId)).z;
+#else
+				z = texPos.Sample(sampPos, uv).z;
+#endif
+			}
+			const float delta_z = abs(P.z - z);
+			// i and j are constants here, so this picks one of the powers
+			const int k = i * i + j * j;
+			const float G = k == 0 ? 1.0 : (k == 1 ? g1 : (k == 2 ? g2 : (k == 4 ? g4 : (k == 5 ? g4 * g1 : g4 * g4))));
+			// Objects far away should have bigger thresholds too
+			if (delta_z < RTSoftShadowThresholdMult * P.z)
+#ifdef INSTANCED_RENDERING
+				rtVal += G * rtShadowMask.Sample(sampColor, float3(uv, input.viewId)).x;
+#else
+				rtVal += G * rtShadowMask.Sample(sampColor, uv).x;
+#endif
+			else
+				rtVal += G * rtMin;
+			Gsum += G;
+			uv.x += uv_delta_r.x;
+		}
+		uv.y += uv_delta_r.y;
+	}
+	return rtVal / Gsum;
+}
+
 // The shadows of the lights that cast them, for a pixel: the ray-traced shadows (the
 // filtered RT shadow mask, or rays traced here) and the shadow maps, multiplied. They never
 // go below the black level. Shared by the lighting pass and the bounce light pass.
@@ -558,10 +668,6 @@ float ComputeSunShadowFactor(PixelShaderInput input, float3 P, float3 N)
 	{
 		if (RTEnableSoftShadows)
 		{
-			int i, j;
-			float2 uv;
-			float rtVal = 0;
-			const int range = 2;
 #ifdef INSTANCED_RENDERING
 			const float rtCenter = rtShadowMask.Sample(sampColor, float3(input.uv, input.viewId)).x;
 #else
@@ -573,67 +679,16 @@ float ComputeSunShadowFactor(PixelShaderInput input, float3 P, float3 N)
 			// and the positions about 60 times per pixel, which made the bounce pass expensive.
 			rt_shadow_factor = rtCenter;
 #else
-			// When RTShadowMaskSizeFactor is 1, we won't get soft shadows because the uv_delta
-			// is too small. So we need to set a lower bound to have a good delta.
-			const float rtSizeFactor = max(2.0, RTShadowMaskSizeFactor);
-			const float2 uv_delta = float2(RTShadowMaskPixelSizeX * rtSizeFactor, RTShadowMaskPixelSizeY * rtSizeFactor);
-			const float2 uv_delta_d = uv_delta; // Dilation filter delta
-			const float2 uv_delta_r = range * uv_delta; // Soft shadow delta
-
-			// Apply a quick-and-dirty dilation filter to prevent haloes
-			const float2 uv0_d = input.uv - uv_delta_d;
-			float rtMin = rtCenter;
-			uv = uv0_d;
-			[unroll]
-			for (i = -1; i <= 1; i++)
-			{
-				uv.x = uv0_d.x;
-				[unroll]
-				for (j = -1; j <= 1; j++)
-				{
-#ifdef INSTANCED_RENDERING
-					rtMin = min(rtMin, rtShadowMask.Sample(sampColor, float3(uv, input.viewId)).x);
-#else
-					rtMin = min(rtMin, rtShadowMask.Sample(sampColor, uv).x);
-#endif
-					uv.x += uv_delta_d.x;
-				}
-				uv.y += uv_delta_d.y;
-			}
-
-			float Gsum = 0;
-			const float2 uv0_r = input.uv - range * uv_delta_r;
-			uv = uv0_r;
-			[unroll]
-			for (i = -range; i <= range; i++)
-			{
-				uv.x = uv0_r.x;
-				[unroll]
-				for (j = -range; j <= range; j++)
-				{
-#ifdef INSTANCED_RENDERING
-					const float z = texPos.Sample(sampPos, float3(uv, input.viewId)).z;
-#else
-					const float z = texPos.Sample(sampPos, uv).z;
-#endif
-					const float delta_z = abs(P.z - z);
-					const float delta_ij = -RTGaussFactor * (i * i + j * j);
-					const float G = exp(delta_ij);
-					// Objects far away should have bigger thresholds too
-					if (delta_z < RTSoftShadowThresholdMult * P.z)
-#ifdef INSTANCED_RENDERING
-						rtVal += G * rtShadowMask.Sample(sampColor, float3(uv, input.viewId)).x;
-#else
-						rtVal += G * rtShadowMask.Sample(sampColor, uv).x;
-#endif
-					else
-						rtVal += G * rtMin;
-					Gsum += G;
-					uv.x += uv_delta_r.x;
-				}
-				uv.y += uv_delta_r.y;
-			}
-			rt_shadow_factor = rtVal / Gsum;
+			// TEMPORARY (lighting_skip_test): 1 only the center of the mask (to measure the
+			// filter), 5 the old filter (the depths from the position buffer)
+			const int skipTest = (int)lighting_skip_test;
+			[branch]
+			if (skipTest == 1)
+				rt_shadow_factor = rtCenter;
+			else if (skipTest == 5)
+				rt_shadow_factor = SoftShadowFilter(input, P, rtCenter, false);
+			else
+				rt_shadow_factor = SoftShadowFilter(input, P, rtCenter, true);
 #endif
 		}
 		else
@@ -1013,10 +1068,10 @@ PixelShaderOutput main(PixelShaderInput input)
 	// least occluded direction) is used to look up the cubemap's ambient light. The sun has
 	// real shadows, so it isn't occluded.
 	const bool bGTAO = gtao_enabled > 0.5;
-	float4 gtao = 1.0;
+	float4 gtao = float4(normalize(float3(Normal.x, Normal.y, -Normal.z)), 1.0);
 	float fineAO = 1.0, coarseAO = 1.0; // For pbr_gtao_debug
 	[branch]
-	if (bGTAO)
+	if (bGTAO && (int)lighting_skip_test != 2) // TEMPORARY (2): no GTAO upsample
 	{
 #ifdef INSTANCED_RENDERING
 		const uint viewId = input.viewId;
@@ -1173,7 +1228,8 @@ PixelShaderOutput main(PixelShaderInput input)
 	skyBoxNormal           = mul(viewMat, float4(skyBoxNormal, 0)).xyz;
 	float3 skyBoxReflCol   = 1;
 	float3 skyBoxNormalCol = 1;
-	if (cubeMappingEnabled)
+	[branch]
+	if (cubeMappingEnabled && (int)lighting_skip_test != 3) // TEMPORARY (3): no cubemap sampling
 	{
 		uint faceSize, faceSize2, mipCount;
 		skybox.GetDimensions(0, faceSize, faceSize2, mipCount);
@@ -1223,8 +1279,9 @@ PixelShaderOutput main(PixelShaderInput input)
 	float3 direct = 0.0;
 	float4 tmp_bloom = 0.0;
 	uint i;
+	const uint lightLoopCount = (int)lighting_skip_test == 4 ? 0 : LightCount; // TEMPORARY (4): no XWA lights
 	[loop]
-	for (i = 0; i < LightCount; i++)
+	for (i = 0; i < lightLoopCount; i++)
 	{
 		float black_level, dummyMinZ, dummyMaxZ;
 		float shadow_factor = 1.0;

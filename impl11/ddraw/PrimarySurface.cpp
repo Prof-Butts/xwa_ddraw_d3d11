@@ -2508,12 +2508,13 @@ static float HLSLSmoothStep(float edge0, float edge1, float x)
 	return t * t * (3.0f - 2.0f * t);
 }
 
-// The squared range of a light (view space, meters) in the new PBR shading; 0 when it's too
-// faint to see anywhere. P.z is the light's depth (positive away from the camera).
-static float GetDynamicLightRangeSqr(const VectorColor& light)
+// The squared range of a light (view space, meters); 0 when it's too faint to see anywhere.
+// P.z is the light's depth (positive away from the camera). intensity and exposure are the
+// active shading's (pbr_laser_light_intensity and pbr_exposure, or the legacy ones).
+static float GetDynamicLightRangeSqr(const VectorColor& light, float intensity, float exposure)
 {
 	const float maxColor = max(light.col.x, max(light.col.y, light.col.z));
-	const float scale = maxColor * g_fPBRLaserLightIntensity * g_fPBRExposure;
+	const float scale = maxColor * intensity * exposure;
 	if (scale <= 0.0f)
 		return 0.0f;
 	if (light.falloff == 0.0f)
@@ -2988,15 +2989,19 @@ void SetLights(DeviceResources *resources, float fSSDOEnabled) {
 
 		//g_LaserList.remove_duplicates();
 		// The new PBR shading drops the lights too faint to see and merges the ones at about the
-		// same place (see GetDynamicLightRangeSqr()); the other shadings get the list as it is.
+		// same place (see GetDynamicLightRangeSqr()), and so do the legacy PBR and Deferred
+		// shading with laser_light_range; otherwise they get the list as it is.
+		const bool bLightRanges = bPBRShadingV2 || g_bLegacyLaserLightRange;
+		const float rangeIntensity = bPBRShadingV2 ? g_fPBRLaserLightIntensity : g_fLaserLightIntensity;
+		const float rangeExposure = bPBRShadingV2 ? g_fPBRExposure : g_fExposure;
 		VectorColor lights[MAX_CB_POINT_LIGHTS];
 		float rangeSqr[MAX_CB_POINT_LIGHTS];
 		int num_lasers = 0;
 		for (i = 0; i < g_LaserList._size; i++) {
 			const VectorColor& light = g_LaserList._elems[i];
-			if (bPBRShadingV2)
+			if (bLightRanges)
 			{
-				if (GetDynamicLightRangeSqr(light) <= 0.0f)
+				if (GetDynamicLightRangeSqr(light, rangeIntensity, rangeExposure) <= 0.0f)
 					continue;
 				bool merged = false;
 				for (int j = 0; j < num_lasers && !merged; j++)
@@ -3006,9 +3011,9 @@ void SetLights(DeviceResources *resources, float fSSDOEnabled) {
 			}
 			lights[num_lasers++] = light;
 		}
-		// The ranges, after merging; 0 (no limit) for the other shadings, which don't read it
+		// The ranges, after merging; 0: no limit
 		for (i = 0; i < num_lasers; i++)
-			rangeSqr[i] = bPBRShadingV2 ? GetDynamicLightRangeSqr(lights[i]) : 0.0f;
+			rangeSqr[i] = bLightRanges ? GetDynamicLightRangeSqr(lights[i], rangeIntensity, rangeExposure) : 0.0f;
 		g_ShadingSys_PSBuffer.num_lasers = num_lasers;
 		for (i = 0; i < num_lasers; i++) {
 			// Set the lights from the lasers
@@ -3020,7 +3025,8 @@ void SetLights(DeviceResources *resources, float fSSDOEnabled) {
 			g_ShadingSys_PSBuffer.LightPointColor[i].x = lights[i].col.x;
 			g_ShadingSys_PSBuffer.LightPointColor[i].y = lights[i].col.y;
 			g_ShadingSys_PSBuffer.LightPointColor[i].z = lights[i].col.z;
-			// The light's squared range (new PBR shading only; 0: no limit)
+			// The light's squared range (0: no limit). The new PBR, legacy PBR and Deferred shading
+			// read it.
 			g_ShadingSys_PSBuffer.LightPointColor[i].w = rangeSqr[i];
 
 			g_ShadingSys_PSBuffer.LightPointDirection[i].x = lights[i].dir.x;

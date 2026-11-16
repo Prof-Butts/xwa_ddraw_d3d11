@@ -277,6 +277,9 @@ float g_fHangarAmbient = 0.05f, g_fGlobalAmbient = 0.005f;
 // laser_light_intensity, so both shadings can be tuned separately. See SetLights().
 float g_fPBRAmbient = 0.005f, g_fPBRHangarAmbient = 0.05f, g_fPBRLightsIntensity = 2.8f;
 float g_fPBRLaserLightIntensity = 6.0f, g_fLaserLightIntensity = 6.0f;
+// The legacy PBR and Deferred shading limit each laser/explosion light's range, like the new PBR
+// shading (faster; the faintest part of the lights' falloff is cut)
+bool g_bLegacyLaserLightRange = true;
 
 extern float g_fMoireOffsetDir, g_fMoireOffsetInd;
 bool g_bAOEnabled = DEFAULT_AO_ENABLED_STATE;
@@ -2436,6 +2439,7 @@ bool LoadSSAOParams() {
 	g_ShadingSys_PSBuffer.lightness_boost = 2.0f;
 	g_ShadingSys_PSBuffer.sqr_attenuation = 0.001f; // Smaller numbers fade less
 	g_fLaserLightIntensity = 6.0f;
+	g_bLegacyLaserLightRange = true;
 	g_bHDREnabled = false;
 	g_fHDRWhitePoint = 1.0f;
 	g_fHDRLightsMultiplier = 2.8f;
@@ -3335,6 +3339,9 @@ bool LoadSSAOParams() {
 				// so the new method now looks too dim. To compensate, we probably need to double the
 				// laser light intensity here.
 				g_fLaserLightIntensity = 2.0f * fValue;
+			}
+			else if (_stricmp(param, "laser_light_range") == 0) {
+				g_bLegacyLaserLightRange = (bool)fValue;
 			}
 			else if (_stricmp(param, "headlights_pos") == 0) {
 				float x, y, z;

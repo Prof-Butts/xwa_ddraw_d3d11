@@ -622,3 +622,6 @@ void CubeMapEditIncrAngZ(float mult, bool overlay);
 // Global functions
 // *****************************************************
 void RenderDeferredDrawCalls();
+
+// The legacy PBR and Deferred shading limit each laser/explosion light's range (laser_light_range)
+extern bool g_bLegacyLaserLightRange;

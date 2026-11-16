@@ -778,9 +778,15 @@ PixelShaderOutput main(PixelShaderInput input)
 		const float falloff = LightPoint[i].w;
 		const float3 LDir = LightPointDirection[i].xyz;
 		const float angle_falloff_cos = LightPointDirection[i].w;
+		// The light's squared range (SetLights() in ddraw, laser_light_range): past it, its light
+		// is too faint to matter, so the rest is skipped. 0: no limit.
+		const float rangeSqr = LightPointColor[i].w;
 		
 		float attenuation, depth_attenuation, angle_attenuation = 1.0f;
 		const float distance_sqr = dot(L, L);
+		[branch]
+		if (rangeSqr > 0.0 && distance_sqr >= rangeSqr)
+			continue;
 		L *= rsqrt(distance_sqr); // Normalize L
 		// calculate the attenuation for laser lights
 		if (falloff == 0.0f) {
@@ -795,6 +801,12 @@ PixelShaderOutput main(PixelShaderInput input)
 		else {
 			depth_attenuation = 1.0;
 			attenuation = falloff / distance_sqr;
+		}
+		// Fade it to 0 at the range, so the cut isn't a visible edge: (1 - (d/r)^4)^2, as in UE4
+		if (rangeSqr > 0.0) {
+			const float x = distance_sqr / rangeSqr;
+			const float window = saturate(1.0 - x * x);
+			attenuation *= window * window;
 		}
 		// calculate the attenuation for directional lights
 		if (angle_falloff_cos != 0.0f) {

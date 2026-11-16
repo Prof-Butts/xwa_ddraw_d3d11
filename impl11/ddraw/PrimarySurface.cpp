@@ -2493,6 +2493,71 @@ static bool IsPBRShadingV2Active()
 	return g_SSAO_Type == SSO_PBR && g_bPBRShadingV2 && !g_bEnableHeadLights;
 }
 
+// The laser/explosion lights in the new PBR shading (ComputeDynamicLights() in
+// PBRAddV2Common.h). Their light never reaches exactly 0, so each light gets a range: past
+// it, the light it adds is below DYNAMIC_LIGHT_CUTOFF before the tonemapping (invisible:
+// ACES maps such small values to black, and on mid-tones it's below 1/255), and the shader
+// skips it there. A light whose range is 0 (a laser past 1000 m, where its depth fade is 0)
+// is dropped, and lights at about the same place are merged, so fewer lights are evaluated
+// per pixel. Keep the attenuation in sync with ComputeDynamicLights().
+static const float DYNAMIC_LIGHT_CUTOFF = 1.0f / 1024.0f;
+
+static float HLSLSmoothStep(float edge0, float edge1, float x)
+{
+	const float t = min(max((x - edge0) / (edge1 - edge0), 0.0f), 1.0f);
+	return t * t * (3.0f - 2.0f * t);
+}
+
+// The squared range of a light (view space, meters) in the new PBR shading; 0 when it's too
+// faint to see anywhere. P.z is the light's depth (positive away from the camera).
+static float GetDynamicLightRangeSqr(const VectorColor& light)
+{
+	const float maxColor = max(light.col.x, max(light.col.y, light.col.z));
+	const float scale = maxColor * g_fPBRLaserLightIntensity * g_fPBRExposure;
+	if (scale <= 0.0f)
+		return 0.0f;
+	if (light.falloff == 0.0f)
+	{
+		// Lasers: depthAttenuation / (1 + k * d^2), where depthAttenuation fades with the
+		// laser's depth (L_FADEOUT_* in PBRAddV2Common.h)
+		const float Z = light.P.z;
+		const float depthAttenuation = max(0.15f * HLSLSmoothStep(50.0f, 30.0f, Z),
+			0.1f * HLSLSmoothStep(1000.0f, 50.0f, Z));
+		const float peak = depthAttenuation * scale;
+		if (peak <= DYNAMIC_LIGHT_CUTOFF)
+			return 0.0f;
+		const float k = g_ShadingSys_PSBuffer.sqr_attenuation;
+		return k > 0.0f ? (peak / DYNAMIC_LIGHT_CUTOFF - 1.0f) / k : 1e30f;
+	}
+	// Explosions and other lights: falloff / d^2
+	return max(light.falloff, 0.0f) * scale / DYNAMIC_LIGHT_CUTOFF;
+}
+
+// Merges light b into light a when they're point lights of the same kind at about the same
+// place (within 1% of their depth, at least 0.5 m): one laser bolt can add several lights.
+// The merged light is at their brightness-weighted center, with their summed light.
+static bool MergeDynamicLights(VectorColor& a, const VectorColor& b)
+{
+	if (a.angle != 0.0f || b.angle != 0.0f || (a.falloff == 0.0f) != (b.falloff == 0.0f))
+		return false;
+	const float dx = a.P.x - b.P.x, dy = a.P.y - b.P.y, dz = a.P.z - b.P.z;
+	const float maxDist = max(0.5f, 0.01f * min(fabs(a.P.z), fabs(b.P.z)));
+	if (dx * dx + dy * dy + dz * dz > maxDist * maxDist)
+		return false;
+	// Explosions' light is falloff * color: b's color is rescaled to a's falloff
+	const float bScale = (a.falloff > 0.0f) ? b.falloff / a.falloff : 1.0f;
+	const float wa = max(a.col.x, max(a.col.y, a.col.z)) * (a.falloff > 0.0f ? a.falloff : 1.0f);
+	const float wb = max(b.col.x, max(b.col.y, b.col.z)) * (b.falloff > 0.0f ? b.falloff : 1.0f);
+	const float w = wa + wb > 0.0f ? wb / (wa + wb) : 0.5f;
+	a.P.x += (b.P.x - a.P.x) * w;
+	a.P.y += (b.P.y - a.P.y) * w;
+	a.P.z += (b.P.z - a.P.z) * w;
+	a.col.x += b.col.x * bScale;
+	a.col.y += b.col.y * bScale;
+	a.col.z += b.col.z * bScale;
+	return true;
+}
+
 void SetLights(DeviceResources *resources, float fSSDOEnabled) {
 	Vector4 light;
 	int i;
@@ -2922,24 +2987,46 @@ void SetLights(DeviceResources *resources, float fSSDOEnabled) {
 		// DEBUG
 
 		//g_LaserList.remove_duplicates();
-		int num_lasers = g_LaserList._size;
+		// The new PBR shading drops the lights too faint to see and merges the ones at about the
+		// same place (see GetDynamicLightRangeSqr()); the other shadings get the list as it is.
+		VectorColor lights[MAX_CB_POINT_LIGHTS];
+		float rangeSqr[MAX_CB_POINT_LIGHTS];
+		int num_lasers = 0;
+		for (i = 0; i < g_LaserList._size; i++) {
+			const VectorColor& light = g_LaserList._elems[i];
+			if (bPBRShadingV2)
+			{
+				if (GetDynamicLightRangeSqr(light) <= 0.0f)
+					continue;
+				bool merged = false;
+				for (int j = 0; j < num_lasers && !merged; j++)
+					merged = MergeDynamicLights(lights[j], light);
+				if (merged)
+					continue;
+			}
+			lights[num_lasers++] = light;
+		}
+		// The ranges, after merging; 0 (no limit) for the other shadings, which don't read it
+		for (i = 0; i < num_lasers; i++)
+			rangeSqr[i] = bPBRShadingV2 ? GetDynamicLightRangeSqr(lights[i]) : 0.0f;
 		g_ShadingSys_PSBuffer.num_lasers = num_lasers;
 		for (i = 0; i < num_lasers; i++) {
 			// Set the lights from the lasers
-			g_ShadingSys_PSBuffer.LightPoint[i].x =  g_LaserList._elems[i].P.x;
-			g_ShadingSys_PSBuffer.LightPoint[i].y =  g_LaserList._elems[i].P.y;
-			g_ShadingSys_PSBuffer.LightPoint[i].z = -g_LaserList._elems[i].P.z;
-			g_ShadingSys_PSBuffer.LightPoint[i].w =  g_LaserList._elems[i].falloff;
+			g_ShadingSys_PSBuffer.LightPoint[i].x =  lights[i].P.x;
+			g_ShadingSys_PSBuffer.LightPoint[i].y =  lights[i].P.y;
+			g_ShadingSys_PSBuffer.LightPoint[i].z = -lights[i].P.z;
+			g_ShadingSys_PSBuffer.LightPoint[i].w =  lights[i].falloff;
 
-			g_ShadingSys_PSBuffer.LightPointColor[i].x = g_LaserList._elems[i].col.x;
-			g_ShadingSys_PSBuffer.LightPointColor[i].y = g_LaserList._elems[i].col.y;
-			g_ShadingSys_PSBuffer.LightPointColor[i].z = g_LaserList._elems[i].col.z;
-			// g_ShadingSys_PSBuffer.LightPointColor[i].w is unused
+			g_ShadingSys_PSBuffer.LightPointColor[i].x = lights[i].col.x;
+			g_ShadingSys_PSBuffer.LightPointColor[i].y = lights[i].col.y;
+			g_ShadingSys_PSBuffer.LightPointColor[i].z = lights[i].col.z;
+			// The light's squared range (new PBR shading only; 0: no limit)
+			g_ShadingSys_PSBuffer.LightPointColor[i].w = rangeSqr[i];
 
-			g_ShadingSys_PSBuffer.LightPointDirection[i].x = g_LaserList._elems[i].dir.x;
-			g_ShadingSys_PSBuffer.LightPointDirection[i].y = g_LaserList._elems[i].dir.y;
-			g_ShadingSys_PSBuffer.LightPointDirection[i].z = g_LaserList._elems[i].dir.z;
-			g_ShadingSys_PSBuffer.LightPointDirection[i].w = g_LaserList._elems[i].angle;
+			g_ShadingSys_PSBuffer.LightPointDirection[i].x = lights[i].dir.x;
+			g_ShadingSys_PSBuffer.LightPointDirection[i].y = lights[i].dir.y;
+			g_ShadingSys_PSBuffer.LightPointDirection[i].z = lights[i].dir.z;
+			g_ShadingSys_PSBuffer.LightPointDirection[i].w = lights[i].angle;
 		}
 	}
 	else

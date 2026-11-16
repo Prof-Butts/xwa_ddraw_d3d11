@@ -257,6 +257,7 @@ int g_iPBRGIEmitterScale = 2, g_iPBRGIEmitterSlices = 2, g_iPBRGIEmitterSteps = 
 bool g_bPBRGIEmitterMips = true;
 float g_fPBRGIEmitterMipOffset = 3.3f;
 bool g_bPBRGIMips = true;
+int g_iLightingSkipTest = 0; // TEMPORARY (Ctrl+Alt+Y): skips parts of the lighting pass, to measure them
 float g_fPBRGIMipOffset = 3.3f;
 float g_fPBRGIEmitterRadius = 5.0f, g_fPBRGIEmitterMaxRadius = 0.15f;
 int g_iPBRGISlices = 3, g_iPBRGISteps = 8;

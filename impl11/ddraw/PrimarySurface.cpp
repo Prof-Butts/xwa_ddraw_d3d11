@@ -3092,6 +3092,7 @@ void SetLights(DeviceResources *resources, float fSSDOEnabled) {
 	g_ShadingSys_PSBuffer.gi_intensity = g_fPBRGIIntensity;
 	g_ShadingSys_PSBuffer.gi_emitter_boost = g_fPBRGIEmitterBoost;
 	g_ShadingSys_PSBuffer.gi_emitters = g_bPBRGIEmitters ? 1.0f : 0.0f;
+	g_ShadingSys_PSBuffer.lighting_skip_test = (float)g_iLightingSkipTest; // TEMPORARY
 	g_ShadingSys_PSBuffer.gi_emitter_scale = (float)g_iPBRGIEmitterScale;
 	// The cubemap's ambient light and reflections (only the new PBR shading reads them)
 	g_ShadingSys_PSBuffer.env_ambient_mult = g_fPBRCubeMapAmbient;
@@ -4680,6 +4681,9 @@ void PrimarySurface::DeferredPass()
 			const double* section = stats.sectionAvgMs;
 			log_debug("[DBG] [GTAO] PBR lighting GPU time, GTAO %s: avg %0.3f ms, min %0.3f ms, max %0.3f ms, %d frames",
 				gtaoState, stats.avgMs, stats.minMs, stats.maxMs, stats.numFrames);
+			// TEMPORARY (Ctrl+Alt+Y): what the lighting pass skips
+			static const char* skipNames[] = { "nothing", "soft shadows", "GTAO upsample", "cubemap", "XWA lights", "nothing, old soft shadows" };
+			log_debug("[DBG] [GTAO]   lighting test mode %d: skipping %s", g_iLightingSkipTest, skipNames[g_iLightingSkipTest % 6]);
 			log_debug("[DBG] [GTAO]   setup %0.3f, bounce %0.3f, gtao %0.3f, denoise %0.3f, coarse %0.3f, gather %0.3f, gi denoise %0.3f, lighting %0.3f ms",
 				section[GTAO_TIMER_SETUP], section[GTAO_TIMER_BOUNCE], section[GTAO_TIMER_GTAO],
 				section[GTAO_TIMER_DENOISE], section[GTAO_TIMER_COARSE], section[GTAO_TIMER_GATHER],

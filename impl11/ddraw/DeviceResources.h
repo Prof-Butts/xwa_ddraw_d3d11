@@ -326,6 +326,11 @@ public:
 	ComPtr<ID3D11Texture2D> _csmArray;       // Cascaded Shadow Map array
 	// Raytracing
 	ComPtr<ID3D11Texture2D> _rtShadowMask;
+	// The soft shadows, filtered at the mask's resolution (RTSoftShadowFilterCommon.h), for the
+	// new PBR shading
+	ComPtr<ID3D11Texture2D> _rtSoftShadowBuf;
+	ComPtr<ID3D11RenderTargetView> _rtSoftShadowRTV;
+	ComPtr<ID3D11ShaderResourceView> _rtSoftShadowSRV;
 	ComPtr<ID3D11Texture2D> _rtShadowMaskR;
 	// Generated/Procedural Textures
 	ComPtr<ID3D11Texture2D> _grayNoiseTex;
@@ -621,6 +626,8 @@ public:
 	ComPtr<ID3D11PixelShader> _levelsPS;
 	ComPtr<ID3D11PixelShader> _rtShadowMaskPS;
 	ComPtr<ID3D11PixelShader> _rtShadowMaskPS_VR;
+	ComPtr<ID3D11PixelShader> _rtSoftShadowFilterPS;
+	ComPtr<ID3D11PixelShader> _rtSoftShadowFilterPS_VR;
 
 	ComPtr<ID3D11RasterizerState> _rasterizerState;
 	//ComPtr<ID3D11RasterizerState> _sm_rasterizerState; // TODO: Remove this if proven useless

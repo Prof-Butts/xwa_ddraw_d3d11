@@ -109,6 +109,8 @@
     <FxCompile Include="GTAOGIVR.hlsl" />
     <FxCompile Include="GIGeomMips.hlsl" />
     <FxCompile Include="GIGeomMipsVR.hlsl" />
+    <FxCompile Include="RT\RTSoftShadowFilter.hlsl" />
+    <FxCompile Include="RT\RTSoftShadowFilter_VR.hlsl" />
     <FxCompile Include="GTAODenoise.hlsl" />
     <FxCompile Include="GTAODenoiseVR.hlsl" />
     <FxCompile Include="GIDenoise.hlsl" />

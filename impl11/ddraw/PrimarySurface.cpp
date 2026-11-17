@@ -4403,6 +4403,61 @@ void PrimarySurface::GTAOPass()
 	this->_deviceResources->EndAnnotatedEvent();
 }
 
+// True when the new PBR shading upsamples the soft shadows filtered at the RT mask's
+// resolution (RenderSoftShadowFilter()). TEMPORARY: test mode 1 (Ctrl+Alt+Y) skips it.
+static bool IsSoftShadowFilterPassActive(DeviceResources* resources)
+{
+	return IsPBRShadingV2Active() && g_bRTEnabled && g_bRTEnableSoftShadows &&
+		resources->_rtSoftShadowRTV.Get() != nullptr && g_iLightingSkipTest != 1;
+}
+
+// The soft-shadow filter of the RT shadow mask at the mask's resolution
+// (RTSoftShadowFilterCommon.h), into _rtSoftShadowBuf, which the lighting pass upsamples
+// (t24). It sets its own viewport, render target, shader and blend state; the caller sets
+// the lighting pass's again. It uses the RT constants (b10) that the lighting pass binds.
+static void RenderSoftShadowFilter(DeviceResources* resources)
+{
+	auto& context = resources->_d3dDeviceContext;
+
+	ComPtr<ID3D11BlendState> prevBlendState;
+	FLOAT prevBlendFactor[4];
+	UINT prevSampleMask;
+	context->OMGetBlendState(prevBlendState.GetAddressOf(), prevBlendFactor, &prevSampleMask);
+	D3D11_BLEND_DESC blendDesc{};
+	blendDesc.RenderTarget[0].BlendEnable = FALSE;
+	blendDesc.RenderTarget[0].SrcBlend = D3D11_BLEND_ONE;
+	blendDesc.RenderTarget[0].DestBlend = D3D11_BLEND_ZERO;
+	blendDesc.RenderTarget[0].BlendOp = D3D11_BLEND_OP_ADD;
+	blendDesc.RenderTarget[0].SrcBlendAlpha = D3D11_BLEND_ONE;
+	blendDesc.RenderTarget[0].DestBlendAlpha = D3D11_BLEND_ZERO;
+	blendDesc.RenderTarget[0].BlendOpAlpha = D3D11_BLEND_OP_ADD;
+	blendDesc.RenderTarget[0].RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL;
+	resources->InitBlendState(nullptr, &blendDesc);
+
+	// The mask's size, like RenderRTShadowMask()
+	D3D11_VIEWPORT viewport{};
+	viewport.Width    = g_fCurScreenWidth  / g_RTConstantsBuffer.RTShadowMaskSizeFactor;
+	viewport.Height   = g_fCurScreenHeight / g_RTConstantsBuffer.RTShadowMaskSizeFactor;
+	viewport.MaxDepth = D3D11_MAX_DEPTH;
+	viewport.MinDepth = D3D11_MIN_DEPTH;
+	resources->InitViewport(&viewport);
+
+	ID3D11RenderTargetView* rtvs[1] = { resources->_rtSoftShadowRTV.Get() };
+	context->OMSetRenderTargets(1, rtvs, NULL);
+	ID3D11ShaderResourceView* srvs[1] = { resources->_rtShadowMaskSRV.Get() };
+	context->PSSetShaderResources(0, 1, srvs);
+	resources->InitPixelShader(g_bUseSteamVR ? resources->_rtSoftShadowFilterPS_VR : resources->_rtSoftShadowFilterPS);
+	if (g_bUseSteamVR)
+		context->DrawInstanced(6, 2, 0, 0);
+	else
+		context->Draw(6, 0);
+
+	ID3D11ShaderResourceView* nullSRVs[1] = { NULL };
+	context->PSSetShaderResources(0, 1, nullSRVs);
+	context->OMSetRenderTargets(0, nullptr, nullptr);
+	context->OMSetBlendState(prevBlendState.Get(), prevBlendFactor, prevSampleMask);
+}
+
 void PrimarySurface::DeferredPass()
 {
 	this->_deviceResources->BeginAnnotatedEvent(L"DeferredLightingPass");
@@ -4565,6 +4620,14 @@ void PrimarySurface::DeferredPass()
 	// Deferred pass, Left Image
 	{
 		g_GTAOGPUTimer.Mark(context, GTAO_TIMER_LIGHTING);
+		// The soft shadows, filtered at the RT mask's resolution; its GPU time is in the
+		// lighting section, like the per-pixel filter it replaces
+		const bool bSoftShadowPass = IsSoftShadowFilterPassActive(resources);
+		if (bSoftShadowPass)
+		{
+			RenderSoftShadowFilter(resources);
+			resources->InitPixelShader(GetDeferredShadingPS(resources));
+		}
 		// input: offscreenAsInput (resolved here), normBuf
 		// output: offscreenBuf, bloomMask
 		viewport.TopLeftX = 0.0f;
@@ -4645,6 +4708,9 @@ void PrimarySurface::DeferredPass()
 			// Slots 14-17 are used for Raytracing buffers (BLASes, Matrices, TLAS, RTShadowMask)
 			context->PSSetShaderResources(14, 4, srvs);
 		}
+		// The filtered soft shadows (t24)
+		ID3D11ShaderResourceView* softShadowSRV[1] = { bSoftShadowPass ? resources->_rtSoftShadowSRV.Get() : NULL };
+		context->PSSetShaderResources(24, 1, softShadowSRV);
 
 		{
 			ID3D11ShaderResourceView* srvs[] = {
@@ -4668,6 +4734,7 @@ void PrimarySurface::DeferredPass()
 	context->PSSetShaderResources(1, 1, srvs);
 	context->PSSetShaderResources(8, 4, srvs);
 	context->PSSetShaderResources(12, 2, srvs);
+	context->PSSetShaderResources(24, 1, srvs);
 
 	if (bGPUTimer)
 	{
@@ -4682,8 +4749,8 @@ void PrimarySurface::DeferredPass()
 			log_debug("[DBG] [GTAO] PBR lighting GPU time, GTAO %s: avg %0.3f ms, min %0.3f ms, max %0.3f ms, %d frames",
 				gtaoState, stats.avgMs, stats.minMs, stats.maxMs, stats.numFrames);
 			// TEMPORARY (Ctrl+Alt+Y): what the lighting pass skips
-			static const char* skipNames[] = { "nothing", "soft shadows", "GTAO upsample", "cubemap", "XWA lights", "nothing, old soft shadows" };
-			log_debug("[DBG] [GTAO]   lighting test mode %d: skipping %s", g_iLightingSkipTest, skipNames[g_iLightingSkipTest % 6]);
+			static const char* skipNames[] = { "nothing", "soft shadows", "GTAO upsample", "cubemap", "XWA lights" };
+			log_debug("[DBG] [GTAO]   lighting test mode %d: skipping %s", g_iLightingSkipTest, skipNames[g_iLightingSkipTest % 5]);
 			log_debug("[DBG] [GTAO]   setup %0.3f, bounce %0.3f, gtao %0.3f, denoise %0.3f, coarse %0.3f, gather %0.3f, gi denoise %0.3f, lighting %0.3f ms",
 				section[GTAO_TIMER_SETUP], section[GTAO_TIMER_BOUNCE], section[GTAO_TIMER_GTAO],
 				section[GTAO_TIMER_DENOISE], section[GTAO_TIMER_COARSE], section[GTAO_TIMER_GATHER],

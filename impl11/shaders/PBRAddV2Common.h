@@ -88,6 +88,8 @@ SamplerState samplerSSMask : register(s6);
 
 // The RT Shadow Mask
 Texture2DArray rtShadowMask : register(t17);
+// The soft shadows, filtered at the mask's resolution (RTSoftShadowFilterCommon.h)
+Texture2DArray rtSoftShadow : register(t24);
 
 // Transparent layer 1
 Texture2DArray transp1 : register(t18);
@@ -135,6 +137,8 @@ SamplerState samplerSSMask : register(s6);
 
 // The RT Shadow Mask
 Texture2D rtShadowMask : register(t17);
+// The soft shadows, filtered at the mask's resolution (RTSoftShadowFilterCommon.h)
+Texture2D rtSoftShadow : register(t24);
 
 // Transparent layer 1
 Texture2D transp1 : register(t18);
@@ -547,114 +551,42 @@ float3 GTAODiffuseAO(float ao, float3 albedo)
 	return lerp(ao, GTAOMultiBounce(ao, albedo), gtao_multibounce);
 }
 
-// The soft-shadow filter of the RT shadow mask (raytracing_enable_soft_shadows), at a pixel
-// at P whose mask value is rtCenter. The mask is at 1 / RTShadowMaskSizeFactor of the
-// resolution: x is the shadow, y the depth of the pixel it was traced from
-// (RTShadowMaskPSCommon.h). The filter is a 5x5 Gaussian of the mask, 2 mask texels apart;
-// the taps on another surface (a depth more than RTSoftShadowThresholdMult * P.z away) use
-// the darkest value of the 3x3 texels around the pixel instead, so the shadows don't get a
-// lit halo at the edges of objects.
-// maskDepths: the taps' depths come from the mask's y. The position buffer (false: the old
-// filter) is at full resolution, and its scattered taps were mostly cache misses (about
-// 0.9 ms at 4K with RTShadowMaskSizeFactor = 2, half of the lighting pass; 0.64 ms with the
-// mask's depths). The mask is RTShadowMaskSizeFactor^2 times smaller.
-float SoftShadowFilter(PixelShaderInput input, float3 P, float rtCenter, bool maskDepths)
+// The soft shadows at a pixel at depth z: the 4 nearest texels of the shadows filtered at
+// the mask's resolution (rtSoftShadow, RTSoftShadowFilterCommon.h), blended with bilinear
+// weights and skipping the ones at another depth (more than RTSoftShadowThresholdMult * z
+// away), so a shadow doesn't spread to the objects in front of or behind it. When none of
+// them is on this surface (thin objects, silhouettes), the pixel's own value of the mask,
+// unfiltered (rtCenter).
+float SoftShadowUpsample(PixelShaderInput input, float z, float rtCenter)
 {
-	const int range = 2;
-	int i, j;
-	float2 uv;
-	// When RTShadowMaskSizeFactor is 1, we won't get soft shadows because the uv_delta
-	// is too small. So we need to set a lower bound to have a good delta.
-	const float rtSizeFactor = max(2.0, RTShadowMaskSizeFactor);
-	const float2 uv_delta = float2(RTShadowMaskPixelSizeX * rtSizeFactor, RTShadowMaskPixelSizeY * rtSizeFactor);
-	const float2 uv_delta_d = uv_delta; // Dilation filter delta
-	const float2 uv_delta_r = range * uv_delta; // Soft shadow delta
-
-	// Apply a quick-and-dirty dilation filter to prevent haloes
-	const float2 uv0_d = input.uv - uv_delta_d;
-	float rtMin = rtCenter;
-	uv = uv0_d;
-	[unroll]
-	for (i = -1; i <= 1; i++)
-	{
-		uv.x = uv0_d.x;
-		[unroll]
-		for (j = -1; j <= 1; j++)
-		{
-#ifdef INSTANCED_RENDERING
-			rtMin = min(rtMin, rtShadowMask.Sample(sampColor, float3(uv, input.viewId)).x);
-#else
-			rtMin = min(rtMin, rtShadowMask.Sample(sampColor, uv).x);
-#endif
-			uv.x += uv_delta_d.x;
-		}
-		uv.y += uv_delta_d.y;
-	}
-
-	// The mask's size, to read its depths at the taps (without filtering: a blend of the
-	// depths of two objects would be a surface between them)
 	uint maskW, maskH;
 #ifdef INSTANCED_RENDERING
 	uint maskElems;
-	rtShadowMask.GetDimensions(maskW, maskH, maskElems);
+	rtSoftShadow.GetDimensions(maskW, maskH, maskElems);
+#define SOFT_SHADOW_LOAD(p) rtSoftShadow.Load(int4(p, input.viewId, 0)).xy
 #else
-	rtShadowMask.GetDimensions(maskW, maskH);
+	rtSoftShadow.GetDimensions(maskW, maskH);
+#define SOFT_SHADOW_LOAD(p) rtSoftShadow.Load(int3(p, 0)).xy
 #endif
-	const float2 maskSize = float2(maskW, maskH);
-	const int2 maskMax = int2(maskW, maskH) - 1;
-	// The Gaussian weights, exp(-RTGaussFactor * (i^2 + j^2)), are powers of one value
-	const float g1 = exp(-RTGaussFactor);
-	const float g2 = g1 * g1;
-	const float g4 = g2 * g2;
-
-	float rtVal = 0;
-	float Gsum = 0;
-	const float2 uv0_r = input.uv - range * uv_delta_r;
-	uv = uv0_r;
+	const int2 maxPx = int2(maskW, maskH) - 1;
+	// The pixel's center in the mask's texels (their centers are at integer + 0.5)
+	const float2 pos = input.pos.xy / (float)RTShadowMaskSizeFactor - 0.5;
+	const int2 base = int2(floor(pos));
+	const float2 f = pos - base;
+	const float tolerance = max(RTSoftShadowThresholdMult * z, 1e-3);
+	float sum = 0, weightSum = 0;
 	[unroll]
-	for (i = -range; i <= range; i++)
+	for (int k = 0; k < 4; k++)
 	{
-		uv.x = uv0_r.x;
-		[unroll]
-		for (j = -range; j <= range; j++)
-		{
-			float z;
-			if (maskDepths)
-			{
-				const int2 maskPx = clamp(int2(uv * maskSize), int2(0, 0), maskMax);
-#ifdef INSTANCED_RENDERING
-				z = rtShadowMask.Load(int4(maskPx, input.viewId, 0)).y;
-#else
-				z = rtShadowMask.Load(int3(maskPx, 0)).y;
-#endif
-			}
-			else
-			{
-#ifdef INSTANCED_RENDERING
-				z = texPos.Sample(sampPos, float3(uv, input.viewId)).z;
-#else
-				z = texPos.Sample(sampPos, uv).z;
-#endif
-			}
-			const float delta_z = abs(P.z - z);
-			// i and j are constants here, so this picks one of the powers
-			const int k = i * i + j * j;
-			const float G = k == 0 ? 1.0 : (k == 1 ? g1 : (k == 2 ? g2 : (k == 4 ? g4 : (k == 5 ? g4 * g1 : g4 * g4))));
-			// Objects far away should have bigger thresholds too
-			if (delta_z < RTSoftShadowThresholdMult * P.z)
-#ifdef INSTANCED_RENDERING
-				rtVal += G * rtShadowMask.Sample(sampColor, float3(uv, input.viewId)).x;
-#else
-				rtVal += G * rtShadowMask.Sample(sampColor, uv).x;
-#endif
-			else
-				rtVal += G * rtMin;
-			Gsum += G;
-			uv.x += uv_delta_r.x;
-		}
-		uv.y += uv_delta_r.y;
+		const int x = k & 1, y = k >> 1;
+		const float2 value = SOFT_SHADOW_LOAD(clamp(base + int2(x, y), int2(0, 0), maxPx));
+		const float w = (x ? f.x : 1.0 - f.x) * (y ? f.y : 1.0 - f.y) *
+			saturate(1.0 - abs(value.y - z) / tolerance);
+		sum += w * value.x;
+		weightSum += w;
 	}
-	return rtVal / Gsum;
+#undef SOFT_SHADOW_LOAD
+	return weightSum > 1e-4 ? sum / weightSum : rtCenter;
 }
 
 // The shadows of the lights that cast them, for a pixel: the ray-traced shadows (the
@@ -679,16 +611,17 @@ float ComputeSunShadowFactor(PixelShaderInput input, float3 P, float3 N)
 			// and the positions about 60 times per pixel, which made the bounce pass expensive.
 			rt_shadow_factor = rtCenter;
 #else
-			// TEMPORARY (lighting_skip_test): 1 only the center of the mask (to measure the
-			// filter), 5 the old filter (the depths from the position buffer)
-			const int skipTest = (int)lighting_skip_test;
+			// The soft shadows, filtered at the mask's resolution (RTSoftShadowFilterCommon.h)
+			// and upsampled here. Filtering at every pixel took about 60 texture reads per pixel
+			// (0.9 ms at 4K with RTShadowMaskSizeFactor = 2, half of the lighting pass); this
+			// takes about 0.05 ms.
+			// TEMPORARY (lighting_skip_test = 1): only the center of the mask, to measure the
+			// filter (ddraw doesn't run the filter pass then)
 			[branch]
-			if (skipTest == 1)
+			if ((int)lighting_skip_test == 1)
 				rt_shadow_factor = rtCenter;
-			else if (skipTest == 5)
-				rt_shadow_factor = SoftShadowFilter(input, P, rtCenter, false);
 			else
-				rt_shadow_factor = SoftShadowFilter(input, P, rtCenter, true);
+				rt_shadow_factor = SoftShadowUpsample(input, P.z, rtCenter);
 #endif
 		}
 		else

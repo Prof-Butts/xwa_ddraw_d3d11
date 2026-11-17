@@ -822,8 +822,8 @@ LRESULT CALLBACK MyWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam
 			// TEMPORARY Ctrl+Alt+Y: cycles through the parts of the lighting pass to skip, to measure them
 			case 'Y':
 			{
-				static const char* names[] = { "normal", "skip soft shadows", "skip GTAO upsample", "skip cubemap", "skip XWA lights", "old soft shadows" };
-				g_iLightingSkipTest = (g_iLightingSkipTest + 1) % 6;
+				static const char* names[] = { "normal", "skip soft shadows", "skip GTAO upsample", "skip cubemap", "skip XWA lights" };
+				g_iLightingSkipTest = (g_iLightingSkipTest + 1) % 5;
 				DisplayTimedMessageV(3, 0, "Lighting test %d: %s", g_iLightingSkipTest, names[g_iLightingSkipTest]);
 				return 0;
 			}

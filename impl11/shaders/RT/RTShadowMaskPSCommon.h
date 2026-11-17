@@ -52,9 +52,10 @@ PixelShaderOutput main(PixelShaderInput input)
 
 	float rt_shadow_factor = 1.0f;
 	// The mask's y is the depth of the pixel the shadow was traced from: the soft-shadow
-	// filter (SoftShadowFilter() in PBRAddV2Common.h) compares the depths of its taps with it,
-	// so it doesn't read the full-resolution position buffer. (It used to be the distance to
-	// the occluder, which nothing read.)
+	// filter (RTSoftShadowFilterCommon.h) compares the depths of its taps with it, and the
+	// lighting pass's upsample (SoftShadowUpsample() in PBRAddV2Common.h) too, so they don't
+	// read the full-resolution position buffer. (It used to be the distance to the occluder,
+	// which nothing read.)
 
 	// If I remove the following, then the bloom mask is messed up!
 	// The skybox gets alpha = 0, but when MSAA is on, alpha goes from 0 to 0.5

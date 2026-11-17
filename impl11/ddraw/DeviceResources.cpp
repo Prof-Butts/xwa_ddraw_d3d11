@@ -98,6 +98,8 @@
 #include "../Debug/LevelsPS.h"
 #include "../Debug/RTShadowMaskPS.h"
 #include "../Debug/RTShadowMaskPS_VR.h"
+#include "../Debug/RTSoftShadowFilter.h"
+#include "../Debug/RTSoftShadowFilter_VR.h"
 #include "../Debug/PBRAdd.h"
 #include "../Debug/PBRAddVR.h"
 #include "../Debug/PBRAddV2.h"
@@ -206,6 +208,8 @@
 #include "../Release/LevelsPS.h"
 #include "../Release/RTShadowMaskPS.h"
 #include "../Release/RTShadowMaskPS_VR.h"
+#include "../Release/RTSoftShadowFilter.h"
+#include "../Release/RTSoftShadowFilter_VR.h"
 #include "../Release/PBRAdd.h"
 #include "../Release/PBRAddVR.h"
 #include "../Release/PBRAddV2.h"
@@ -2082,6 +2086,9 @@ HRESULT DeviceResources::OnSizeChanged(HWND hWnd, DWORD dwWidth, DWORD dwHeight)
 			this->_rtShadowMask.Release();
 			this->_rtShadowMaskRTV.Release();
 			this->_rtShadowMaskSRV.Release();
+			this->_rtSoftShadowBuf.Release();
+			this->_rtSoftShadowRTV.Release();
+			this->_rtSoftShadowSRV.Release();
 			if (g_bUseSteamVR)
 			{
 				this->_rtShadowMaskR.Release();
@@ -3015,6 +3022,10 @@ HRESULT DeviceResources::OnSizeChanged(HWND hWnd, DWORD dwWidth, DWORD dwHeight)
 				hr = this->_d3dDevice->CreateTexture2D(&desc, nullptr, &this->_rtShadowMask);
 				if (FAILED(hr)) goto out;
 
+				step = "_rtSoftShadowBuf";
+				hr = this->_d3dDevice->CreateTexture2D(&desc, nullptr, &this->_rtSoftShadowBuf);
+				if (FAILED(hr)) goto out;
+
 				if (g_bUseSteamVR)
 				{
 					step = "_rtShadowMaskR";
@@ -3582,6 +3593,10 @@ HRESULT DeviceResources::OnSizeChanged(HWND hWnd, DWORD dwWidth, DWORD dwHeight)
 				hr = this->_d3dDevice->CreateShaderResourceView(this->_rtShadowMask, &shaderResourceViewDesc, &this->_rtShadowMaskSRV);
 				if (FAILED(hr)) goto out;
 
+				step = "_rtSoftShadowSRV";
+				hr = this->_d3dDevice->CreateShaderResourceView(this->_rtSoftShadowBuf, &shaderResourceViewDesc, &this->_rtSoftShadowSRV);
+				if (FAILED(hr)) goto out;
+
 				if (g_bUseSteamVR) {
 					step = "_rtShadowMaskSRV_R";
 					hr = this->_d3dDevice->CreateShaderResourceView(this->_rtShadowMaskR, &shaderResourceViewDesc, &this->_rtShadowMaskSRV_R);
@@ -4132,6 +4147,10 @@ HRESULT DeviceResources::OnSizeChanged(HWND hWnd, DWORD dwWidth, DWORD dwHeight)
 			//renderTargetViewDescNoMSAA.Format = RT_SHADOW_FORMAT;
 			step = "_rtShadowMaskRTV";
 			hr = this->_d3dDevice->CreateRenderTargetView(this->_rtShadowMask, &GetRtvDesc(false, g_bUseSteamVR, RT_SHADOW_FORMAT), &this->_rtShadowMaskRTV);
+			if (FAILED(hr)) goto out;
+
+			step = "_rtSoftShadowRTV";
+			hr = this->_d3dDevice->CreateRenderTargetView(this->_rtSoftShadowBuf, &GetRtvDesc(false, g_bUseSteamVR, RT_SHADOW_FORMAT), &this->_rtSoftShadowRTV);
 			if (FAILED(hr)) goto out;
 
 			if (g_bUseSteamVR) {
@@ -5082,6 +5101,9 @@ HRESULT DeviceResources::LoadResources()
 		if (FAILED(hr = this->_d3dDevice->CreatePixelShader(g_RTShadowMaskPS_VR, sizeof(g_RTShadowMaskPS_VR), nullptr, &_rtShadowMaskPS_VR)))
 			return hr;
 
+		if (FAILED(hr = this->_d3dDevice->CreatePixelShader(g_RTSoftShadowFilter_VR, sizeof(g_RTSoftShadowFilter_VR), nullptr, &_rtSoftShadowFilterPS_VR)))
+			return hr;
+
 		if (FAILED(hr = this->_d3dDevice->CreatePixelShader(g_LaserPointerVR, sizeof(g_LaserPointerVR), nullptr, &_laserPointerPS_VR)))
 			return hr;
 	}
@@ -5109,6 +5131,9 @@ HRESULT DeviceResources::LoadResources()
 			return hr;
 
 		if (FAILED(hr = this->_d3dDevice->CreatePixelShader(g_RTShadowMaskPS, sizeof(g_RTShadowMaskPS), nullptr, &_rtShadowMaskPS)))
+			return hr;
+
+		if (FAILED(hr = this->_d3dDevice->CreatePixelShader(g_RTSoftShadowFilter, sizeof(g_RTSoftShadowFilter), nullptr, &_rtSoftShadowFilterPS)))
 			return hr;
 
 		if (FAILED(hr = this->_d3dDevice->CreatePixelShader(g_LaserPointer, sizeof(g_LaserPointer), nullptr, &_laserPointerPS)))

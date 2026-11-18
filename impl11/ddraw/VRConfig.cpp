@@ -245,22 +245,22 @@ float g_fGTAOLightOcclusion = 1.0f;
 // The reflections are occluded with GTAO's visibility cone
 bool g_bGTAOConeSpecOcclusion = true;
 // The indirect light (one bounce, SSILVB), work in progress: see c:\temp\ssilvb-plan.md
-bool g_bPBRGIEnabled = false;
+bool g_bPBRGIEnabled = true;
 int g_iPBRGIDebug = 0;
-float g_fPBRGIThickness = 1.0f;
-float g_fPBRGIRadius = 10.0f, g_fPBRGIMaxRadius = 0.25f;
-float g_fPBRGIIntensity = 1.0f;
-float g_fPBRGIEmitterBoost = 4.0f;
-int g_iPBRGIBlurRadius = 4;
+float g_fPBRGIThickness = 0.1f;
+float g_fPBRGIRadius = 250.0f, g_fPBRGIMaxRadius = 0.25f;
+float g_fPBRGIIntensity = 25.0f;
+float g_fPBRGIEmitterBoost = 80.0f;
+int g_iPBRGIBlurRadius = 8;
 bool g_bPBRGIEmitters = true;
-int g_iPBRGIEmitterScale = 2, g_iPBRGIEmitterSlices = 2, g_iPBRGIEmitterSteps = 6, g_iPBRGIEmitterBlurRadius = 4;
+int g_iPBRGIEmitterScale = 2, g_iPBRGIEmitterSlices = 2, g_iPBRGIEmitterSteps = 4, g_iPBRGIEmitterBlurRadius = 12;
 bool g_bPBRGIEmitterMips = true;
 float g_fPBRGIEmitterMipOffset = 3.3f;
 bool g_bPBRGIMips = true;
 int g_iLightingSkipTest = 0; // TEMPORARY (Ctrl+Alt+Y): skips parts of the lighting pass, to measure them
 float g_fPBRGIMipOffset = 3.3f;
 float g_fPBRGIEmitterRadius = 5.0f, g_fPBRGIEmitterMaxRadius = 0.15f;
-int g_iPBRGISlices = 3, g_iPBRGISteps = 8;
+int g_iPBRGISlices = 3, g_iPBRGISteps = 6;
 // The cubemap's ambient light and reflections in the new PBR shading
 float g_fPBRCubeMapAmbient = 1.0f, g_fPBRCubeMapSpecular = 1.0f;
 int g_iPBRCubeMapDebug = 0;
@@ -2376,19 +2376,19 @@ bool LoadSSAOParams() {
 	g_fGTAOMultiBounce = 1.0f;
 	g_fGTAOLightOcclusion = 1.0f;
 	g_bGTAOConeSpecOcclusion = true;
-	g_bPBRGIEnabled = false;
+	g_bPBRGIEnabled = true;
 	g_iPBRGIDebug = 0;
-	g_fPBRGIThickness = 1.0f;
-	g_fPBRGIRadius = 10.0f;
+	g_fPBRGIThickness = 0.1f;
+	g_fPBRGIRadius = 250.0f;
 	g_fPBRGIMaxRadius = 0.25f;
-	g_fPBRGIIntensity = 1.0f;
-	g_fPBRGIEmitterBoost = 4.0f;
-	g_iPBRGIBlurRadius = 4;
+	g_fPBRGIIntensity = 25.0f;
+	g_fPBRGIEmitterBoost = 80.0f;
+	g_iPBRGIBlurRadius = 8;
 	g_bPBRGIEmitters = true;
 	g_iPBRGIEmitterScale = 2;
 	g_iPBRGIEmitterSlices = 2;
-	g_iPBRGIEmitterSteps = 6;
-	g_iPBRGIEmitterBlurRadius = 4;
+	g_iPBRGIEmitterSteps = 4;
+	g_iPBRGIEmitterBlurRadius = 12;
 	g_bPBRGIEmitterMips = true;
 	g_fPBRGIEmitterMipOffset = 3.3f;
 	g_bPBRGIMips = true;
@@ -2396,7 +2396,7 @@ bool LoadSSAOParams() {
 	g_fPBRGIEmitterRadius = 5.0f;
 	g_fPBRGIEmitterMaxRadius = 0.15f;
 	g_iPBRGISlices = 3;
-	g_iPBRGISteps = 8;
+	g_iPBRGISteps = 6;
 	g_fPBRCubeMapAmbient = 1.0f;
 	g_fPBRCubeMapSpecular = 1.0f;
 	g_iPBRCubeMapDebug = 0;

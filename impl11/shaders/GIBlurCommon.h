@@ -58,13 +58,20 @@ float4 main(PixelShaderInput input) : SV_TARGET
 	const float tolerance = max(z * gtao_denoise_depth, 1e-3);
 	const int radius = (int)gtao_blur_radius;
 	const float invTwoSigma2 = 1.0 / (2.0 * max(0.25 * radius * radius, 0.25));
-	const int2 dir = int2(gtao_blur_dir);
+	// gtao_blur_dir is (1, 0) or (0, 1), times the step between the taps. ddraw sets 2 for the
+	// radii above 6: every other pixel, with the same radius and Gaussian. The denoise already
+	// removed the fine noise, and a Gaussian that wide is smooth, so there's no visible
+	// difference (measured: radius 12 at half resolution, 0.16 ms less).
+	const int step = (int)max(abs(gtao_blur_dir.x), abs(gtao_blur_dir.y));
+	const int2 dir = int2(gtao_blur_dir / (float)step);
+	const int halfTaps = (int)((uint)radius / (uint)step);
 
 	float3 sum = 0;
 	float weightSum = 0;
 	[loop]
-	for (int t = -radius; t <= radius; t++)
+	for (int k = -halfTaps; k <= halfTaps; k++)
 	{
+		const int t = k * step;
 		const int2 p = clamp(px + dir * t, int2(0, 0), maxPx);
 		const float4 value = GI_LOAD(p);
 		if (value.a < 0.5)

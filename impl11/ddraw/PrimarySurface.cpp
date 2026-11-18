@@ -4065,10 +4065,13 @@ static void RenderGTAO(DeviceResources* resources, int scale, float radius, floa
 		if (gi->blurRadius > 0)
 		{
 			resources->InitPixelShader(g_bUseSteamVR ? resources->_giBlurPS_VR : resources->_giBlurPS);
+			// Wide blurs read every other pixel (the step is the length of the direction, see
+			// GIBlurCommon.h): the result looks the same, for about half the reads
+			const float blurStep = gi->blurRadius > 6 ? 2.0f : 1.0f;
 			for (int pass = 0; pass < 2; pass++)
 			{
-				cb.blur_dir[0] = pass == 0 ? 1.0f : 0.0f;
-				cb.blur_dir[1] = pass == 0 ? 0.0f : 1.0f;
+				cb.blur_dir[0] = pass == 0 ? blurStep : 0.0f;
+				cb.blur_dir[1] = pass == 0 ? 0.0f : blurStep;
 				resources->InitPSConstantBufferGTAO(&cb);
 				ID3D11RenderTargetView* blurRTVs[1] = {
 					pass == 0 ? resources->_gtaoRTV.Get() : gi->denoisedRTV };

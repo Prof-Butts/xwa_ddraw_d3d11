@@ -819,14 +819,6 @@ LRESULT CALLBACK MyWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam
 					DisplayTimedMessage(3, 0, g_bPBRGIEnabled ? "Indirect light: on" : "Indirect light: off");
 				}
 				return 0;
-			// TEMPORARY Ctrl+Alt+Y: cycles through the parts of the lighting pass to skip, to measure them
-			case 'Y':
-			{
-				static const char* names[] = { "normal", "skip soft shadows", "skip GTAO upsample", "skip cubemap", "skip XWA lights" };
-				g_iLightingSkipTest = (g_iLightingSkipTest + 1) % 5;
-				DisplayTimedMessageV(3, 0, "Lighting test %d: %s", g_iLightingSkipTest, names[g_iLightingSkipTest]);
-				return 0;
-			}
 			//case 'T':
 			//	g_bToggleSkipDC = !g_bToggleSkipDC;
 			//	return 0;

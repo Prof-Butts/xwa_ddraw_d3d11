@@ -1305,7 +1305,11 @@ PixelShaderOutput main(PixelShaderInput input)
 		[branch]
 		if (gi_emitters > 0.5)
 			indirect += LoadIndirectLight(texEmitterGI, (int)gi_emitter_scale, int2(input.pos.xy), giViewId, P.z);
-		indirectDiffuse = indirect * albedo * (1.0 - metallicity);
+		// Physically, it's diffuse light: the surface reflects it with its albedo, and metals
+		// (no diffuse) don't. gi_albedo and gi_metallicity (pbr_gi_albedo, pbr_gi_metallicity)
+		// fade those factors out, so the indirect light shows on dark and metallic surfaces too:
+		// 1 is the physically correct formula, 0 leaves the factor out.
+		indirectDiffuse = indirect * lerp(1.0, albedo, gi_albedo) * lerp(1.0, 1.0 - metallicity, gi_metallicity);
 	}
 	float3 tmp_color = ambientDiffuse + ambientSpecular + direct + indirectDiffuse;
 

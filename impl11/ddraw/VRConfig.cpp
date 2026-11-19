@@ -257,6 +257,8 @@ int g_iPBRGIEmitterScale = 2, g_iPBRGIEmitterSlices = 2, g_iPBRGIEmitterSteps = 
 bool g_bPBRGIEmitterMips = true;
 float g_fPBRGIEmitterMipOffset = 3.3f;
 bool g_bPBRGIMips = true;
+// How much the albedo and the metallicity apply to the indirect light (1: physically correct)
+float g_fPBRGIAlbedo = 1.0f, g_fPBRGIMetallicity = 1.0f;
 int g_iLightingSkipTest = 0; // TEMPORARY (Ctrl+Alt+Y): skips parts of the lighting pass, to measure them
 float g_fPBRGIMipOffset = 3.3f;
 float g_fPBRGIEmitterRadius = 5.0f, g_fPBRGIEmitterMaxRadius = 0.15f;
@@ -2393,6 +2395,8 @@ bool LoadSSAOParams() {
 	g_fPBRGIEmitterMipOffset = 3.3f;
 	g_bPBRGIMips = true;
 	g_fPBRGIMipOffset = 3.3f;
+	g_fPBRGIAlbedo = 1.0f;
+	g_fPBRGIMetallicity = 1.0f;
 	g_fPBRGIEmitterRadius = 5.0f;
 	g_fPBRGIEmitterMaxRadius = 0.15f;
 	g_iPBRGISlices = 3;
@@ -2663,6 +2667,12 @@ bool LoadSSAOParams() {
 			}
 			else if (_stricmp(param, "pbr_gi_intensity") == 0) {
 				g_fPBRGIIntensity = max(0.0f, fValue);
+			}
+			else if (_stricmp(param, "pbr_gi_albedo") == 0) {
+				g_fPBRGIAlbedo = max(0.0f, min(1.0f, fValue));
+			}
+			else if (_stricmp(param, "pbr_gi_metallicity") == 0) {
+				g_fPBRGIMetallicity = max(0.0f, min(1.0f, fValue));
 			}
 			else if (_stricmp(param, "pbr_gi_emitter_boost") == 0) {
 				g_fPBRGIEmitterBoost = max(0.0f, fValue);

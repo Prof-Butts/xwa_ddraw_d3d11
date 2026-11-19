@@ -3093,6 +3093,8 @@ void SetLights(DeviceResources *resources, float fSSDOEnabled) {
 	g_ShadingSys_PSBuffer.gi_emitter_boost = g_fPBRGIEmitterBoost;
 	g_ShadingSys_PSBuffer.gi_emitters = g_bPBRGIEmitters ? 1.0f : 0.0f;
 	g_ShadingSys_PSBuffer.lighting_skip_test = (float)g_iLightingSkipTest; // TEMPORARY
+	g_ShadingSys_PSBuffer.gi_albedo = g_fPBRGIAlbedo;
+	g_ShadingSys_PSBuffer.gi_metallicity = g_fPBRGIMetallicity;
 	g_ShadingSys_PSBuffer.gi_emitter_scale = (float)g_iPBRGIEmitterScale;
 	// The cubemap's ambient light and reflections (only the new PBR shading reads them)
 	g_ShadingSys_PSBuffer.env_ambient_mult = g_fPBRCubeMapAmbient;

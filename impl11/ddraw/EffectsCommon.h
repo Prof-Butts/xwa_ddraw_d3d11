@@ -435,6 +435,10 @@ typedef struct PSShadingSystemCBStruct {
 	float gi_emitters;           // 1: the emitters have their own light buffer and gather (pbr_gi_emitters, t12-t13)
 	float gi_emitter_scale;      // The emitter light's resolution, 1 / scale (pbr_gi_emitter_scale)
 	// 1392 bytes
+	float gi_albedo;          // pbr_gi_albedo: how much the albedo tints the indirect light (1: physically correct, 0: none)
+	float gi_metallicity;     // pbr_gi_metallicity: how much the metallicity removes it (1: physically correct, 0: none)
+	float unused_ss8, unused_ss9;
+	// 1408 bytes
 } PSShadingSystemCB;
 
 // The settings of the GTAO passes (ssao_type = PBR). See GTAOCBuffer.h.

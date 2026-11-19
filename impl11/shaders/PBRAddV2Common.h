@@ -615,13 +615,7 @@ float ComputeSunShadowFactor(PixelShaderInput input, float3 P, float3 N)
 			// and upsampled here. Filtering at every pixel took about 60 texture reads per pixel
 			// (0.9 ms at 4K with RTShadowMaskSizeFactor = 2, half of the lighting pass); this
 			// takes about 0.05 ms.
-			// TEMPORARY (lighting_skip_test = 1): only the center of the mask, to measure the
-			// filter (ddraw doesn't run the filter pass then)
-			[branch]
-			if ((int)lighting_skip_test == 1)
-				rt_shadow_factor = rtCenter;
-			else
-				rt_shadow_factor = SoftShadowUpsample(input, P.z, rtCenter);
+			rt_shadow_factor = SoftShadowUpsample(input, P.z, rtCenter);
 #endif
 		}
 		else
@@ -1004,7 +998,7 @@ PixelShaderOutput main(PixelShaderInput input)
 	float4 gtao = float4(normalize(float3(Normal.x, Normal.y, -Normal.z)), 1.0);
 	float fineAO = 1.0, coarseAO = 1.0; // For pbr_gtao_debug
 	[branch]
-	if (bGTAO && (int)lighting_skip_test != 2) // TEMPORARY (2): no GTAO upsample
+	if (bGTAO)
 	{
 #ifdef INSTANCED_RENDERING
 		const uint viewId = input.viewId;
@@ -1162,7 +1156,7 @@ PixelShaderOutput main(PixelShaderInput input)
 	float3 skyBoxReflCol   = 1;
 	float3 skyBoxNormalCol = 1;
 	[branch]
-	if (cubeMappingEnabled && (int)lighting_skip_test != 3) // TEMPORARY (3): no cubemap sampling
+	if (cubeMappingEnabled)
 	{
 		uint faceSize, faceSize2, mipCount;
 		skybox.GetDimensions(0, faceSize, faceSize2, mipCount);
@@ -1212,9 +1206,8 @@ PixelShaderOutput main(PixelShaderInput input)
 	float3 direct = 0.0;
 	float4 tmp_bloom = 0.0;
 	uint i;
-	const uint lightLoopCount = (int)lighting_skip_test == 4 ? 0 : LightCount; // TEMPORARY (4): no XWA lights
 	[loop]
-	for (i = 0; i < lightLoopCount; i++)
+	for (i = 0; i < LightCount; i++)
 	{
 		float black_level, dummyMinZ, dummyMaxZ;
 		float shadow_factor = 1.0;

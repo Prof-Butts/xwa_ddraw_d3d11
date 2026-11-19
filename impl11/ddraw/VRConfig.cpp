@@ -259,7 +259,6 @@ float g_fPBRGIEmitterMipOffset = 3.3f;
 bool g_bPBRGIMips = true;
 // How much the albedo and the metallicity apply to the indirect light (1: physically correct)
 float g_fPBRGIAlbedo = 1.0f, g_fPBRGIMetallicity = 1.0f;
-int g_iLightingSkipTest = 0; // TEMPORARY (Ctrl+Alt+Y): skips parts of the lighting pass, to measure them
 float g_fPBRGIMipOffset = 3.3f;
 float g_fPBRGIEmitterRadius = 5.0f, g_fPBRGIEmitterMaxRadius = 0.15f;
 int g_iPBRGISlices = 3, g_iPBRGISteps = 6;

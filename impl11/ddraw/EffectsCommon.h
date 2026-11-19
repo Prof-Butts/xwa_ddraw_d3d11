@@ -414,7 +414,7 @@ typedef struct PSShadingSystemCBStruct {
 	float gtao_debug;            // pbr_gtao_debug: 0 off, 1 fine AO, 2 coarse AO, 3 both, 4 bent normal
 	float gtao_multibounce;      // Multi-bounce AO strength (pbr_gtao_multibounce), 0 when it's off
 	float gtao_light_occlusion;  // GTAO occlusion of the laser/dynamic lights (pbr_gtao_light_occlusion)
-	float lighting_skip_test; // TEMPORARY (Ctrl+Alt+Y): 1 soft shadows, 2 GTAO upsample, 3 cubemap, 4 XWA lights are skipped
+	float unused_ss3;
 	// 1200 bytes
 	float env_ambient_mult;      // pbr_cubemap_ambient: multiplies the cubemap's ambient light (AmbientInt)
 	float env_specular_mult;     // pbr_cubemap_specular: multiplies the cubemap's reflections (Specular)

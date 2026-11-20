@@ -253,6 +253,9 @@ float g_fPBRGIIntensity = 25.0f;
 float g_fPBRGIEmitterBoost = 80.0f;
 int g_iPBRGIBlurRadius = 8;
 bool g_bPBRGIEmitters = true;
+// Ctrl+Alt+I: false turns the emitters' indirect light off, in either path (their own pass, or
+// with the bounced light: see pbr_gi_emitters). Not a setting.
+bool g_bPBRGIEmittersOn = true;
 int g_iPBRGIEmitterScale = 2, g_iPBRGIEmitterSlices = 2, g_iPBRGIEmitterSteps = 4, g_iPBRGIEmitterBlurRadius = 12;
 bool g_bPBRGIEmitterMips = true;
 float g_fPBRGIEmitterMipOffset = 3.3f;

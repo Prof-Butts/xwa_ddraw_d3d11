@@ -803,7 +803,7 @@ LRESULT CALLBACK MyWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam
 					DisplayTimedMessage(3, 0, g_bPBRShadingV2 ? "PBR shading: new" : "PBR shading: legacy");
 				}
 				return 0;
-			// Ctrl+Alt+J: GTAO on/off in the new PBR shading, for comparisons
+			// Ctrl+Alt+J: Toggle GTAO on/off in the new PBR shader
 			case 'J':
 				if (g_SSAO_Type == SSO_PBR)
 				{
@@ -811,7 +811,15 @@ LRESULT CALLBACK MyWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam
 					DisplayTimedMessage(3, 0, g_bGTAOEnabled ? "GTAO: on" : "GTAO: off");
 				}
 				return 0;
-			// Ctrl+Alt+U: the indirect light (pbr_gi_enabled, new PBR shading with GTAO) on/off
+			// Ctrl+Alt+I: Toggle emitters' light
+			case 'I':
+				if (g_SSAO_Type == SSO_PBR)
+				{
+					g_bPBRGIEmittersOn = !g_bPBRGIEmittersOn;
+					DisplayTimedMessage(3, 0, g_bPBRGIEmittersOn ? "Emitters: on" : "Emitters: off");
+				}
+				return 0;
+			// Ctrl+Alt+U: Toggle indirect light
 			case 'U':
 				if (g_SSAO_Type == SSO_PBR)
 				{
@@ -819,9 +827,6 @@ LRESULT CALLBACK MyWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam
 					DisplayTimedMessage(3, 0, g_bPBRGIEnabled ? "Indirect light: on" : "Indirect light: off");
 				}
 				return 0;
-			//case 'T':
-			//	g_bToggleSkipDC = !g_bToggleSkipDC;
-			//	return 0;
 			case 'L':
 				// Force the re-application of the focal_length
 				g_bCustomFOVApplied = false;

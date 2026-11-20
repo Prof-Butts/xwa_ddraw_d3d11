@@ -3090,8 +3090,10 @@ void SetLights(DeviceResources *resources, float fSSDOEnabled) {
 		resources->_giGeomMipsSRV.Get() != nullptr) ? 1.0f : 0.0f;
 	g_ShadingSys_PSBuffer.gi_debug = (float)g_iPBRGIDebug;
 	g_ShadingSys_PSBuffer.gi_intensity = g_fPBRGIIntensity;
-	g_ShadingSys_PSBuffer.gi_emitter_boost = g_fPBRGIEmitterBoost;
-	g_ShadingSys_PSBuffer.gi_emitters = g_bPBRGIEmitters ? 1.0f : 0.0f;
+	// Ctrl+Alt+I turns the emitters' light off: no boost (no light in the bounced light's pass
+	// either), and no pass of their own
+	g_ShadingSys_PSBuffer.gi_emitter_boost = g_bPBRGIEmittersOn ? g_fPBRGIEmitterBoost : 0.0f;
+	g_ShadingSys_PSBuffer.gi_emitters = (g_bPBRGIEmitters && g_bPBRGIEmittersOn) ? 1.0f : 0.0f;
 	g_ShadingSys_PSBuffer.gi_albedo = g_fPBRGIAlbedo;
 	g_ShadingSys_PSBuffer.gi_metallicity = g_fPBRGIMetallicity;
 	g_ShadingSys_PSBuffer.gi_emitter_scale = (float)g_iPBRGIEmitterScale;

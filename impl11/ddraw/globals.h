@@ -165,6 +165,7 @@ extern int g_iPBRGIBlurRadius;
 // pbr_gi_emitters: the emitters' light gets its own buffer and gather, at 1 / pbr_gi_emitter_scale
 // of the resolution, with its own radius, samples and filter (pbr_gi_emitter_*)
 extern bool g_bPBRGIEmitters;
+extern bool g_bPBRGIEmittersOn;
 extern int g_iPBRGIEmitterScale, g_iPBRGIEmitterSlices, g_iPBRGIEmitterSteps, g_iPBRGIEmitterBlurRadius;
 extern bool g_bPBRGIEmitterMips;
 extern float g_fPBRGIEmitterMipOffset;

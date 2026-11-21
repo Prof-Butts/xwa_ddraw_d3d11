@@ -2220,9 +2220,39 @@ HRESULT DeviceResources::OnSizeChanged(HWND hWnd, DWORD dwWidth, DWORD dwHeight)
 			ComPtr<IDXGIFactory> dxgiFactory;
 			hr = dxgiAdapter->GetParent(IID_PPV_ARGS(&dxgiFactory));
 
+			// AllowTearing (ddraw.cfg): a flip-model swap chain that's allowed to tear, so that with
+			// VSync off the frames aren't paced by the compositor (the game always runs in a window).
+			// Not in 3D Vision's exclusive fullscreen, where tearing isn't allowed.
+			this->_tearingActive = false;
+			DXGI_SWAP_CHAIN_DESC regularSd = sd;
+			if (SUCCEEDED(hr) && g_config.AllowTearing && !(g_b3DVisionEnabled && g_b3DVisionForceFullScreen))
+			{
+				ComPtr<IDXGIFactory5> dxgiFactory5;
+				BOOL allowTearing = FALSE;
+				if (SUCCEEDED(dxgiFactory.As(&dxgiFactory5)) &&
+					SUCCEEDED(dxgiFactory5->CheckFeatureSupport(DXGI_FEATURE_PRESENT_ALLOW_TEARING, &allowTearing, sizeof(allowTearing))) &&
+					allowTearing)
+				{
+					sd.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
+					sd.Flags |= DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING;
+					this->_tearingActive = true;
+				}
+				else
+					log_debug("[DBG] AllowTearing: tearing isn't supported here, using the regular swap chain");
+			}
+
 			if (SUCCEEDED(hr))
 			{
 				hr = dxgiFactory->CreateSwapChain(this->_d3dDevice, &sd, &this->_swapChain);
+				if (FAILED(hr) && this->_tearingActive)
+				{
+					log_debug("[DBG] AllowTearing: the flip-model swap chain failed (0x%x), using the regular one", hr);
+					this->_tearingActive = false;
+					sd = regularSd;
+					hr = dxgiFactory->CreateSwapChain(this->_d3dDevice, &sd, &this->_swapChain);
+				}
+				if (SUCCEEDED(hr) && this->_tearingActive)
+					log_debug("[DBG] AllowTearing: flip-model swap chain with tearing");
 			}
 			
 			if (SUCCEEDED(hr))

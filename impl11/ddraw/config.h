@@ -17,6 +17,7 @@ public:
 	bool VSyncEnabled;
 	bool VSyncEnabledInHangar;
 	bool FrameProfilerEnabled;
+	bool AllowTearing;
 	bool WireframeFillMode;
 	int JoystickEmul;
 	bool SwapJoystickXZAxes;

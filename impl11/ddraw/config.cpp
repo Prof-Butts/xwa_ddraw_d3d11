@@ -39,6 +39,7 @@ Config::Config()
 	this->VSyncEnabled = true;
 	this->VSyncEnabledInHangar = true;
 	this->FrameProfilerEnabled = false;
+	this->AllowTearing = false;
 	this->WireframeFillMode = false;
 	this->JoystickEmul = 0;
 
@@ -164,6 +165,10 @@ Config::Config()
 			else if (name == "EnableFrameProfiler")
 			{
 				this->FrameProfilerEnabled = stoi(value) != 0;
+			}
+			else if (name == "AllowTearing")
+			{
+				this->AllowTearing = stoi(value) != 0;
 			}
 			else if (name == "FillWireframe")
 			{

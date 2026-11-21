@@ -11995,7 +11995,8 @@ HRESULT PrimarySurface::Flip(
 					// This is because the user can press [ESC] to display the menu while in hyperspace and that's a 2D present.
 					// Present 2D
 					//log_debug("[DBG] ------------------- Present 2D");
-					if (FAILED(hr = this->_deviceResources->_swapChain->Present(g_iNaturalConcourseAnimations, 0)))
+					if (FAILED(hr = this->_deviceResources->_swapChain->Present(g_iNaturalConcourseAnimations,
+						this->_deviceResources->GetPresentFlags(g_iNaturalConcourseAnimations))))
 					{
 						static bool messageShown = false;
 						
@@ -13460,7 +13461,8 @@ HRESULT PrimarySurface::Flip(
 				s_frameProfilerInit = true;
 			}
 			g_FrameProfiler.PresentBegin(this->_deviceResources->_d3dDevice, this->_deviceResources->_d3dDeviceContext);
-			hr = this->_deviceResources->_swapChain->Present(bEnableVSync ? 1 : 0, 0);
+			hr = this->_deviceResources->_swapChain->Present(bEnableVSync ? 1 : 0,
+				this->_deviceResources->GetPresentFlags(bEnableVSync ? 1 : 0));
 			// The frame profiler's frame ends here (EnableFrameProfiler, Ctrl+Alt+Y)
 			g_FrameProfiler.PresentEnd(this->_deviceResources->_d3dDevice, this->_deviceResources->_d3dDeviceContext);
 			if (FAILED(hr))

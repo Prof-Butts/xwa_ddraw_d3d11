@@ -8,6 +8,7 @@
 #include "../shaders/shader_common.h"
 #include <vector>
 #include "common.h"
+#include <dxgi1_5.h> // DXGI_PRESENT_ALLOW_TEARING (AllowTearing)
 #include "effects.h"
 
 enum RenderMainColorKeyType
@@ -694,6 +695,14 @@ public:
 	UINT _backbufferWidth;
 	UINT _backbufferHeight;
 	DXGI_RATIONAL _refreshRate;
+	// True when the swap chain allows tearing (AllowTearing in ddraw.cfg, if the system supports it)
+	bool _tearingActive = false;
+	// The flags for _swapChain->Present(syncInterval, ...): with tearing, the frames aren't paced by
+	// the compositor when VSync is off (syncInterval 0)
+	UINT GetPresentFlags(UINT syncInterval) const
+	{
+		return (_tearingActive && syncInterval == 0) ? DXGI_PRESENT_ALLOW_TEARING : 0;
+	}
 	bool _are16BppTexturesSupported;
 	bool _use16BppMainDisplayTexture;
 	DWORD _mainDisplayTextureBpp;

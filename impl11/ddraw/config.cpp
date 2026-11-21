@@ -38,7 +38,7 @@ Config::Config()
 	this->AnisotropicFilteringEnabled = true;
 	this->VSyncEnabled = true;
 	this->VSyncEnabledInHangar = true;
-	this->FrameProfilerEnabled = false;
+	this->FrameProfilerMode = 0;
 	this->AllowTearing = false;
 	this->WireframeFillMode = false;
 	this->JoystickEmul = 0;
@@ -164,7 +164,7 @@ Config::Config()
 			}
 			else if (name == "EnableFrameProfiler")
 			{
-				this->FrameProfilerEnabled = stoi(value) != 0;
+				this->FrameProfilerMode = max(0, min(2, stoi(value)));
 			}
 			else if (name == "AllowTearing")
 			{

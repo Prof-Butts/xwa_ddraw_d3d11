@@ -13457,7 +13457,7 @@ HRESULT PrimarySurface::Flip(
 			static bool s_frameProfilerInit = false;
 			if (!s_frameProfilerInit)
 			{
-				g_FrameProfiler.requestedEnabled = g_config.FrameProfilerEnabled;
+				g_FrameProfiler.requestedMode = g_config.FrameProfilerMode;
 				s_frameProfilerInit = true;
 			}
 			g_FrameProfiler.PresentBegin(this->_deviceResources->_d3dDevice, this->_deviceResources->_d3dDeviceContext);

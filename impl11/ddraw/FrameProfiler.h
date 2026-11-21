@@ -10,30 +10,41 @@
 /*
  * Frame profiler: the CPU and GPU time of every annotated event of the frame
  * (DeviceResources::BeginAnnotatedEvent() / EndAnnotatedEvent()), plus the frame as a whole.
- * Enabled with EnableFrameProfiler = 1 in ddraw.cfg, or toggled with Ctrl+Alt+Y. It reports
- * every 5 seconds to the debug output (DebugView), never to a file.
+ * EnableFrameProfiler in ddraw.cfg sets the starting mode, and Ctrl+Alt+Y cycles through them:
+ * 0 off, 1 normal, 2 precise. It reports every 5 seconds to the debug output (DebugView),
+ * never to a file.
  *
  * - CPU: QueryPerformanceCounter at the start and end of each event. "incl" is the event's
  *   whole time, "self" excludes its child events. The frame is measured from one Present() to
  *   the next; "outside events" is the time the CPU spent in the game and in code that isn't
  *   annotated, and Present() (VSync, or waiting for the GPU) is reported separately.
  * - GPU: timestamp queries at the start and end of each event, read back a few frames later,
- *   so it never stalls. They time the GPU commands issued between them (the GPU may also be
- *   finishing earlier work). Events that are still open at the frame boundary (Present) have
- *   no GPU time.
+ *   so it never stalls. "incl" and "self" work like the CPU's. Events that are still open at
+ *   the frame boundary (Present) have no GPU time, but their children do.
+ *
+ * Normal mode (1): nothing waits, so the frame runs at its normal speed. But when the GPU is
+ * the bottleneck, work queues up, and an event's timestamps can include the end of earlier
+ * work (or a wait): GPU time moves from event to event between reports, while the frame
+ * total stays right.
+ *
+ * Precise mode (2): at every event boundary, the CPU waits until the GPU is idle (an event
+ * query) before the next timestamp. Every event's GPU work is measured alone, so the GPU
+ * column is each event's real cost, and the sum of the GPU self times is the frame's GPU work:
+ * the frame rate the GPU alone would allow. The waits make the frame slower, so the CPU
+ * columns and the frame rate itself aren't representative in this mode.
  *
  * More probes: FRAME_PROFILE(L"name"); times the rest of the enclosing scope as an event.
  */
 class FrameProfiler
 {
 public:
-	// Requested state (ddraw.cfg, Ctrl+Alt+Y); applied at the next frame boundary, so that no
-	// event is cut in half
-	bool requestedEnabled = false;
+	// Requested mode (ddraw.cfg, Ctrl+Alt+Y): 0 off, 1 normal, 2 precise. Applied at the next
+	// frame boundary, so that no event is cut in half.
+	int requestedMode = 0;
 
 	void BeginEvent(ID3D11Device* device, ID3D11DeviceContext* context, LPCWSTR name)
 	{
-		if (!_enabled)
+		if (_mode == 0)
 			return;
 		if (_stack.size() >= MAX_DEPTH)
 		{
@@ -44,22 +55,30 @@ public:
 		open.id = GetId(name, (int)_stack.size());
 		open.childTicks = 0;
 		open.gpuSet = -1;
-		open.gpuBegin = -1;
-		// GPU timestamps for the events that fit in this frame's query set
+		open.gpuSlot = -1;
+		// GPU timestamps for the events that fit in this frame's query set. The slot is reserved
+		// now, so that the children can point to their parent.
 		QuerySet& s = _sets[_cur];
 		if (device == _device && s.open && s.numTimestamps + 2 <= MAX_TIMESTAMPS)
 		{
+			if (_mode == 2)
+				WaitForGpu(context);
+			GpuEvent e;
+			e.id = open.id;
+			e.begin = AddTimestamp(context);
+			e.end = -1;
+			e.parent = ParentSlot();
 			open.gpuSet = _cur;
-			open.gpuBegin = AddTimestamp(context);
+			open.gpuSlot = (int)s.events.size();
+			s.events.push_back(e);
 		}
 		_stack.push_back(open);
-		open.t0 = Now();
-		_stack.back().t0 = open.t0;
+		_stack.back().t0 = Now();
 	}
 
 	void EndEvent(ID3D11DeviceContext* context)
 	{
-		if (!_enabled || _stack.empty())
+		if (_mode == 0 || _stack.empty())
 			return;
 		const LONGLONG t1 = Now();
 		Open open = _stack.back();
@@ -79,11 +98,9 @@ public:
 			QuerySet& s = _sets[_cur];
 			if (s.numTimestamps < MAX_TIMESTAMPS)
 			{
-				GpuEvent e;
-				e.id = open.id;
-				e.begin = open.gpuBegin;
-				e.end = AddTimestamp(context);
-				s.events.push_back(e);
+				if (_mode == 2)
+					WaitForGpu(context);
+				s.events[open.gpuSlot].end = AddTimestamp(context);
 			}
 		}
 	}
@@ -104,7 +121,8 @@ public:
 	// The device and context of the last frame, for the probes outside DeviceResources
 	ID3D11Device* Device() { return _device; }
 	ID3D11DeviceContext* Context() { return _context; }
-	bool IsEnabled() const { return _enabled; }
+	bool IsEnabled() const { return _mode != 0; }
+	int Mode() const { return _mode; }
 
 	// The frame rate and frame time for the screen (PrimarySurface::RenderText()), updated
 	// twice a second; 0 until the first update
@@ -123,7 +141,7 @@ private:
 		int minDepth = 1000;
 		int calls = 0;
 		LONGLONG cpuIncl = 0, cpuSelf = 0;
-		double gpuMs = 0.0;
+		double gpuIncl = 0.0, gpuSelf = 0.0;
 		int gpuCalls = 0;
 	};
 
@@ -133,12 +151,13 @@ private:
 		LONGLONG t0;
 		LONGLONG childTicks;
 		int gpuSet;
-		int gpuBegin;
+		int gpuSlot;
 	};
 
 	struct GpuEvent
 	{
-		int id, begin, end;
+		int id, begin, end; // end = -1: never closed in this query set
+		int parent;         // The parent's slot in the same query set, or -1
 	};
 
 	struct QuerySet
@@ -152,11 +171,12 @@ private:
 		int window = 0;
 	};
 
-	bool _enabled = false;
+	int _mode = 0;
 	bool _overflow = false;
 	ID3D11Device* _device = nullptr;
 	ID3D11DeviceContext* _context = nullptr;
 	QuerySet _sets[NUM_QUERY_SETS];
+	ComPtr<ID3D11Query> _idleQuery; // Precise mode: tells when the GPU is idle
 	int _cur = 0;
 
 	std::vector<Open> _stack;
@@ -173,6 +193,7 @@ private:
 	LONGLONG _frameTicksSum = 0, _frameTicksMin = LLONG_MAX, _frameTicksMax = 0;
 	LONGLONG _topLevelSum = 0;
 	double _gpuFrameMsSum = 0.0;
+	double _gpuSelfMsSum = 0.0; // The sum of the events' GPU self times, over the window
 	int _gpuFrames = 0;
 	// For the screen: the frames since the last update, and their time
 	int _displayFrames = 0;
@@ -187,6 +208,27 @@ private:
 	}
 
 	double TicksToMs(double ticks) const { return ticks * 1000.0 / (double)_freq.QuadPart; }
+
+	// The slot of the innermost open event with a GPU slot in the current query set, or -1
+	int ParentSlot() const
+	{
+		for (int i = (int)_stack.size() - 1; i >= 0; i--)
+			if (_stack[i].gpuSet == _cur && _stack[i].gpuSlot >= 0)
+				return _stack[i].gpuSlot;
+		return -1;
+	}
+
+	// Precise mode: waits until the GPU has finished everything submitted so far
+	void WaitForGpu(ID3D11DeviceContext* context)
+	{
+		if (_idleQuery == nullptr)
+			return;
+		context->End(_idleQuery);
+		BOOL done = FALSE;
+		// Without D3D11_ASYNC_GETDATA_DONOTFLUSH, GetData flushes the commands to the GPU
+		while (context->GetData(_idleQuery, &done, sizeof(done), 0) != S_OK || !done)
+			YieldProcessor();
+	}
 
 	int GetId(LPCWSTR name, int depth)
 	{
@@ -229,6 +271,7 @@ private:
 		_device = nullptr;
 		D3D11_QUERY_DESC disjointDesc = { D3D11_QUERY_TIMESTAMP_DISJOINT, 0 };
 		D3D11_QUERY_DESC timestampDesc = { D3D11_QUERY_TIMESTAMP, 0 };
+		D3D11_QUERY_DESC eventDesc = { D3D11_QUERY_EVENT, 0 };
 		for (QuerySet& s : _sets)
 		{
 			s.open = false;
@@ -241,6 +284,8 @@ private:
 				if (FAILED(device->CreateQuery(&timestampDesc, &s.timestamps[i])))
 					return false;
 		}
+		if (FAILED(device->CreateQuery(&eventDesc, &_idleQuery)))
+			return false;
 		_device = device;
 		return true;
 	}
@@ -250,6 +295,7 @@ private:
 	{
 		const UINT flags = D3D11_ASYNC_GETDATA_DONOTFLUSH;
 		std::vector<UINT64> t(MAX_TIMESTAMPS);
+		std::vector<double> incl, childSum;
 		for (QuerySet& s : _sets)
 		{
 			if (!s.pending)
@@ -266,18 +312,38 @@ private:
 			if (disjoint.Disjoint || disjoint.Frequency == 0 || s.numTimestamps < 2 || s.window != _window)
 				continue;
 			const double toMs = 1000.0 / (double)disjoint.Frequency;
-			for (const GpuEvent& e : s.events)
+
+			// Each event's time, then its self time: its time minus its children's
+			const size_t n = s.events.size();
+			incl.assign(n, -1.0);
+			childSum.assign(n, 0.0);
+			for (size_t i = 0; i < n; i++)
 			{
-				if (t[e.end] < t[e.begin])
+				const GpuEvent& e = s.events[i];
+				if (e.end < 0 || t[e.end] < t[e.begin])
 					continue;
-				_stats[e.id].gpuMs += (double)(t[e.end] - t[e.begin]) * toMs;
-				_stats[e.id].gpuCalls++;
+				incl[i] = (double)(t[e.end] - t[e.begin]) * toMs;
+				if (e.parent >= 0)
+					childSum[e.parent] += incl[i];
+			}
+			double frameSelf = 0.0;
+			for (size_t i = 0; i < n; i++)
+			{
+				if (incl[i] < 0.0)
+					continue;
+				const double self = max(incl[i] - childSum[i], 0.0);
+				Stats& st = _stats[s.events[i].id];
+				st.gpuIncl += incl[i];
+				st.gpuSelf += self;
+				st.gpuCalls++;
+				frameSelf += self;
 			}
 			// The frame's span on the GPU: from its first timestamp (the previous frame
 			// boundary) to its last one (this one)
 			if (t[s.numTimestamps - 1] >= t[0])
 			{
 				_gpuFrameMsSum += (double)(t[s.numTimestamps - 1] - t[0]) * toMs;
+				_gpuSelfMsSum += frameSelf;
 				_gpuFrames++;
 			}
 		}
@@ -293,12 +359,13 @@ private:
 		_frameTicksMax = 0;
 		_topLevelSum = 0;
 		_gpuFrameMsSum = 0.0;
+		_gpuSelfMsSum = 0.0;
 		_gpuFrames = 0;
 		for (Stats& st : _stats)
 		{
 			st.calls = 0;
 			st.cpuIncl = st.cpuSelf = 0;
-			st.gpuMs = 0.0;
+			st.gpuIncl = st.gpuSelf = 0.0;
 			st.gpuCalls = 0;
 		}
 	}
@@ -306,14 +373,14 @@ private:
 	void FrameBoundary(ID3D11Device* device, ID3D11DeviceContext* context)
 	{
 		// Off (EnableFrameProfiler = 0): nothing else is done, not even reading the clock
-		if (!_enabled && !requestedEnabled)
+		if (_mode == 0 && requestedMode == 0)
 			return;
 		const LONGLONG now = Now();
 
-		// Apply the requested state
-		if (requestedEnabled != _enabled)
+		// Apply the requested mode
+		if (requestedMode != _mode)
 		{
-			_enabled = requestedEnabled;
+			_mode = requestedMode;
 			_stack.clear();
 			_lastBoundary = 0;
 			for (QuerySet& s : _sets)
@@ -327,14 +394,14 @@ private:
 			_displayTicks = 0;
 			_displayFps = _displayFrameMs = 0.0;
 			ResetWindow();
-			log_debug("[DBG] [PROF] Frame profiler %s", _enabled ? "on" : "off");
+			log_debug("[DBG] [PROF] Frame profiler %s", _mode == 0 ? "off" : (_mode == 1 ? "on (normal)" : "on (precise)"));
 		}
-		if (!_enabled)
+		if (_mode == 0)
 			return;
 		if (device != _device && !CreateQueries(device))
 		{
-			log_debug("[DBG] [PROF] Could not create the timestamp queries");
-			requestedEnabled = false;
+			log_debug("[DBG] [PROF] Could not create the queries");
+			requestedMode = 0;
 			return;
 		}
 		_context = context;
@@ -389,7 +456,8 @@ private:
 		}
 
 		// Open the next frame's query set, unless the GPU is more than NUM_QUERY_SETS frames
-		// behind: then this frame has no GPU times
+		// behind: then this frame has no GPU times. The events still open (the ones around
+		// Present) keep their slots in the old set, so they get no GPU time.
 		_cur = (_cur + 1) % NUM_QUERY_SETS;
 		QuerySet& n = _sets[_cur];
 		if (!n.pending)
@@ -412,11 +480,18 @@ private:
 		for (const Stats& st : _stats)
 			if (st.name == L"Present")
 				presentMs = TicksToMs((double)st.cpuIncl) / frames;
-		log_debug("[DBG] [PROF] ===== %d frames, %0.1f fps. CPU frame: avg %0.3f ms, min %0.3f, max %0.3f",
-			_frames, 1000.0 / frameMs, frameMs, TicksToMs((double)_frameTicksMin), TicksToMs((double)_frameTicksMax));
+		const double gpuSelfMs = _gpuFrames > 0 ? _gpuSelfMsSum / _gpuFrames : 0.0;
+		log_debug("[DBG] [PROF] ===== %s mode. %d frames, %0.1f fps. CPU frame: avg %0.3f ms, min %0.3f, max %0.3f",
+			_mode == 2 ? "PRECISE" : "Normal", _frames, 1000.0 / frameMs, frameMs,
+			TicksToMs((double)_frameTicksMin), TicksToMs((double)_frameTicksMax));
 		log_debug("[DBG] [PROF] CPU: in events %0.3f ms (Present %0.3f), outside events (game, unannotated code) %0.3f ms. GPU frame span: %0.3f ms",
 			topMs, presentMs, frameMs - topMs, _gpuFrames > 0 ? _gpuFrameMsSum / _gpuFrames : 0.0);
-		log_debug("[DBG] [PROF] %-40s %8s %10s %10s %10s", "event", "calls/fr", "CPU incl", "CPU self", "GPU");
+		log_debug("[DBG] [PROF] GPU work in events (sum of the GPU self times): %0.3f ms -> %0.1f fps if the GPU were the only limit%s",
+			gpuSelfMs, gpuSelfMs > 0.0 ? 1000.0 / gpuSelfMs : 0.0,
+			_mode == 2 ? "" : " (only reliable in precise mode)");
+		if (_mode == 2)
+			log_debug("[DBG] [PROF] Precise mode: the CPU waits for the GPU at every event, so the CPU times and the frame rate aren't representative");
+		log_debug("[DBG] [PROF] %-40s %8s %10s %10s %10s %10s", "event", "calls/fr", "CPU incl", "CPU self", "GPU incl", "GPU self");
 		for (const Stats& st : _stats)
 		{
 			if (st.calls == 0)
@@ -424,13 +499,19 @@ private:
 			char name[64];
 			const int indent = st.minDepth < 10 ? st.minDepth * 2 : 20;
 			snprintf(name, sizeof(name), "%*s%ls", indent, "", st.name.c_str());
-			char gpu[16];
+			char gpuIncl[16], gpuSelf[16];
 			if (st.gpuCalls > 0)
-				snprintf(gpu, sizeof(gpu), "%0.3f", st.gpuMs / frames);
+			{
+				snprintf(gpuIncl, sizeof(gpuIncl), "%0.3f", st.gpuIncl / frames);
+				snprintf(gpuSelf, sizeof(gpuSelf), "%0.3f", st.gpuSelf / frames);
+			}
 			else
-				snprintf(gpu, sizeof(gpu), "-");
-			log_debug("[DBG] [PROF] %-40s %8.1f %10.3f %10.3f %10s", name, st.calls / frames,
-				TicksToMs((double)st.cpuIncl) / frames, TicksToMs((double)st.cpuSelf) / frames, gpu);
+			{
+				snprintf(gpuIncl, sizeof(gpuIncl), "-");
+				snprintf(gpuSelf, sizeof(gpuSelf), "-");
+			}
+			log_debug("[DBG] [PROF] %-40s %8.1f %10.3f %10.3f %10s %10s", name, st.calls / frames,
+				TicksToMs((double)st.cpuIncl) / frames, TicksToMs((double)st.cpuSelf) / frames, gpuIncl, gpuSelf);
 		}
 	}
 };

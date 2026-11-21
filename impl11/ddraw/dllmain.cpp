@@ -812,10 +812,12 @@ LRESULT CALLBACK MyWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam
 					DisplayTimedMessage(3, 0, g_bGTAOEnabled ? "GTAO: on" : "GTAO: off");
 				}
 				return 0;
-			// Ctrl+Alt+Y: the frame profiler on/off (reports to the debug output every 5 s, see FrameProfiler.h)
+			// Ctrl+Alt+Y: the frame profiler's mode: off, normal, precise (reports to the debug output
+			// every 5 s, see FrameProfiler.h)
 			case 'Y':
-				g_FrameProfiler.requestedEnabled = !g_FrameProfiler.requestedEnabled;
-				DisplayTimedMessage(3, 0, g_FrameProfiler.requestedEnabled ? "Frame profiler: on" : "Frame profiler: off");
+				g_FrameProfiler.requestedMode = (g_FrameProfiler.requestedMode + 1) % 3;
+				DisplayTimedMessage(3, 0, g_FrameProfiler.requestedMode == 0 ? "Frame profiler: off" :
+					(g_FrameProfiler.requestedMode == 1 ? "Frame profiler: normal" : "Frame profiler: precise"));
 				return 0;
 			// Ctrl+Alt+I: Toggle emitters' light
 			case 'I':

@@ -16,7 +16,7 @@ public:
 	bool AnisotropicFilteringEnabled;
 	bool VSyncEnabled;
 	bool VSyncEnabledInHangar;
-	bool FrameProfilerEnabled;
+	int FrameProfilerMode; // EnableFrameProfiler: 0 off, 1 normal, 2 precise
 	bool AllowTearing;
 	bool WireframeFillMode;
 	int JoystickEmul;

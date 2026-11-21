@@ -38,6 +38,7 @@ Config::Config()
 	this->AnisotropicFilteringEnabled = true;
 	this->VSyncEnabled = true;
 	this->VSyncEnabledInHangar = true;
+	this->FrameProfilerEnabled = false;
 	this->WireframeFillMode = false;
 	this->JoystickEmul = 0;
 
@@ -159,6 +160,10 @@ Config::Config()
 			else if (name == "EnableVSyncInHangar")
 			{
 				this->VSyncEnabledInHangar = stoi(value) != 0;
+			}
+			else if (name == "EnableFrameProfiler")
+			{
+				this->FrameProfilerEnabled = stoi(value) != 0;
 			}
 			else if (name == "FillWireframe")
 			{

@@ -7,6 +7,7 @@
 
 #include "common.h"
 #include "DeviceResources.h"
+#include "FrameProfiler.h"
 #include "XwaD3dRendererHook.h"
 #include "XwaConcourseHook.h"
 
@@ -6860,8 +6861,12 @@ bool DeviceResources::IsTextureFormatSupported(DXGI_FORMAT format)
 	return (formatSupport & expected) == expected;
 }
 
+FrameProfiler g_FrameProfiler;
+
 bool DeviceResources::BeginAnnotatedEvent(_In_ LPCWSTR Name)
 {
+	// The frame profiler times every annotated event (EnableFrameProfiler, Ctrl+Alt+Y)
+	g_FrameProfiler.BeginEvent(_d3dDevice, _d3dDeviceContext, Name);
 	if (_d3dAnnotation != nullptr)
 	{
 		_d3dAnnotation->BeginEvent(Name);
@@ -6873,6 +6878,7 @@ bool DeviceResources::BeginAnnotatedEvent(_In_ LPCWSTR Name)
 
 bool DeviceResources::EndAnnotatedEvent()
 {
+	g_FrameProfiler.EndEvent(_d3dDeviceContext);
 	if (_d3dAnnotation != nullptr)
 	{
 		_d3dAnnotation->EndEvent();

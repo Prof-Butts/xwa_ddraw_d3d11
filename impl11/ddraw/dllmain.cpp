@@ -36,6 +36,7 @@
 #include "XWAFramework.h"
 #include "SharedMem.h"
 #include "LBVH.h"
+#include "FrameProfiler.h"
 
 extern HiResTimer g_HiResTimer;
 extern PlayerDataEntry* PlayerDataTable;
@@ -810,6 +811,11 @@ LRESULT CALLBACK MyWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam
 					g_bGTAOEnabled = !g_bGTAOEnabled;
 					DisplayTimedMessage(3, 0, g_bGTAOEnabled ? "GTAO: on" : "GTAO: off");
 				}
+				return 0;
+			// Ctrl+Alt+Y: the frame profiler on/off (reports to the debug output every 5 s, see FrameProfiler.h)
+			case 'Y':
+				g_FrameProfiler.requestedEnabled = !g_FrameProfiler.requestedEnabled;
+				DisplayTimedMessage(3, 0, g_FrameProfiler.requestedEnabled ? "Frame profiler: on" : "Frame profiler: off");
 				return 0;
 			// Ctrl+Alt+I: Toggle emitters' light
 			case 'I':

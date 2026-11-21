@@ -2,6 +2,7 @@
 // Licensed under the MIT license. See LICENSE.txt
 // Extended for VR by Leo Reyes (c) 2019
 #include "common.h"
+#include "FrameProfiler.h"
 #include <ScreenGrab.h>
 #include <wincodec.h>
 
@@ -13451,7 +13452,18 @@ HRESULT PrimarySurface::Flip(
 			//log_debug("[DBG] ******************* PRESENT 3D");
 			ClearTextureBuffers();
 			DetectMissionRestart();
-			if (FAILED(hr = this->_deviceResources->_swapChain->Present(bEnableVSync ? 1 : 0, 0)))
+			// The frame profiler starts as EnableFrameProfiler says (ddraw.cfg); Ctrl+Alt+Y toggles it
+			static bool s_frameProfilerInit = false;
+			if (!s_frameProfilerInit)
+			{
+				g_FrameProfiler.requestedEnabled = g_config.FrameProfilerEnabled;
+				s_frameProfilerInit = true;
+			}
+			g_FrameProfiler.PresentBegin(this->_deviceResources->_d3dDevice, this->_deviceResources->_d3dDeviceContext);
+			hr = this->_deviceResources->_swapChain->Present(bEnableVSync ? 1 : 0, 0);
+			// The frame profiler's frame ends here (EnableFrameProfiler, Ctrl+Alt+Y)
+			g_FrameProfiler.PresentEnd(this->_deviceResources->_d3dDevice, this->_deviceResources->_d3dDeviceContext);
+			if (FAILED(hr))
 			{
 				static bool messageShown = false;
 				log_debug("[DBG] Present 3D failed, hr: 0x%x", hr);

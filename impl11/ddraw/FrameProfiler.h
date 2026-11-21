@@ -106,6 +106,11 @@ public:
 	ID3D11DeviceContext* Context() { return _context; }
 	bool IsEnabled() const { return _enabled; }
 
+	// The frame rate and frame time for the screen (PrimarySurface::RenderText()), updated
+	// twice a second; 0 until the first update
+	double DisplayFps() const { return _displayFps; }
+	double DisplayFrameMs() const { return _displayFrameMs; }
+
 private:
 	static const int NUM_QUERY_SETS = 5;
 	static const int MAX_TIMESTAMPS = 512;
@@ -169,6 +174,10 @@ private:
 	LONGLONG _topLevelSum = 0;
 	double _gpuFrameMsSum = 0.0;
 	int _gpuFrames = 0;
+	// For the screen: the frames since the last update, and their time
+	int _displayFrames = 0;
+	LONGLONG _displayTicks = 0;
+	double _displayFps = 0.0, _displayFrameMs = 0.0;
 
 	LONGLONG Now()
 	{
@@ -314,6 +323,9 @@ private:
 			}
 			if (_freq.QuadPart == 0)
 				QueryPerformanceFrequency(&_freq);
+			_displayFrames = 0;
+			_displayTicks = 0;
+			_displayFps = _displayFrameMs = 0.0;
 			ResetWindow();
 			log_debug("[DBG] [PROF] Frame profiler %s", _enabled ? "on" : "off");
 		}
@@ -348,6 +360,16 @@ private:
 				if (ticks < _frameTicksMin) _frameTicksMin = ticks;
 				if (ticks > _frameTicksMax) _frameTicksMax = ticks;
 				_topLevelSum += _topLevelTicks;
+				// The on-screen frame rate, twice a second
+				_displayFrames++;
+				_displayTicks += ticks;
+				if (TicksToMs((double)_displayTicks) >= 500.0)
+				{
+					_displayFrameMs = TicksToMs((double)_displayTicks) / _displayFrames;
+					_displayFps = 1000.0 / _displayFrameMs;
+					_displayFrames = 0;
+					_displayTicks = 0;
+				}
 			}
 		}
 		_lastBoundary = now;

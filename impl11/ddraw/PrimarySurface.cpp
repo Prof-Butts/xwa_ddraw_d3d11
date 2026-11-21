@@ -15332,6 +15332,17 @@ out:
 			g_TimedMessages[i].y, g_TimedMessages[i].color);
 	}
 
+	// The frame rate while the frame profiler is on (Ctrl+Alt+Y). It's centered above the
+	// timed messages (their first row is at 0.189 of the height): with the dynamic cockpit,
+	// ClearHUDRegions() erases the 2D HUD's corners (the sensors are at the top), and the
+	// text there was never seen.
+	if (g_FrameProfiler.IsEnabled() && g_FrameProfiler.DisplayFps() > 0.0)
+	{
+		char buf[64];
+		sprintf_s(buf, 64, "%0.1f fps (%0.2f ms)", g_FrameProfiler.DisplayFps(), g_FrameProfiler.DisplayFrameMs());
+		DisplayCenteredText(buf, FONT_MEDIUM_IDX, (short)(0.07f * g_fCurInGameHeight), 0xFFFFFF);
+	}
+
 	// Render the additional text
 	size_index = 0;
 	for (const auto& xwaText : g_xwa_text)

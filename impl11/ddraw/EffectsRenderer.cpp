@@ -3021,38 +3021,28 @@ static void EncodeWideBVH(const BVHNode* nodes, bool isTLAS, std::vector<BVHNode
 		out[2 * numWide + j] = nodes[leaves[j]];
 }
 
-// Creates the structured buffer of BVHNodes and its SRV when it doesn't exist or holds fewer
-// than numEntries (with some room to grow). The Tech Room creates its own _RTBvh too.
-static void EnsureBvhBuffer(ID3D11Device* device, ComPtr<ID3D11Buffer>& buffer,
-	ComPtr<ID3D11ShaderResourceView>& srv, int numEntries, const char* name)
+// Creates a structured buffer of BVHNodes and its SRV, in video memory (DEFAULT usage): every
+// ray reads the BVHs, and a DYNAMIC buffer, made for the CPU to rewrite every frame, may be
+// kept where the GPU reads it more slowly. They're written with UpdateSubresource().
+static bool CreateBvhBuffer(ID3D11Device* device, UINT capacity, ID3D11Buffer** buffer,
+	ID3D11ShaderResourceView** srv, const char* name)
 {
-	UINT capacity = 0;
-	if (buffer != nullptr)
-	{
-		D3D11_BUFFER_DESC desc;
-		buffer->GetDesc(&desc);
-		capacity = desc.ByteWidth / sizeof(BVHNode);
-	}
-	if (srv != nullptr && (UINT)numEntries <= capacity)
-		return;
-
-	buffer.Release();
-	srv.Release();
-	capacity = numEntries + numEntries / 4;
-
+	*buffer = nullptr;
+	*srv = nullptr;
 	D3D11_BUFFER_DESC desc;
 	ZeroMemory(&desc, sizeof(desc));
 	desc.ByteWidth = sizeof(BVHNode) * capacity;
-	desc.Usage = D3D11_USAGE_DYNAMIC; // CPU: Write, GPU: Read
+	desc.Usage = D3D11_USAGE_DEFAULT;
 	desc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
-	desc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+	desc.CPUAccessFlags = 0;
 	desc.MiscFlags = D3D11_RESOURCE_MISC_BUFFER_STRUCTURED;
 	desc.StructureByteStride = sizeof(BVHNode);
-	HRESULT hr = device->CreateBuffer(&desc, nullptr, &buffer);
+	HRESULT hr = device->CreateBuffer(&desc, nullptr, buffer);
 	if (FAILED(hr))
 	{
 		log_debug("[DBG] [BVH] [REALLOC] Failed when creating the %s buffer: 0x%x", name, hr);
-		return;
+		*buffer = nullptr;
+		return false;
 	}
 
 	D3D11_SHADER_RESOURCE_VIEW_DESC srvDesc;
@@ -3061,20 +3051,50 @@ static void EnsureBvhBuffer(ID3D11Device* device, ComPtr<ID3D11Buffer>& buffer,
 	srvDesc.ViewDimension = D3D11_SRV_DIMENSION_BUFFER;
 	srvDesc.Buffer.FirstElement = 0;
 	srvDesc.Buffer.NumElements = capacity;
-	hr = device->CreateShaderResourceView(buffer, &srvDesc, &srv);
+	hr = device->CreateShaderResourceView(*buffer, &srvDesc, srv);
 	if (FAILED(hr))
 	{
 		log_debug("[DBG] [BVH] [REALLOC] Failed when creating the %s SRV: 0x%x", name, hr);
-		buffer.Release();
+		(*buffer)->Release();
+		*buffer = nullptr;
+		*srv = nullptr;
+		return false;
 	}
+	return true;
 }
+
+// Makes ptr hold obj, taking over its reference (this ComPtr has no assignment operator)
+template<class T>
+static void ReplaceComPtr(ComPtr<T>& ptr, T* obj)
+{
+	ptr.Release();
+	*ptr.GetAddressOf() = obj;
+}
+
+// The capacity, in entries, of a BVH buffer created by CreateBvhBuffer(), or 0 when there's
+// none: the Tech Room replaces _RTBvh with its own DYNAMIC buffer
+static UINT OwnBvhBufferCapacity(ComPtr<ID3D11Buffer>& buffer, ComPtr<ID3D11ShaderResourceView>& srv)
+{
+	if (buffer == nullptr || srv == nullptr)
+		return 0;
+	D3D11_BUFFER_DESC desc;
+	buffer->GetDesc(&desc);
+	return desc.Usage == D3D11_USAGE_DEFAULT ? desc.ByteWidth / sizeof(BVHNode) : 0;
+}
+
+// _RTBvh's contents in flight: each BLAS stays where it was uploaded, and only the new ones are
+// appended. The generation changes when the buffer is new (the first upload, after a reset or
+// after the Tech Room), and then every BLAS is uploaded again.
+static int g_iRTBLASGeneration = 0;
+static int g_iRTBLASEntriesUsed = 0;
 
 void EffectsRenderer::ReAllocateAndPopulateBvhBuffers(const int numNodes)
 {
-	// Fills _RTBvh with the BLASes of g_BLASMap in the wide layout (EncodeWideBVH()) -- this
-	// code path applies for in-flight RT. Each BLAS is encoded once and kept in its LBVH;
-	// BLASGetBaseNodeOffset() is where it begins (its root's wide node), and the TLAS leaves get
-	// it from there.
+	// Puts the BLASes of g_BLASMap in _RTBvh, in the wide layout (EncodeWideBVH()) -- this code
+	// path applies for in-flight RT. Each BLAS is encoded once and kept in its LBVH, and uploaded
+	// once, appended after the others; BLASGetBaseNodeOffset() is where it begins (its root's
+	// wide node), and the TLAS leaves get it from there. When the buffer is too small, a bigger
+	// one gets a GPU copy of the BLASes already uploaded.
 	auto& resources = _deviceResources;
 	auto& device = resources->_d3dDevice;
 	auto& context = resources->_d3dDeviceContext;
@@ -3082,7 +3102,15 @@ void EffectsRenderer::ReAllocateAndPopulateBvhBuffers(const int numNodes)
 	QueryPerformanceFrequency(&freq);
 	QueryPerformanceCounter(&t0);
 
-	int numEntries = 0, numBLASNodes = 0, numBLASes = 0, numEncoded = 0;
+	UINT capacity = OwnBvhBufferCapacity(resources->_RTBvh, resources->_RTBvhSRV);
+	if (capacity == 0)
+	{
+		g_iRTBLASGeneration++;
+		g_iRTBLASEntriesUsed = 0;
+	}
+
+	// Encode the new BLASes, and count what must be appended
+	int numBLASes = 0, numEncoded = 0, numAppended = 0, appendEntries = 0, numBLASNodes = 0;
 	for (auto& it : g_BLASMap)
 	{
 		LBVH* bvh = (LBVH*)BLASGetBVH(it.second);
@@ -3093,31 +3121,47 @@ void EffectsRenderer::ReAllocateAndPopulateBvhBuffers(const int numNodes)
 			EncodeWideBVH(bvh->nodes, false, bvh->gpuNodes);
 			numEncoded++;
 		}
-		numEntries += (int)bvh->gpuNodes.size();
+		if (bvh->gpuGeneration != g_iRTBLASGeneration)
+		{
+			appendEntries += (int)bvh->gpuNodes.size();
+			numAppended++;
+		}
 		numBLASNodes += bvh->numNodes;
 		numBLASes++;
 	}
 	QueryPerformanceCounter(&t1);
 
-	if (numEntries > 0)
-		EnsureBvhBuffer(device, resources->_RTBvh, resources->_RTBvhSRV, numEntries, "BLAS");
-	if (numEntries == 0 || resources->_RTBvhSRV == nullptr)
+	// Grow the buffer if needed, keeping what's already there
+	const int needed = g_iRTBLASEntriesUsed + appendEntries;
+	bool bGrown = false;
+	if (needed > 0 && (UINT)needed > capacity)
 	{
-		for (auto& it : g_BLASMap)
-			BLASGetBaseNodeOffset(it.second) = -1;
-		return;
+		const UINT newCapacity = needed + needed / 4;
+		ID3D11Buffer* newBuffer = nullptr;
+		ID3D11ShaderResourceView* newSRV = nullptr;
+		if (!CreateBvhBuffer(device, newCapacity, &newBuffer, &newSRV, "BLAS"))
+		{
+			// The BLASes that aren't uploaded can't be traced
+			for (auto& it : g_BLASMap)
+			{
+				LBVH* bvh = (LBVH*)BLASGetBVH(it.second);
+				if (bvh == nullptr || bvh->gpuGeneration != g_iRTBLASGeneration)
+					BLASGetBaseNodeOffset(it.second) = -1;
+			}
+			return;
+		}
+		if (capacity > 0 && g_iRTBLASEntriesUsed > 0)
+		{
+			D3D11_BOX box = { 0, 0, 0, (UINT)(g_iRTBLASEntriesUsed * sizeof(BVHNode)), 1, 1 };
+			context->CopySubresourceRegion(newBuffer, 0, 0, 0, 0, resources->_RTBvh, 0, &box);
+		}
+		ReplaceComPtr(resources->_RTBvh, newBuffer);
+		ReplaceComPtr(resources->_RTBvhSRV, newSRV);
+		capacity = newCapacity;
+		bGrown = true;
 	}
 
-	D3D11_MAPPED_SUBRESOURCE map;
-	ZeroMemory(&map, sizeof(D3D11_MAPPED_SUBRESOURCE));
-	HRESULT hr = context->Map(resources->_RTBvh.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &map);
-	if (FAILED(hr))
-	{
-		log_debug("[DBG] [BVH] [REALLOC] Failed when mapping BVH nodes: 0x%x", hr);
-		return;
-	}
-	BVHNode* dst = (BVHNode*)map.pData;
-	int BaseNodeOffset = 0;
+	// Append the new BLASes
 	for (auto& it : g_BLASMap)
 	{
 		BLASData& blasData = it.second;
@@ -3127,26 +3171,34 @@ void EffectsRenderer::ReAllocateAndPopulateBvhBuffers(const int numNodes)
 			BLASGetBaseNodeOffset(blasData) = -1;
 			continue;
 		}
+		if (bvh->gpuGeneration != g_iRTBLASGeneration)
+		{
+			const int n = (int)bvh->gpuNodes.size();
+			D3D11_BOX box = { (UINT)(g_iRTBLASEntriesUsed * sizeof(BVHNode)), 0, 0,
+				(UINT)((g_iRTBLASEntriesUsed + n) * sizeof(BVHNode)), 1, 1 };
+			context->UpdateSubresource(resources->_RTBvh, 0, &box, bvh->gpuNodes.data(), 0, 0);
+			bvh->gpuOffset = g_iRTBLASEntriesUsed;
+			bvh->gpuGeneration = g_iRTBLASGeneration;
+			g_iRTBLASEntriesUsed += n;
+		}
 		// Save the location where this BLAS begins
-		BLASGetBaseNodeOffset(blasData) = BaseNodeOffset;
-		memcpy(dst + BaseNodeOffset, bvh->gpuNodes.data(), sizeof(BVHNode) * bvh->gpuNodes.size());
-		BaseNodeOffset += (int)bvh->gpuNodes.size();
+		BLASGetBaseNodeOffset(blasData) = bvh->gpuOffset;
 	}
-	context->Unmap(resources->_RTBvh.Get(), 0);
 	QueryPerformanceCounter(&t2);
 
-	log_debug("[DBG] [PROF] [BVH] BLAS buffer: %d BLASes (%d encoded now, in %0.2f ms), %d entries in the wide layout "
-		"(%0.1f MB; the 64-byte layout had %d nodes, %0.1f MB), uploaded in %0.2f ms",
+	log_debug("[DBG] [PROF] [BVH] BLAS buffer: %d BLASes (%d encoded now, in %0.2f ms); %d appended (%0.1f MB) in %0.2f ms%s; "
+		"%d entries used of %u (%0.1f MB; the 64-byte layout had %d nodes, %0.1f MB)",
 		numBLASes, numEncoded, 1000.0 * (t1.QuadPart - t0.QuadPart) / freq.QuadPart,
-		numEntries, numEntries * sizeof(BVHNode) / (1024.0 * 1024.0),
-		numBLASNodes, numBLASNodes * sizeof(BVHNode) / (1024.0 * 1024.0),
-		1000.0 * (t2.QuadPart - t1.QuadPart) / freq.QuadPart);
+		numAppended, appendEntries * sizeof(BVHNode) / (1024.0 * 1024.0),
+		1000.0 * (t2.QuadPart - t1.QuadPart) / freq.QuadPart, bGrown ? " (the buffer grew)" : "",
+		g_iRTBLASEntriesUsed, capacity, g_iRTBLASEntriesUsed * sizeof(BVHNode) / (1024.0 * 1024.0),
+		numBLASNodes, numBLASNodes * sizeof(BVHNode) / (1024.0 * 1024.0));
 }
 
 void EffectsRenderer::ReAllocateAndPopulateTLASBvhBuffers()
 {
-	// Fills _RTTLASBvh with the TLAS in the wide layout (EncodeWideBVH()), every frame -- this
-	// code path applies for in-flight RT. Its root's wide node is entry 0.
+	// Puts the TLAS in _RTTLASBvh in the wide layout (EncodeWideBVH()), every frame -- this code
+	// path applies for in-flight RT. Its root's wide node is entry 0.
 	auto& resources = _deviceResources;
 	auto& device = resources->_d3dDevice;
 	auto& context = resources->_d3dDeviceContext;
@@ -3162,21 +3214,20 @@ void EffectsRenderer::ReAllocateAndPopulateTLASBvhBuffers()
 	static std::vector<BVHNode> s_tlasEntries;
 	s_tlasEntries.clear();
 	EncodeWideBVH(g_TLASTree->nodes, true, s_tlasEntries);
+	const int numEntries = (int)s_tlasEntries.size();
 
-	EnsureBvhBuffer(device, resources->_RTTLASBvh, resources->_RTTLASBvhSRV, (int)s_tlasEntries.size(), "TLAS");
-	if (resources->_RTTLASBvhSRV == nullptr)
-		return;
-
-	D3D11_MAPPED_SUBRESOURCE map;
-	ZeroMemory(&map, sizeof(D3D11_MAPPED_SUBRESOURCE));
-	HRESULT hr = context->Map(resources->_RTTLASBvh.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &map);
-	if (SUCCEEDED(hr))
+	if ((UINT)numEntries > OwnBvhBufferCapacity(resources->_RTTLASBvh, resources->_RTTLASBvhSRV))
 	{
-		memcpy(map.pData, s_tlasEntries.data(), sizeof(BVHNode) * s_tlasEntries.size());
-		context->Unmap(resources->_RTTLASBvh.Get(), 0);
+		ID3D11Buffer* newBuffer = nullptr;
+		ID3D11ShaderResourceView* newSRV = nullptr;
+		if (!CreateBvhBuffer(device, numEntries + numEntries / 4, &newBuffer, &newSRV, "TLAS"))
+			return;
+		ReplaceComPtr(resources->_RTTLASBvh, newBuffer);
+		ReplaceComPtr(resources->_RTTLASBvhSRV, newSRV);
 	}
-	else
-		log_debug("[DBG] [BVH] [REALLOC] Failed when mapping TLAS BVH nodes: 0x%x", hr);
+
+	D3D11_BOX box = { 0, 0, 0, (UINT)(numEntries * sizeof(BVHNode)), 1, 1 };
+	context->UpdateSubresource(resources->_RTTLASBvh, 0, &box, s_tlasEntries.data(), 0, 0);
 }
 
 void EffectsRenderer::ReAllocateAndPopulateMatrixBuffer()

@@ -832,6 +832,10 @@ public:
 	// In flight, this BLAS as the shaders traverse it (EncodeWideBVH() in EffectsRenderer.cpp),
 	// encoded once, when it's first uploaded
 	std::vector<BVHNode> gpuNodes;
+	// Where gpuNodes is in _RTBvh, valid while gpuGeneration is the buffer's generation
+	// (ReAllocateAndPopulateBvhBuffers())
+	int gpuOffset = -1;
+	int gpuGeneration = -1;
 
 	LBVH() {
 		this->vertices = nullptr;

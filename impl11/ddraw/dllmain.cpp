@@ -719,15 +719,6 @@ LRESULT CALLBACK MyWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam
 				g_bAutoGreeblesEnabled = !g_bAutoGreeblesEnabled;
 				DisplayTimedMessage(3, 0, g_bAutoGreeblesEnabled ? "Greebles Enabled" : "Greebles Disabled");
 				return 0;
-				// DEBUG
-			// Ctrl + Alt + P
-			case 'P':
-				g_bEnableIndirectSSDO = !g_bEnableIndirectSSDO;
-				if (g_bEnableIndirectSSDO)
-					DisplayTimedMessage(3, 0, "Indirect SSDO Enabled");
-				else
-					DisplayTimedMessage(3, 0, "Indirect SSDO Disabled");
-				return 0;
 			// Ctrl+Alt+A: Toggle Bloom
 			case 'A':
 				g_bBloomEnabled = !g_bBloomEnabled;
@@ -769,25 +760,11 @@ LRESULT CALLBACK MyWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam
 				//g_bGlobalDebugFlag = !g_bGlobalDebugFlag;
 				return 0;
 
-			case 'B':
-				g_bDisableBarrelEffect = !g_bDisableBarrelEffect;
-				SaveVRParams();
-				return 0;
 			case 'R':
 				ResetVRParams();
 				DCResetSubRegions();
 				return 0;
 
-			case 'V':
-				// We can't just switch to VR mode if the game was started with no VR support
-				if (!g_bEnableVR) {
-					if (g_bSteamVRInitialized || g_bDirectSBSInitialized)
-						g_bEnableVR = true;
-				}
-				else { // VR mode can always be disabled
-					g_bEnableVR = !g_bEnableVR;
-				}
-				return 0;
 			// Ctrl+Alt+S
 			case 'S':
 				SaveVRParams();
@@ -814,6 +791,8 @@ LRESULT CALLBACK MyWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam
 				return 0;
 			// TEMPORARY Ctrl+Alt+T: the RT shadow mask diagnostics: off, no BVH traversal, heat map
 			case 'T':
+				if (!g_bEnableDeveloperMode)
+					return 0;
 				g_iRTDiagMode = (g_iRTDiagMode + 1) % 3;
 				if (g_bUseSteamVR)
 					DisplayTimedMessage(3, 0, "RT diagnostics: not in VR");
@@ -822,8 +801,10 @@ LRESULT CALLBACK MyWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam
 						(g_iRTDiagMode == 1 ? "RT shadow mask: no traversal" : "RT shadow mask: heat map"));
 				return 0;
 			// Ctrl+Alt+Y: the frame profiler's mode: off, normal, precise (reports to the debug output
-			// every 5 s, see FrameProfiler.h)
+			// every 5s, see FrameProfiler.h)
 			case 'Y':
+				if (!g_bEnableDeveloperMode)
+					return 0;
 				g_FrameProfiler.requestedMode = (g_FrameProfiler.requestedMode + 1) % 3;
 				DisplayTimedMessage(3, 0, g_FrameProfiler.requestedMode == 0 ? "Frame profiler: off" :
 					(g_FrameProfiler.requestedMode == 1 ? "Frame profiler: normal" : "Frame profiler: precise"));

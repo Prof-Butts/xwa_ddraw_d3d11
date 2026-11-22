@@ -2942,7 +2942,17 @@ static void EncodeWideBVH(const BVHNode* nodes, bool isTLAS, std::vector<BVHNode
 		const BVHNode& n = nodes[c];
 		if (n.ref == -1 || isTLAS)
 		{
-			for (int k = 0; k < 3; k++) { bmin[k] = n.min[k]; bmax[k] = n.max[k]; }
+			// Padded by a few ulps: the shader's multiply-add box test rounds differently from the
+			// exact planes near the ray's origin (WideBoxHit() in RTCommon.h)
+			float maxAbs = 0.0f;
+			for (int k = 0; k < 3; k++)
+			{
+				bmin[k] = n.min[k];
+				bmax[k] = n.max[k];
+				maxAbs = max(maxAbs, max(fabs(bmin[k]), fabs(bmax[k])));
+			}
+			const float pad = 1e-6f * maxAbs;
+			for (int k = 0; k < 3; k++) { bmin[k] -= pad; bmax[k] += pad; }
 			return;
 		}
 		float maxAbs = 0.0f;

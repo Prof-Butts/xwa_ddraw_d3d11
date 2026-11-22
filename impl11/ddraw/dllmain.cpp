@@ -812,6 +812,15 @@ LRESULT CALLBACK MyWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam
 					DisplayTimedMessage(3, 0, g_bGTAOEnabled ? "GTAO: on" : "GTAO: off");
 				}
 				return 0;
+			// TEMPORARY Ctrl+Alt+T: the RT shadow mask diagnostics: off, no BVH traversal, heat map
+			case 'T':
+				g_iRTDiagMode = (g_iRTDiagMode + 1) % 3;
+				if (g_bUseSteamVR)
+					DisplayTimedMessage(3, 0, "RT diagnostics: not in VR");
+				else
+					DisplayTimedMessage(3, 0, g_iRTDiagMode == 0 ? "RT shadow mask: normal" :
+						(g_iRTDiagMode == 1 ? "RT shadow mask: no traversal" : "RT shadow mask: heat map"));
+				return 0;
 			// Ctrl+Alt+Y: the frame profiler's mode: off, normal, precise (reports to the debug output
 			// every 5 s, see FrameProfiler.h)
 			case 'Y':

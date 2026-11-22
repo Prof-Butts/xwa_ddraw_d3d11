@@ -170,6 +170,7 @@ extern int g_iPBRGIEmitterScale, g_iPBRGIEmitterSlices, g_iPBRGIEmitterSteps, g_
 extern bool g_bPBRGIEmitterMips;
 extern float g_fPBRGIEmitterMipOffset;
 extern bool g_bPBRGIMips;
+extern int g_iRTDiagMode;
 extern float g_fPBRGIAlbedo, g_fPBRGIMetallicity;
 extern float g_fPBRGIMipOffset;
 extern float g_fPBRGIEmitterRadius, g_fPBRGIEmitterMaxRadius;

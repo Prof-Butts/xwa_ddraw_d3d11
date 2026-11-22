@@ -991,6 +991,34 @@ PixelShaderOutput main(PixelShaderInput input)
 	const float blendAlphaSat = saturate(2.0 * Normal.w);
 	const float blendAlpha = blendAlphaSat * blendAlphaSat;
 
+	// TEMPORARY diagnostic (Ctrl+Alt+T, heat map): the BVH nodes that the RT shadow mask's rays
+	// visited at this pixel (RTShadowMaskDiagHeatPS writes the count into the mask), on a log
+	// scale: dark blue 1, blue 4, cyan 16, green 64, yellow 128, red 256, white 512 or more.
+	// The surfaces that traced no ray are dim gray.
+	[branch]
+	if (rt_debug > 0.5)
+	{
+		const int2 maskPx = int2(uint2(input.pos.xy) / RTShadowMaskSizeFactor);
+#ifdef INSTANCED_RENDERING
+		const float visits = rtShadowMask.Load(int4(maskPx, input.viewId, 0)).x;
+#else
+		const float visits = rtShadowMask.Load(int3(maskPx, 0)).x;
+#endif
+		float3 heat = 0.15 * dot(color, float3(0.333, 0.333, 0.333));
+		if (visits > 0.5)
+		{
+			const float t = log2(visits);
+			heat = t < 2.0 ? lerp(float3(0, 0, 0.3), float3(0, 0, 1), t / 2.0) :
+				   t < 4.0 ? lerp(float3(0, 0, 1), float3(0, 1, 1), (t - 2.0) / 2.0) :
+				   t < 6.0 ? lerp(float3(0, 1, 1), float3(0, 1, 0), (t - 4.0) / 2.0) :
+				   t < 7.0 ? lerp(float3(0, 1, 0), float3(1, 1, 0), t - 6.0) :
+				   t < 8.0 ? lerp(float3(1, 1, 0), float3(1, 0, 0), t - 7.0) :
+				             lerp(float3(1, 0, 0), float3(1, 1, 1), saturate(t - 8.0));
+		}
+		output.color = float4(lerp(0.15 * background, heat, blendAlpha), 1);
+		return output;
+	}
+
 	// GTAO (Ctrl+Alt+J toggles it): it occludes the ambient light, and the bent normal (the
 	// least occluded direction) is used to look up the cubemap's ambient light. The sun has
 	// real shadows, so it isn't occluded.

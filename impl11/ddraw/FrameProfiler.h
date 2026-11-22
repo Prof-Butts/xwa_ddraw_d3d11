@@ -491,6 +491,16 @@ private:
 			_mode == 2 ? "" : " (only reliable in precise mode)");
 		if (_mode == 2)
 			log_debug("[DBG] [PROF] Precise mode: the CPU waits for the GPU at every event, so the CPU times and the frame rate aren't representative");
+		{
+			// TEMPORARY (Ctrl+Alt+T): the RT shadow mask diagnostic this report measured
+			extern int g_iRTDiagMode;
+			static int s_lastRTDiagMode = g_iRTDiagMode;
+			log_debug("[DBG] [PROF] RT shadow mask: %s%s",
+				g_iRTDiagMode == 0 ? "normal" : (g_iRTDiagMode == 1 ? "no traversal (diagnostic)" :
+					"heat map (diagnostic: the readback stalls the GPU, don't use these times)"),
+				s_lastRTDiagMode != g_iRTDiagMode ? " (switched during this report: it mixes modes, discard it)" : "");
+			s_lastRTDiagMode = g_iRTDiagMode;
+		}
 		log_debug("[DBG] [PROF] %-40s %8s %10s %10s %10s %10s", "event", "calls/fr", "CPU incl", "CPU self", "GPU incl", "GPU self");
 		for (const Stats& st : _stats)
 		{

@@ -53,7 +53,7 @@ cbuffer ConstantBuffer : register(b4)
 	float gtao_debug;         // pbr_gtao_debug: 0 off, 1 fine AO, 2 coarse AO, 3 both, 4 bent normal
 	float gtao_multibounce;   // Multi-bounce AO strength (pbr_gtao_multibounce), 0 when it's off
 	float gtao_light_occlusion; // GTAO occlusion of the laser/dynamic lights (pbr_gtao_light_occlusion)
-	float unused_ss3;
+	float rt_debug;           // TEMPORARY (Ctrl+Alt+T): 1 shows the RT shadow mask's heat map
 	// 1200 bytes
 	float env_ambient_mult;   // pbr_cubemap_ambient: multiplies the cubemap's ambient light (AmbientInt)
 	float env_specular_mult;  // pbr_cubemap_specular: multiplies the cubemap's reflections (Specular)

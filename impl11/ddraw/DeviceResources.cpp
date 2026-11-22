@@ -99,6 +99,8 @@
 #include "../Debug/LevelsPS.h"
 #include "../Debug/RTShadowMaskPS.h"
 #include "../Debug/RTShadowMaskPS_VR.h"
+#include "../Debug/RTShadowMaskDiagNoTracePS.h"
+#include "../Debug/RTShadowMaskDiagHeatPS.h"
 #include "../Debug/RTSoftShadowFilter.h"
 #include "../Debug/RTSoftShadowFilter_VR.h"
 #include "../Debug/PBRAdd.h"
@@ -209,6 +211,8 @@
 #include "../Release/LevelsPS.h"
 #include "../Release/RTShadowMaskPS.h"
 #include "../Release/RTShadowMaskPS_VR.h"
+#include "../Release/RTShadowMaskDiagNoTracePS.h"
+#include "../Release/RTShadowMaskDiagHeatPS.h"
 #include "../Release/RTSoftShadowFilter.h"
 #include "../Release/RTSoftShadowFilter_VR.h"
 #include "../Release/PBRAdd.h"
@@ -5162,6 +5166,13 @@ HRESULT DeviceResources::LoadResources()
 			return hr;
 
 		if (FAILED(hr = this->_d3dDevice->CreatePixelShader(g_RTShadowMaskPS, sizeof(g_RTShadowMaskPS), nullptr, &_rtShadowMaskPS)))
+			return hr;
+
+		// TEMPORARY diagnostics (Ctrl+Alt+T)
+		if (FAILED(hr = this->_d3dDevice->CreatePixelShader(g_RTShadowMaskDiagNoTracePS, sizeof(g_RTShadowMaskDiagNoTracePS), nullptr, &_rtShadowMaskDiagNoTracePS)))
+			return hr;
+
+		if (FAILED(hr = this->_d3dDevice->CreatePixelShader(g_RTShadowMaskDiagHeatPS, sizeof(g_RTShadowMaskDiagHeatPS), nullptr, &_rtShadowMaskDiagHeatPS)))
 			return hr;
 
 		if (FAILED(hr = this->_d3dDevice->CreatePixelShader(g_RTSoftShadowFilter, sizeof(g_RTSoftShadowFilter), nullptr, &_rtSoftShadowFilterPS)))

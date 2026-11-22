@@ -31,6 +31,8 @@
 #include "EffectsRenderer.h"
 #include "LBVH.h"
 #include "GPUTimer.h"
+#include <algorithm>
+#include <DirectXPackedVector.h>
 
 extern D3dRenderer* g_current_renderer;
 extern LBVH* g_ACTLASTree;
@@ -3078,6 +3080,8 @@ void SetLights(DeviceResources *resources, float fSSDOEnabled) {
 	g_ShadingSys_PSBuffer.gtao_scale = g_bGTAOHalfRes ? 2.0f : 1.0f;
 	g_ShadingSys_PSBuffer.gtao_coarse_enabled = (g_ShadingSys_PSBuffer.gtao_enabled > 0.5f && g_bGTAOCoarse) ? 1.0f : 0.0f;
 	g_ShadingSys_PSBuffer.gtao_debug = (float)g_iGTAODebug;
+	// TEMPORARY (Ctrl+Alt+T): the RT shadow mask's heat map (non-VR only)
+	g_ShadingSys_PSBuffer.rt_debug = (g_iRTDiagMode == 2 && !g_bUseSteamVR && g_bRTEnabled) ? 1.0f : 0.0f;
 	g_ShadingSys_PSBuffer.gtao_multibounce = g_bGTAOMultiBounce ? g_fGTAOMultiBounce : 0.0f;
 	g_ShadingSys_PSBuffer.gtao_light_occlusion = g_fGTAOLightOcclusion;
 	g_ShadingSys_PSBuffer.gtao_cone_spec_occlusion = g_bGTAOConeSpecOcclusion ? 1.0f : 0.0f;
@@ -11367,6 +11371,96 @@ nochange:
 	this->_deviceResources->EndAnnotatedEvent();
 }
 
+// TEMPORARY diagnostic (Ctrl+Alt+T, heat map): every 2 seconds, reads the RT shadow mask back
+// (RTShadowMaskDiagHeatPS: x = the BVH nodes visited, y = the triangles tested, per pixel) and
+// logs their distribution over the pixels that traced a ray. The readback stalls the GPU, so
+// don't profile in this mode.
+static void LogRTNodeVisits(DeviceResources* resources)
+{
+	static ULONGLONG s_lastTime = 0;
+	const ULONGLONG now = GetTickCount64();
+	if (now - s_lastTime < 2000)
+		return;
+	s_lastTime = now;
+
+	auto& context = resources->_d3dDeviceContext;
+	static ComPtr<ID3D11Texture2D> s_staging;
+	D3D11_TEXTURE2D_DESC desc;
+	resources->_rtShadowMask->GetDesc(&desc);
+	if (s_staging != nullptr)
+	{
+		D3D11_TEXTURE2D_DESC stagingDesc;
+		s_staging->GetDesc(&stagingDesc);
+		if (stagingDesc.Width != desc.Width || stagingDesc.Height != desc.Height || stagingDesc.ArraySize != desc.ArraySize)
+			s_staging.Release();
+	}
+	if (s_staging == nullptr)
+	{
+		desc.Usage = D3D11_USAGE_STAGING;
+		desc.BindFlags = 0;
+		desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+		desc.MiscFlags = 0;
+		if (FAILED(resources->_d3dDevice->CreateTexture2D(&desc, nullptr, s_staging.GetAddressOf())))
+		{
+			log_debug("[DBG] [PROF] [RT] Heat map: could not create the staging texture");
+			return;
+		}
+	}
+	context->CopyResource(s_staging.Get(), resources->_rtShadowMask.Get());
+	D3D11_MAPPED_SUBRESOURCE map;
+	if (FAILED(context->Map(s_staging.Get(), 0, D3D11_MAP_READ, 0, &map)))
+		return;
+
+	// The mask's viewport (RenderRTShadowMask())
+	const UINT w = min(desc.Width,  (UINT)(g_fCurScreenWidth  / g_RTConstantsBuffer.RTShadowMaskSizeFactor));
+	const UINT h = min(desc.Height, (UINT)(g_fCurScreenHeight / g_RTConstantsBuffer.RTShadowMaskSizeFactor));
+	std::vector<uint32_t> nodes;
+	nodes.reserve(w * h);
+	double nodeSum = 0, triSum = 0;
+	uint32_t triMax = 0;
+	for (UINT y = 0; y < h; y++)
+	{
+		const uint16_t* row = (const uint16_t*)((const uint8_t*)map.pData + y * map.RowPitch);
+		for (UINT x = 0; x < w; x++)
+		{
+			const float n = DirectX::PackedVector::XMConvertHalfToFloat(row[2 * x]);
+			if (n < 0.5f)
+				continue; // No ray
+			const uint32_t tri = (uint32_t)(DirectX::PackedVector::XMConvertHalfToFloat(row[2 * x + 1]) + 0.5f);
+			nodes.push_back((uint32_t)(n + 0.5f));
+			nodeSum += n;
+			triSum += tri;
+			triMax = max(triMax, tri);
+		}
+	}
+	context->Unmap(s_staging.Get(), 0);
+
+	if (nodes.empty())
+	{
+		log_debug("[DBG] [PROF] [RT] Heat map: no rays");
+		return;
+	}
+	const size_t count = nodes.size();
+	std::sort(nodes.begin(), nodes.end());
+	auto pct = [&](double p) { return nodes[min(count - 1, (size_t)(p * count))]; };
+	// The heat map's color bands
+	const uint32_t bands[] = { 16, 64, 128, 256, 512 };
+	size_t bandCount[6] = {};
+	for (uint32_t n : nodes)
+	{
+		int b = 0;
+		while (b < 5 && n >= bands[b]) b++;
+		bandCount[b]++;
+	}
+	log_debug("[DBG] [PROF] [RT] Heat map: %u pixels with rays (%0.1f%% of the %ux%u mask). Nodes visited per pixel: avg %0.1f, median %u, p90 %u, p99 %u, max %u. Triangles tested: avg %0.1f, max %u",
+		(uint32_t)count, 100.0 * count / (w * h), w, h, nodeSum / count, pct(0.5), pct(0.9), pct(0.99), nodes[count - 1], triSum / count, triMax);
+	log_debug("[DBG] [PROF] [RT] Heat map: pixels by nodes visited: <16 %0.1f%%, 16-63 %0.1f%%, 64-127 %0.1f%%, 128-255 %0.1f%%, 256-511 %0.1f%%, 512+ %0.1f%%. Share of all node visits by the top 10%% of pixels: %0.1f%%",
+		100.0 * bandCount[0] / count, 100.0 * bandCount[1] / count, 100.0 * bandCount[2] / count,
+		100.0 * bandCount[3] / count, 100.0 * bandCount[4] / count, 100.0 * bandCount[5] / count,
+		[&]() { double top = 0; for (size_t i = count - count / 10; i < count; i++) top += nodes[i]; return 100.0 * top / nodeSum; }());
+	DisplayTimedMessageV(3, 0, "RT nodes/pixel: avg %0.0f, median %u, p99 %u, max %u", nodeSum / count, pct(0.5), pct(0.99), nodes[count - 1]);
+}
+
 void PrimarySurface::RenderRTShadowMask()
 {
 	this->_deviceResources->BeginAnnotatedEvent(L"RenderRTShadowMask");
@@ -11404,7 +11498,13 @@ void PrimarySurface::RenderRTShadowMask()
 	resources->InitInputLayout(resources->_mainInputLayout);
 
 	resources->InitVertexShader(g_bUseSteamVR ? resources->_mainVertexShaderVR : resources->_mainVertexShader);
-	resources->InitPixelShader(g_bUseSteamVR ? resources->_rtShadowMaskPS_VR : resources->_rtShadowMaskPS);
+	// TEMPORARY (Ctrl+Alt+T): the diagnostics, non-VR only
+	if (!g_bUseSteamVR && g_iRTDiagMode == 1)
+		resources->InitPixelShader(resources->_rtShadowMaskDiagNoTracePS);
+	else if (!g_bUseSteamVR && g_iRTDiagMode == 2)
+		resources->InitPixelShader(resources->_rtShadowMaskDiagHeatPS);
+	else
+		resources->InitPixelShader(g_bUseSteamVR ? resources->_rtShadowMaskPS_VR : resources->_rtShadowMaskPS);
 
 	// Clear all the render target views
 	ID3D11RenderTargetView* rtvs_null[5] = {
@@ -11457,6 +11557,10 @@ void PrimarySurface::RenderRTShadowMask()
 		context->DrawInstanced(6, 2, 0, 0); // if (g_bUseSteamVR)
 	else
 		context->Draw(6, 0);
+
+	// TEMPORARY (Ctrl+Alt+T): the heat map's numbers
+	if (!g_bUseSteamVR && g_iRTDiagMode == 2)
+		LogRTNodeVisits(resources);
 
 	// Post-process the right image
 	//if (g_bUseSteamVR) {

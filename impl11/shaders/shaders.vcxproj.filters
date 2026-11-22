@@ -110,6 +110,8 @@
     <FxCompile Include="GIGeomMips.hlsl" />
     <FxCompile Include="GIGeomMipsVR.hlsl" />
     <FxCompile Include="RT\RTSoftShadowFilter.hlsl" />
+    <FxCompile Include="RT\RTShadowMaskDiagNoTracePS.hlsl" />
+    <FxCompile Include="RT\RTShadowMaskDiagHeatPS.hlsl" />
     <FxCompile Include="RT\RTSoftShadowFilter_VR.hlsl" />
     <FxCompile Include="GTAODenoise.hlsl" />
     <FxCompile Include="GTAODenoiseVR.hlsl" />

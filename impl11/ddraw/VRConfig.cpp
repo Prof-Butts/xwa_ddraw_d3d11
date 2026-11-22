@@ -260,6 +260,8 @@ int g_iPBRGIEmitterScale = 2, g_iPBRGIEmitterSlices = 2, g_iPBRGIEmitterSteps = 
 bool g_bPBRGIEmitterMips = true;
 float g_fPBRGIEmitterMipOffset = 3.3f;
 bool g_bPBRGIMips = true;
+// TEMPORARY (Ctrl+Alt+T): the RT shadow mask diagnostics: 0 off, 1 no BVH traversal, 2 the heat map
+int g_iRTDiagMode = 0;
 // How much the albedo and the metallicity apply to the indirect light (1: physically correct)
 float g_fPBRGIAlbedo = 1.0f, g_fPBRGIMetallicity = 1.0f;
 float g_fPBRGIMipOffset = 3.3f;

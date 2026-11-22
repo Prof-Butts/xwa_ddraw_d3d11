@@ -829,6 +829,9 @@ public:
 	int /* rootIdx,*/ numVertices, numIndices, numNodes;
 	float scale;
 	bool scaleComputed;
+	// In flight, this BLAS as the shaders traverse it (EncodeWideBVH() in EffectsRenderer.cpp),
+	// encoded once, when it's first uploaded
+	std::vector<BVHNode> gpuNodes;
 
 	LBVH() {
 		this->vertices = nullptr;

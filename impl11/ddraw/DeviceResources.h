@@ -627,6 +627,9 @@ public:
 	ComPtr<ID3D11PixelShader> _levelsPS;
 	ComPtr<ID3D11PixelShader> _rtShadowMaskPS;
 	ComPtr<ID3D11PixelShader> _rtShadowMaskPS_VR;
+	// TEMPORARY diagnostics (Ctrl+Alt+T): the mask without the traversal, and the heat map's
+	ComPtr<ID3D11PixelShader> _rtShadowMaskDiagNoTracePS;
+	ComPtr<ID3D11PixelShader> _rtShadowMaskDiagHeatPS;
 	ComPtr<ID3D11PixelShader> _rtSoftShadowFilterPS;
 	ComPtr<ID3D11PixelShader> _rtSoftShadowFilterPS_VR;
 

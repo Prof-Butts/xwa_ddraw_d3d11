@@ -60,7 +60,11 @@ PixelShaderOutput main(PixelShaderInput input)
 	// If I remove the following, then the bloom mask is messed up!
 	// The skybox gets alpha = 0, but when MSAA is on, alpha goes from 0 to 0.5
 	if (Normal.w < 0.475) {
+#ifdef RT_DIAG_HEAT
+		output.color = float4(0, 0, 0, 1); // No rays
+#else
 		output.color = float4(rt_shadow_factor, P.z, 0, 1);
+#endif
 		return output;
 	}
 
@@ -90,7 +94,14 @@ PixelShaderOutput main(PixelShaderInput input)
 			ray.dir = float3(L.x, -L.y, -L.z);
 			ray.max_dist = RT_MAX_DIST;
 
+#ifdef RT_DIAG_NO_TRACE
+			// TEMPORARY diagnostic (Ctrl+Alt+T): no traversal, every ray misses, to measure the
+			// pass's fixed cost
+			Intersection inters;
+			inters.TriID = -1;
+#else
 			Intersection inters = TLASTraceRaySimpleHit(ray);
+#endif
 			if (inters.TriID > -1)
 				rt_shadow_factor *= black_level;
 		}
@@ -100,6 +111,12 @@ PixelShaderOutput main(PixelShaderInput input)
 		}
 	}
 
+#ifdef RT_DIAG_HEAT
+	// TEMPORARY diagnostic (Ctrl+Alt+T): the nodes popped and the triangles tested by this
+	// pixel's rays, instead of the shadow (the lighting pass shows them, rt_debug)
+	output.color = float4(g_RTNodeVisits, g_RTTriangleTests, 0, 1);
+#else
 	output.color = float4(rt_shadow_factor, P.z, 0, 1);
+#endif
 	return output;
 }

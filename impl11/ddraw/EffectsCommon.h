@@ -437,7 +437,8 @@ typedef struct PSShadingSystemCBStruct {
 	// 1392 bytes
 	float gi_albedo;          // pbr_gi_albedo: how much the albedo tints the indirect light (1: physically correct, 0: none)
 	float gi_metallicity;     // pbr_gi_metallicity: how much the metallicity removes it (1: physically correct, 0: none)
-	float unused_ss8, unused_ss9;
+	float gi_filtered_shadow;  // pbr_gi_filtered_shadows: 1, the bounce light reads the filtered RT shadow mask (t24)
+	float unused_ss9;
 	// 1408 bytes
 } PSShadingSystemCB;
 

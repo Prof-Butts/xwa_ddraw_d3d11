@@ -607,9 +607,20 @@ float ComputeSunShadowFactor(PixelShaderInput input, float3 P, float3 N)
 #endif
 #ifdef GI_BOUNCE_LIGHT_PASS
 			// The bounce light only needs the shadow at the pixel: the gather samples it sparsely
-			// and the indirect light is blurred anyway. The soft-shadow filter below reads the mask
-			// and the positions about 60 times per pixel, which made the bounce pass expensive.
-			rt_shadow_factor = rtCenter;
+			// and the indirect light is blurred anyway. DeferredPass() runs the soft-shadow filter
+			// before this pass, so this is the filtered mask (t24), one sample at the pixel; the
+			// upsample below works in full-resolution pixels, this pass runs at a quarter of that.
+			// pbr_gi_filtered_shadows = 0 reads the raw mask instead.
+			if (gi_filtered_shadow > 0.5)
+			{
+#ifdef INSTANCED_RENDERING
+				rt_shadow_factor = rtSoftShadow.Sample(sampColor, float3(input.uv, input.viewId)).x;
+#else
+				rt_shadow_factor = rtSoftShadow.Sample(sampColor, input.uv).x;
+#endif
+			}
+			else
+				rt_shadow_factor = rtCenter;
 #else
 			// The soft shadows, filtered at the mask's resolution (RTSoftShadowFilterCommon.h)
 			// and upsampled here. Filtering at every pixel took about 60 texture reads per pixel

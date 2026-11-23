@@ -4260,6 +4260,10 @@ void PrimarySurface::BounceLightPass()
 			resources->_rtShadowMaskSRV.Get(), // 17
 		};
 		context->PSSetShaderResources(14, 4, rtSRVs);
+		// The filtered soft shadows (t24), see DeferredPass()
+		ID3D11ShaderResourceView* softShadowSRV[1] = {
+			g_ShadingSys_PSBuffer.gi_filtered_shadow > 0.5f ? resources->_rtSoftShadowSRV.Get() : NULL };
+		context->PSSetShaderResources(24, 1, softShadowSRV);
 	}
 
 	resources->InitPixelShader(g_bUseSteamVR ? resources->_giBounceLightPS_VR : resources->_giBounceLightPS);
@@ -4424,8 +4428,9 @@ static bool IsSoftShadowFilterPassActive(DeviceResources* resources)
 
 // The soft-shadow filter of the RT shadow mask at the mask's resolution
 // (RTSoftShadowFilterCommon.h), into _rtSoftShadowBuf, which the lighting pass upsamples
-// (t24). It sets its own viewport, render target, shader and blend state; the caller sets
-// the lighting pass's again. It uses the RT constants (b10) that the lighting pass binds.
+// (t24), and the GI bounce light pass reads (DeferredPass() runs it before that pass). It sets its
+// own vertex shader, viewport, render target, shader and blend state; the caller sets its own
+// again. It uses the RT constants (b10), bound while the scene is rendered (EffectsRenderer).
 static void RenderSoftShadowFilter(DeviceResources* resources)
 {
 	auto& context = resources->_d3dDeviceContext;
@@ -4444,6 +4449,10 @@ static void RenderSoftShadowFilter(DeviceResources* resources)
 	blendDesc.RenderTarget[0].BlendOpAlpha = D3D11_BLEND_OP_ADD;
 	blendDesc.RenderTarget[0].RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL;
 	resources->InitBlendState(nullptr, &blendDesc);
+
+	resources->InitVSConstantBuffer2D(resources->_mainShadersConstantBuffer.GetAddressOf(),
+		0.0f, 1.0f, 1.0f, 1.0f, 0.0f); // Do not use 3D projection matrices
+	resources->InitVertexShader(g_bUseSteamVR ? resources->_mainVertexShaderVR : resources->_mainVertexShader);
 
 	// The mask's size, like RenderRTShadowMask()
 	D3D11_VIEWPORT viewport{};
@@ -4524,6 +4533,14 @@ void PrimarySurface::DeferredPass()
 	viewport.MaxDepth = D3D11_MAX_DEPTH;
 	viewport.MinDepth = D3D11_MIN_DEPTH;
 	resources->InitViewport(&viewport);
+
+	// The soft shadows, filtered at the RT mask's resolution (RenderSoftShadowFilter()). They
+	// run before the bounce light pass, which reads them too (t24), and the lighting pass
+	// upsamples them. pbr_gi_filtered_shadows = 0 makes the bounce light read the raw mask.
+	const bool bSoftShadowPass = IsSoftShadowFilterPassActive(resources);
+	g_ShadingSys_PSBuffer.gi_filtered_shadow = (bSoftShadowPass && g_bPBRGIFilteredShadows) ? 1.0f : 0.0f;
+	if (bSoftShadowPass)
+		RenderSoftShadowFilter(resources);
 
 	// Set the lights and the Shading System Constant Buffer
 	SetLights(_deviceResources, 0.0f);
@@ -4631,14 +4648,8 @@ void PrimarySurface::DeferredPass()
 	// Deferred pass, Left Image
 	{
 		g_GTAOGPUTimer.Mark(context, GTAO_TIMER_LIGHTING);
-		// The soft shadows, filtered at the RT mask's resolution; its GPU time is in the
-		// lighting section, like the per-pixel filter it replaces
-		const bool bSoftShadowPass = IsSoftShadowFilterPassActive(resources);
-		if (bSoftShadowPass)
-		{
-			RenderSoftShadowFilter(resources);
-			resources->InitPixelShader(GetDeferredShadingPS(resources));
-		}
+		// The soft-shadow filter ran at the start of this pass (bSoftShadowPass)
+		resources->InitPixelShader(GetDeferredShadingPS(resources));
 		// input: offscreenAsInput (resolved here), normBuf
 		// output: offscreenBuf, bloomMask
 		viewport.TopLeftX = 0.0f;

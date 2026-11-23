@@ -260,6 +260,8 @@ int g_iPBRGIEmitterScale = 2, g_iPBRGIEmitterSlices = 2, g_iPBRGIEmitterSteps = 
 bool g_bPBRGIEmitterMips = true;
 float g_fPBRGIEmitterMipOffset = 3.3f;
 bool g_bPBRGIMips = true;
+// The GI bounce light reads the filtered (soft) RT shadow mask, else the raw one (pbr_gi_filtered_shadows)
+bool g_bPBRGIFilteredShadows = true;
 // TEMPORARY (Ctrl+Alt+T): the RT shadow mask diagnostics: 0 off, 1 no BVH traversal, 2 the heat map
 int g_iRTDiagMode = 0;
 // How much the albedo and the metallicity apply to the indirect light (1: physically correct)
@@ -2399,6 +2401,7 @@ bool LoadSSAOParams() {
 	g_fPBRGIEmitterMipOffset = 3.3f;
 	g_bPBRGIMips = true;
 	g_fPBRGIMipOffset = 3.3f;
+	g_bPBRGIFilteredShadows = true;
 	g_fPBRGIAlbedo = 1.0f;
 	g_fPBRGIMetallicity = 1.0f;
 	g_fPBRGIEmitterRadius = 5.0f;
@@ -2714,6 +2717,9 @@ bool LoadSSAOParams() {
 			}
 			else if (_stricmp(param, "pbr_gi_mips") == 0) {
 				g_bPBRGIMips = (bool)fValue;
+			}
+			else if (_stricmp(param, "pbr_gi_filtered_shadows") == 0) {
+				g_bPBRGIFilteredShadows = (bool)fValue;
 			}
 			else if (_stricmp(param, "pbr_gi_mip_offset") == 0) {
 				g_fPBRGIMipOffset = max(0.0f, min(8.0f, fValue));

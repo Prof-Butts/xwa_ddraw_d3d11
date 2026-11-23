@@ -57,9 +57,10 @@ public:
 		open.gpuSet = -1;
 		open.gpuSlot = -1;
 		// GPU timestamps for the events that fit in this frame's query set. The slot is reserved
-		// now, so that the children can point to their parent.
+		// now, so that the children can point to their parent. Each event needs two timestamps,
+		// and the last one is kept for the end of the frame (FrameBoundary()).
 		QuerySet& s = _sets[_cur];
-		if (device == _device && s.open && s.numTimestamps + 2 <= MAX_TIMESTAMPS)
+		if (device == _device && s.open && s.numTimestamps + 3 <= MAX_TIMESTAMPS)
 		{
 			if (_mode == 2)
 				WaitForGpu(context);
@@ -96,7 +97,7 @@ public:
 		if (open.gpuSet >= 0 && open.gpuSet == _cur && _sets[_cur].open)
 		{
 			QuerySet& s = _sets[_cur];
-			if (s.numTimestamps < MAX_TIMESTAMPS)
+			if (s.numTimestamps + 1 < MAX_TIMESTAMPS) // The last one is for the end of the frame
 			{
 				if (_mode == 2)
 					WaitForGpu(context);
@@ -258,9 +259,13 @@ private:
 		return id;
 	}
 
+	// Returns the timestamp's slot, or -1 when the query set is full. (Overrunning it used to
+	// pass numTimestamps itself as a query to End(): a crash in d3d11.dll in busy frames.)
 	int AddTimestamp(ID3D11DeviceContext* context)
 	{
 		QuerySet& s = _sets[_cur];
+		if (s.numTimestamps >= MAX_TIMESTAMPS)
+			return -1;
 		const int i = s.numTimestamps++;
 		context->End(s.timestamps[i]);
 		return i;

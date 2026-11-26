@@ -147,6 +147,7 @@ public:
 	void InitVSConstantBufferMatrix(ID3D11Buffer** buffer, const VertexShaderMatrixCB* vsCBuffer);
 	void InitPSConstantShadingSystem(ID3D11Buffer** buffer, const PSShadingSystemCB* psCBuffer);
 	void InitPSConstantBufferGTAO(const GTAOCBuffer* psCBuffer);
+	void InitPSConstantBufferGITemporal(const GITemporalCBuffer* psCBuffer);
 	void InitVSConstantBuffer2D(ID3D11Buffer** buffer, const float parallax, const float aspectRatio, const float scale, const float brightness, const float use_3D);
 	void InitVSConstantBufferHyperspace(ID3D11Buffer ** buffer, const ShadertoyCBuffer * psConstants);
 	void InitVSConstantOPTMeshTransform(ID3D11Buffer ** buffer, const OPTMeshTransformCBuffer *vsConstants);
@@ -295,6 +296,9 @@ public:
 	ComPtr<ID3D11Texture2D> _emittersBuf;
 	ComPtr<ID3D11Texture2D> _emitterGIBuf;
 	ComPtr<ID3D11Texture2D> _emitterGIDenoisedBuf;
+	// The indirect light's temporal filter: its history, ping-pong (GITemporalCommon.h), at half
+	// the size: rgb = light (debug colors in step 0), a = the depth it was computed at
+	ComPtr<ID3D11Texture2D> _giHistoryBuf[2];
 	// The positions and normals of the indirect light's passes, with mips (GIGeomMipsCommon.h):
 	// the GI filters read them, and so does the emitters' gather (pbr_gi_emitter_mips). Half
 	// the size, rounded up so every level holds its used part. _giGeomMipsSRV sees all the
@@ -395,6 +399,7 @@ public:
 	ComPtr<ID3D11RenderTargetView> _emittersRTV;
 	ComPtr<ID3D11RenderTargetView> _emitterGIRTV;
 	ComPtr<ID3D11RenderTargetView> _emitterGIDenoisedRTV;
+	ComPtr<ID3D11RenderTargetView> _giHistoryRTV[2];
 	ComPtr<ID3D11RenderTargetView> _gtaoDenoisedRTV;
 	ComPtr<ID3D11RenderTargetView> _gtaoCoarseRTV;
 	// Shading System
@@ -446,6 +451,7 @@ public:
 	ComPtr<ID3D11ShaderResourceView> _emittersSRV;
 	ComPtr<ID3D11ShaderResourceView> _emitterGISRV;
 	ComPtr<ID3D11ShaderResourceView> _emitterGIDenoisedSRV;
+	ComPtr<ID3D11ShaderResourceView> _giHistorySRV[2];
 	ComPtr<ID3D11ShaderResourceView> _gtaoDenoisedSRV;
 	ComPtr<ID3D11ShaderResourceView> _gtaoCoarseSRV;
 	ComPtr<ID3D11ShaderResourceView> _ssaoBufSRV_R;   // SRV for ssaoBuf
@@ -531,6 +537,8 @@ public:
 	ComPtr<ID3D11PixelShader> _giBounceLightPS_VR;
 	ComPtr<ID3D11PixelShader> _gtaoGIPS;            // GTAO with the indirect light's gather (SM 5.0,
 	ComPtr<ID3D11PixelShader> _gtaoGIPS_VR;         // only created with feature level 11)
+	ComPtr<ID3D11PixelShader> _giTemporalPS;        // The indirect light's temporal filter (SM 5.0,
+	ComPtr<ID3D11PixelShader> _giTemporalPS_VR;     // only created with feature level 11)
 	ComPtr<ID3D11PixelShader> _giDenoisePS;         // Indirect light: the denoise filter
 	ComPtr<ID3D11PixelShader> _giDenoisePS_VR;
 	ComPtr<ID3D11PixelShader> _giBlurPS;            // Indirect light: the wider filter (pbr_gi_blur_radius)
@@ -639,6 +647,7 @@ public:
 	ComPtr<ID3D11Buffer> _VSMatrixBuffer;
 	ComPtr<ID3D11Buffer> _shadingSysBuffer;
 	ComPtr<ID3D11Buffer> _gtaoConstantBuffer;
+	ComPtr<ID3D11Buffer> _giTemporalConstantBuffer;
 	ComPtr<ID3D11Buffer> _PSConstantBuffer;
 	ComPtr<ID3D11Buffer> _PSConstantBufferDC;
 	ComPtr<ID3D11Buffer> _barrelConstantBuffer;

@@ -472,6 +472,38 @@ typedef struct GTAOCBufferStruct {
 	// 96 bytes
 } GTAOCBuffer;
 
+// The indirect light's temporal filter (GITemporalCommon.h, register b13; GIMotion.h)
+typedef struct GITemporalCBufferStruct {
+	float attachedRow[3][4];   // The candidate motions: P_prev = (dot(row[i], float4(P, 1)))
+	float worldRow[3][4];
+	// 96 bytes
+	float attachedSphere[4];   // The attached object's center (metric camera space) and radius; radius <= 0: none
+	// 112 bytes
+	float worldValid;
+	float historyValid;
+	float giScale;
+	float debugMode;
+	// 128 bytes
+	float fullSize[2];
+	float histSize[2];
+	// 144 bytes
+	float depthTolerance;
+	float vrMode;
+	float unusedT0[2];
+	// 160 bytes
+	float prevProj[4];         // Flat mode: projectionValue1, projectionDeltaX, projectionDeltaY
+	float prevViewportScale[4];
+	float curProj[4];
+	float curViewportScale[4];
+	// 224 bytes
+	float prevViewport[4];     // The scene's viewport: TopLeftX, TopLeftY, Width, Height (pixels)
+	float curViewport[4];
+	// 256 bytes
+	float prevProjView[2][16]; // VR: projEyeMatrix[eye] * view matrix (Matrix4 layout)
+	float curProjView[2][16];
+	// 512 bytes
+} GITemporalCBuffer;
+
 typedef struct RTConstantsBufferStruct {
 	uint32_t bRTEnable;
 	uint32_t bRTAllowShadowMapping;

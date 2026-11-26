@@ -90,6 +90,8 @@ SamplerState samplerSSMask : register(s6);
 Texture2DArray rtShadowMask : register(t17);
 // The soft shadows, filtered at the mask's resolution (RTSoftShadowFilterCommon.h)
 Texture2DArray rtSoftShadow : register(t24);
+// The indirect light's temporal filter: its validation views (pbr_gi_debug 7 and 8, GITemporalCommon.h)
+Texture2DArray texGITemporal : register(t25);
 
 // Transparent layer 1
 Texture2DArray transp1 : register(t18);
@@ -139,6 +141,8 @@ SamplerState samplerSSMask : register(s6);
 Texture2D rtShadowMask : register(t17);
 // The soft shadows, filtered at the mask's resolution (RTSoftShadowFilterCommon.h)
 Texture2D rtSoftShadow : register(t24);
+// The indirect light's temporal filter: its validation views (pbr_gi_debug 7 and 8, GITemporalCommon.h)
+Texture2D texGITemporal : register(t25);
 
 // Transparent layer 1
 Texture2D transp1 : register(t18);
@@ -1086,8 +1090,22 @@ PixelShaderOutput main(PixelShaderInput input)
 	// 3: the indirect light after the denoise filter, upsampled to full resolution, as the
 	//    shading uses it;
 	// 5: the emitters' light (GIEmitters.hlsl, at 1 / gi_emitter_scale of the resolution);
-	// 6: the emitters' indirect light after its filters, upsampled.
+	// 6: the emitters' indirect light after its filters, upsampled;
+	// 7 and 8: the temporal filter's validation (GITemporalCommon.h): the candidate motions'
+	//    matches, and the projection self-check, in their own colors.
 	// (4, the indirect light's contribution, is further below.)
+	[branch]
+	if (gi_enabled > 0.5 && gi_debug > 6.5)
+	{
+		const int2 tPx = int2(uint2(input.pos.xy) / (uint)GI_SCALE);
+#ifdef INSTANCED_RENDERING
+		const float4 tDebug = texGITemporal.Load(int4(tPx, input.viewId, 0));
+#else
+		const float4 tDebug = texGITemporal.Load(int3(tPx, 0));
+#endif
+		output.color = float4(tDebug.a > 0.0 ? tDebug.rgb : 0.25 * background, 1);
+		return output;
+	}
 	[branch]
 	if (gi_enabled > 0.5 && gi_debug > 4.5)
 	{

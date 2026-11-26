@@ -470,6 +470,9 @@ typedef struct GTAOCBufferStruct {
 	float geom_level;            // Denoise and GI filters: the level of _giGeomMipsBuf at their resolution; -1: none
 	float light_mips;            // Indirect light: 1 when the gathered light has mips (the emitters')
 	// 96 bytes
+	float noise_offset;          // Added to the gather's 4x4 noise pattern (0..15): changes every frame with the temporal filter
+	float unusedG[3];
+	// 112 bytes
 } GTAOCBuffer;
 
 // The indirect light's temporal filter (GITemporalCommon.h, register b13; GIMotion.h)
@@ -489,7 +492,8 @@ typedef struct GITemporalCBufferStruct {
 	// 144 bytes
 	float depthTolerance;
 	float vrMode;
-	float unusedT0[2];
+	float temporalWeight;      // How much of the history is kept (pbr_gi_temporal_weight)
+	float accumulate;          // 1: blend with the history (pbr_gi_temporal); 0: pass the light through
 	// 160 bytes
 	float prevProj[4];         // Flat mode: projectionValue1, projectionDeltaX, projectionDeltaY
 	float prevViewportScale[4];

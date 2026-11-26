@@ -6032,6 +6032,8 @@ void EffectsRenderer::CaptureGIMotion(const SceneCompData* scene)
 	c.mesh = scene->MeshVertices;
 	c.T = T;
 	c.pose = GIGetObjectPose(scene->pObject);
+	c.objectId = scene->pObject->ObjectId;
+	c.species = scene->pObject->ObjectSpecies;
 	f.objects.emplace(scene->pObject, c);
 }
 

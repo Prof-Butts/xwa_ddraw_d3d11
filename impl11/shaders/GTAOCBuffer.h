@@ -32,6 +32,9 @@ cbuffer ConstantBuffer : register(b12)
 	float gtao_geom_level;      // Denoise and GI filters: the level of the positions with mips at their resolution; -1: none
 	float gtao_light_mips;      // Indirect light: 1 when the gathered light has mips (the emitters'), so the distant samples read it at their level
 	// 96 bytes
+	float gtao_noise_offset;    // Added to the gather's 4x4 noise pattern (0..15): changes every frame with the GI temporal filter
+	float3 gtao_unused;
+	// 112 bytes
 };
 
 #endif

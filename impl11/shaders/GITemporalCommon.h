@@ -2,24 +2,32 @@
  * The indirect light's temporal filter (c:\temp\gi-temporal-plan.md). Licensed under the MIT
  * license. See LICENSE.txt
  *
- * Step 0: the candidate motions' validation, no accumulation yet. Each GI pixel takes its
- * position (the screen pixel at its top-left corner, like the gather), moves it to where it
- * was last frame with each candidate motion (GIMotion.h in ddraw), projects it with last
- * frame's camera, and checks last frame's depth there. The output is a history buffer: rgb =
- * the debug colors (pbr_gi_debug 7 and 8, shown by the lighting pass), a = this frame's depth,
- * which next frame's pass checks against.
+ * Each GI pixel takes its position (the screen pixel at its top-left corner, like the gather),
+ * moves it to where it was last frame with each candidate motion (GIMotion.h in ddraw),
+ * projects it with last frame's camera, and checks last frame's depth there. Where it matches,
+ * this frame's gathered light is blended with last frame's result. The output is this frame's
+ * history, which the GI filters read instead of the gathered light:
+ *   rgb: the light (or the debug colors of pbr_gi_debug 7 and 8),
+ *   a:   1 + its depth where it has light. Elsewhere, the gather's own alpha: 0 for the pixels
+ *        it skipped, GI_EMPTY (0.75) for the ones with no light nearby. The filters skip
+ *        a < 0.9, so they still see the gather's meanings, and next frame's pass only uses the
+ *        texels with a >= 1 as history.
  */
 
 #ifdef INSTANCED_RENDERING
 Texture2DArray texPos      : register(t0); // The positions (full resolution)
-Texture2DArray texHistPrev : register(t1); // Last frame's history (a: its depth, 0: none)
+Texture2DArray texHistPrev : register(t1); // Last frame's history (rgb: light, a: 1 + its depth, < 1: none)
+Texture2DArray texCurrent  : register(t2); // This frame's gathered light
 #define POS_LOAD(p)  texPos.Load(int4(p, viewId, 0))
 #define HIST_LOAD(p) texHistPrev.Load(int4(p, viewId, 0))
+#define CUR_LOAD(p)  texCurrent.Load(int4(p, viewId, 0))
 #else
 Texture2D texPos      : register(t0);
 Texture2D texHistPrev : register(t1);
+Texture2D texCurrent  : register(t2);
 #define POS_LOAD(p)  texPos.Load(int3(p, 0))
 #define HIST_LOAD(p) texHistPrev.Load(int3(p, 0))
+#define CUR_LOAD(p)  texCurrent.Load(int3(p, 0))
 #endif
 
 // GITemporalCBuffer in EffectsCommon.h
@@ -42,7 +50,8 @@ cbuffer ConstantBuffer : register(b13)
 	// 144 bytes
 	float  depthTolerance;    // A history texel matches if its depth is within this fraction
 	float  vrMode;            // 1: SteamVR (projEyeMatrix * view matrix); 0: flat (TransformProjection())
-	float2 unusedT0;
+	float  temporalWeight;    // How much of the history is kept (pbr_gi_temporal_weight)
+	float  accumulate;        // 1: blend with the history (pbr_gi_temporal); 0: pass the light through
 	// 160 bytes
 	// Flat mode: XWA's projection (TransformProjection() in XwaD3dCommon.hlsl), last frame's and this frame's
 	float4 prevProj;          // projectionValue1, projectionDeltaX, projectionDeltaY, unused
@@ -116,9 +125,10 @@ float2 ProjectCur(float3 P, uint viewId)
 
 // How much of last frame's history at the previous position Pprev matches its depth: the
 // weight of the matching texels in its 2x2 bilinear footprint (0..1), or -1 when it was off
-// the screen
-float MatchHistory(float3 Pprev, uint viewId)
+// the screen. history: the matching texels' light, averaged with their weights.
+float MatchHistory(float3 Pprev, uint viewId, out float3 history)
 {
+	history = 0.0;
 	if (Pprev.z <= 0.0)
 		return -1.0;
 	const float2 uv = ProjectPrev(Pprev, viewId);
@@ -135,11 +145,16 @@ float MatchHistory(float3 Pprev, uint viewId)
 		const int2 t = base + int2(k & 1, k >> 1);
 		if (any(t < 0) || any(t >= int2(histSize)))
 			continue;
-		const float d = HIST_LOAD(t).a;
+		const float4 hist = HIST_LOAD(t);
 		const float w = ((k & 1) ? f.x : 1.0 - f.x) * ((k >> 1) ? f.y : 1.0 - f.y);
-		if (d > 0.0 && abs(d - Pprev.z) <= depthTolerance * Pprev.z)
+		if (hist.a >= 1.0 && abs((hist.a - 1.0) - Pprev.z) <= depthTolerance * Pprev.z)
+		{
 			weight += w;
+			history += w * hist.rgb;
+		}
 	}
+	if (weight > 0.0)
+		history /= weight;
 	return weight;
 }
 
@@ -154,10 +169,11 @@ float4 main(PixelShaderInput input) : SV_TARGET
 	const int2 fp = min(h * (int)giScale, int2(fullSize) - 1);
 	const float4 Pw = POS_LOAD(fp);
 	const float3 P = Pw.xyz;
+	const float4 current = CUR_LOAD(h);
 	// The background: the positions are cleared to (0, 0, 32000, 0) (Direct3DDevice.cpp), and
 	// surfaces write their coverage in w. No history there.
 	if (Pw.w <= 0.0 || !(P.z > 0.0 && P.z < 31999.0))
-		return 0;
+		return current;
 
 	float3 color;
 	if (debugMode > 7.5)
@@ -167,41 +183,69 @@ float4 main(PixelShaderInput input) : SV_TARGET
 		const float2 uv = ProjectCur(P, viewId);
 		const float errPx = length(uv * fullSize - (fp + 0.5));
 		color = errPx < 0.5 ? float3(0, 1, 0) : (errPx < 2.0 ? float3(1, 1, 0) : float3(1, 0, 0));
-		return float4(color, P.z);
+		return float4(color, 1.0 + P.z);
 	}
 
-	// The candidates' matches. Green: the attached motion, cyan: the world motion, red: none,
-	// magenta: none, and a candidate put it off the screen last frame, gray: no history.
-	if (historyValid < 0.5)
-		return float4(0.3, 0.3, 0.3, P.z);
-	const float4 P1 = float4(P, 1.0);
-	color = float3(1, 0, 0);
-	bool matched = false, offscreen = false;
-	if (attachedSphere.w > 0.0 && distance(P, attachedSphere.xyz) <= attachedSphere.w)
+	// The candidates, the attached one first (inside its bounding sphere): the first whose
+	// reprojected history matches gives the history
+	int match = 0; // 0: none, 1: attached, 2: world
+	bool offscreen = false;
+	float matchWeight = 0.0;
+	float3 history = 0.0;
+	if (historyValid > 0.5)
 	{
-		const float3 Pp = float3(dot(attachedRow[0], P1), dot(attachedRow[1], P1), dot(attachedRow[2], P1));
-		const float m = MatchHistory(Pp, viewId);
-		if (m >= 0.5)
+		const float4 P1 = float4(P, 1.0);
+		float3 hist;
+		if (attachedSphere.w > 0.0 && distance(P, attachedSphere.xyz) <= attachedSphere.w)
 		{
+			const float3 Pp = float3(dot(attachedRow[0], P1), dot(attachedRow[1], P1), dot(attachedRow[2], P1));
+			const float m = MatchHistory(Pp, viewId, hist);
+			if (m >= 0.5)
+			{
+				match = 1;
+				matchWeight = m;
+				history = hist;
+			}
+			else if (m < 0.0)
+				offscreen = true;
+		}
+		if (match == 0 && worldValid > 0.5)
+		{
+			const float3 Pp = float3(dot(worldRow[0], P1), dot(worldRow[1], P1), dot(worldRow[2], P1));
+			const float m = MatchHistory(Pp, viewId, hist);
+			if (m >= 0.5)
+			{
+				match = 2;
+				matchWeight = m;
+				history = hist;
+			}
+			else if (m < 0.0)
+				offscreen = true;
+		}
+	}
+
+	if (debugMode > 6.5)
+	{
+		// The candidates' matches. Green: the attached motion, cyan: the world motion, red: none,
+		// magenta: none, and a candidate put it off the screen last frame, gray: no history.
+		if (historyValid < 0.5)
+			color = float3(0.3, 0.3, 0.3);
+		else if (match == 1)
 			color = float3(0, 1, 0);
-			matched = true;
-		}
-		else if (m < 0.0)
-			offscreen = true;
-	}
-	if (!matched && worldValid > 0.5)
-	{
-		const float3 Pp = float3(dot(worldRow[0], P1), dot(worldRow[1], P1), dot(worldRow[2], P1));
-		const float m = MatchHistory(Pp, viewId);
-		if (m >= 0.5)
-		{
+		else if (match == 2)
 			color = float3(0, 1, 1);
-			matched = true;
-		}
-		else if (m < 0.0)
-			offscreen = true;
+		else
+			color = offscreen ? float3(1, 0, 1) : float3(1, 0, 0);
+		return float4(color, 1.0 + P.z);
 	}
-	if (!matched && offscreen)
-		color = float3(1, 0, 1);
-	return float4(color, P.z);
+
+	// The accumulation: this frame's light, blended with the history of the same surface. Where
+	// only part of the history's footprint matched, less of it is kept.
+	// The pixels the gather skipped or that have no light nearby stay as they are (and aren't
+	// history next frame: their light is 0)
+	if (current.a < 0.9)
+		return current;
+	if (accumulate < 0.5 || match == 0 || any(isnan(history)))
+		return float4(current.rgb, 1.0 + P.z);
+	return float4(lerp(current.rgb, history, temporalWeight * saturate(matchWeight)), 1.0 + P.z);
 }

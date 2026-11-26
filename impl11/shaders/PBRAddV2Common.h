@@ -1103,7 +1103,7 @@ PixelShaderOutput main(PixelShaderInput input)
 #else
 		const float4 tDebug = texGITemporal.Load(int3(tPx, 0));
 #endif
-		output.color = float4(tDebug.a > 0.0 ? tDebug.rgb : 0.25 * background, 1);
+		output.color = float4(tDebug.a >= 1.0 ? tDebug.rgb : 0.25 * background, 1);
 		return output;
 	}
 	[branch]

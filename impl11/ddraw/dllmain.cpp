@@ -789,6 +789,14 @@ LRESULT CALLBACK MyWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam
 					DisplayTimedMessage(3, 0, g_bGTAOEnabled ? "GTAO: on" : "GTAO: off");
 				}
 				return 0;
+			// TEMPORARY Ctrl+Alt+P: the indirect light's temporal filter on/off, for comparisons
+			// (enable_developer_mode only)
+			case 'P':
+				if (!g_bEnableDeveloperMode)
+					return 0;
+				g_bPBRGITemporal = !g_bPBRGITemporal;
+				DisplayTimedMessage(3, 0, g_bPBRGITemporal ? "GI temporal filter: on" : "GI temporal filter: off");
+				return 0;
 			// TEMPORARY Ctrl+Alt+T: the RT shadow mask diagnostics: off, no BVH traversal, heat map
 			case 'T':
 				if (!g_bEnableDeveloperMode)

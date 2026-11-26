@@ -170,6 +170,7 @@ struct GIObjectCapture
 	const void* mesh;  // The first mesh drawn for this object this frame
 	GIMat4 T;          // Its object -> camera transform
 	GIObjectPose pose;
+	int objectId, species; // For the log
 };
 
 // The projection of the frame: flat mode (TransformProjection() in XwaD3dCommon.hlsl), or VR
@@ -223,21 +224,34 @@ struct GIMotionCandidates
 	GIMat4 world;
 	int staticObjects;  // Objects that didn't move (and were drawn in both frames)
 	int agreeing;       // How many of them agree with the world matrix chosen
+	double worldDistance; // The distance of the object whose matrix was chosen (m)
+	// The static objects that disagree with it (the first few), for the log
+	struct Disagreement { int objectId, species; double distance, rotationDiff, translationDiff; };
+	int numDisagreements;
+	Disagreement disagreements[4];
 };
 
-// True when two motion matrices are the same motion: rotation parts within 1e-3, translations
-// within 1 cm (far objects' transforms carry more float error in their translation)
-inline bool GISameMotion(const GIMat4& a, const GIMat4& b)
+// How different two motion matrices are: the largest difference in their rotation parts, and
+// in their translations (m)
+inline void GIMotionDiff(const GIMat4& a, const GIMat4& b, double& rotationDiff, double& translationDiff)
 {
+	rotationDiff = translationDiff = 0.0;
 	for (int r = 0; r < 3; r++)
 	{
 		for (int c = 0; c < 3; c++)
-			if (fabs(a.m[r][c] - b.m[r][c]) > 1e-3)
-				return false;
-		if (fabs(a.m[r][3] - b.m[r][3]) > 0.01)
-			return false;
+			rotationDiff = fmax(rotationDiff, fabs(a.m[r][c] - b.m[r][c]));
+		translationDiff = fmax(translationDiff, fabs(a.m[r][3] - b.m[r][3]));
 	}
-	return true;
+}
+
+// True when two motion matrices are the same motion: rotation parts within 1e-3, translations
+// within 1 cm plus 1e-5 of the distance (the transforms of distant objects carry more float
+// error in their translation: 5 cm at 4 km)
+inline bool GISameMotion(const GIMat4& a, const GIMat4& b, double distance)
+{
+	double rotationDiff, translationDiff;
+	GIMotionDiff(a, b, rotationDiff, translationDiff);
+	return rotationDiff <= 1e-3 && translationDiff <= 0.01 + 1e-5 * distance;
 }
 
 inline GIMotionCandidates BuildGIMotionCandidates(const GIMotionFrame& cur, const GIMotionFrame& prev)
@@ -273,16 +287,24 @@ inline GIMotionCandidates BuildGIMotionCandidates(const GIMotionFrame& cur, cons
 	}
 
 	// World: the objects that didn't move. Their motions should all be the camera's; the one
-	// most of them agree on is used (a rotating sub-mesh would give a different one).
-	std::vector<GIMat4> candidates;
+	// most of them agree on is used (a rotating sub-mesh would give a different one). On a tie,
+	// the nearest object's: its transform has the least float error, and it covers more of the
+	// screen.
+	struct StaticObject { GIMat4 M; double distance; int objectId, species; };
+	std::vector<StaticObject> candidates;
 	for (const auto& it : cur.objects)
 	{
 		auto p = prev.objects.find(it.first);
 		if (p == prev.objects.end() || p->second.mesh != it.second.mesh || !(p->second.pose == it.second.pose))
 			continue;
-		GIMat4 M;
-		if (GIMotionMatrix(p->second.T, it.second.T, M))
-			candidates.push_back(M);
+		StaticObject so;
+		if (!GIMotionMatrix(p->second.T, it.second.T, so.M))
+			continue;
+		const GIMat4& T = it.second.T;
+		so.distance = sqrt(T.m[0][3] * T.m[0][3] + T.m[1][3] * T.m[1][3] + T.m[2][3] * T.m[2][3]) / 40.96;
+		so.objectId = it.second.objectId;
+		so.species = it.second.species;
+		candidates.push_back(so);
 		if (candidates.size() >= 16)
 			break;
 	}
@@ -292,15 +314,31 @@ inline GIMotionCandidates BuildGIMotionCandidates(const GIMotionFrame& cur, cons
 	{
 		int count = 0;
 		for (int j = 0; j < (int)candidates.size(); j++)
-			if (GISameMotion(candidates[i], candidates[j]))
+			if (GISameMotion(candidates[i].M, candidates[j].M, fmax(candidates[i].distance, candidates[j].distance)))
 				count++;
-		if (count > bestCount) { bestCount = count; best = i; }
+		if (count > bestCount || (count == bestCount && best >= 0 && candidates[i].distance < candidates[best].distance))
+		{
+			bestCount = count;
+			best = i;
+		}
 	}
 	if (best >= 0)
 	{
 		c.worldValid = true;
-		c.world = candidates[best];
+		c.world = candidates[best].M;
 		c.agreeing = bestCount;
+		c.worldDistance = candidates[best].distance;
+		for (int j = 0; j < (int)candidates.size() && c.numDisagreements < 4; j++)
+		{
+			const double distance = fmax(candidates[best].distance, candidates[j].distance);
+			if (GISameMotion(candidates[best].M, candidates[j].M, distance))
+				continue;
+			GIMotionCandidates::Disagreement& d = c.disagreements[c.numDisagreements++];
+			d.objectId = candidates[j].objectId;
+			d.species = candidates[j].species;
+			d.distance = candidates[j].distance;
+			GIMotionDiff(candidates[best].M, candidates[j].M, d.rotationDiff, d.translationDiff);
+		}
 	}
 	return c;
 }

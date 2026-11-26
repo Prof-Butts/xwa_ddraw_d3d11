@@ -5581,8 +5581,8 @@ HRESULT DeviceResources::LoadResources()
 		return hr;
 
 	// GTAO constant buffer (ssao_type = PBR)
-	constantBufferDesc.ByteWidth = 96;
-	static_assert(sizeof(GTAOCBuffer) == 96, "sizeof(GTAOCBuffer) must be 96");
+	constantBufferDesc.ByteWidth = 112;
+	static_assert(sizeof(GTAOCBuffer) == 112, "sizeof(GTAOCBuffer) must be 112");
 	if (FAILED(hr = this->_d3dDevice->CreateBuffer(&constantBufferDesc, nullptr, &this->_gtaoConstantBuffer)))
 		return hr;
 

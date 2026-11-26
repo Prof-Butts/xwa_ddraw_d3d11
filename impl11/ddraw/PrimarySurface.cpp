@@ -3939,6 +3939,129 @@ static bool IsGTAOActive()
 // mips, it reads its distant samples' positions and normals from _giGeomMipsSRV (built by
 // BuildGIGeomMips()), samples closer than 2^mipOffset half-resolution pixels excepted; with
 // lightMips too, their light from the source's mips.
+// The indirect light's temporal filter (GITemporalCommon.h, GIMotion.h), between the gather and
+// its filters (RenderGTAO()): it blends this frame's gathered light with last frame's result for
+// the same surfaces, found with the candidate motions (pbr_gi_temporal, pbr_gi_temporal_weight).
+// It writes this frame's history buffer (ping-pong; rgb = the light, a = its depth) from the
+// positions, last frame's history and this frame's light, and returns it: the filters read it
+// instead of the gathered light. pbr_gi_debug = 7 and 8 show its validation views instead.
+static int s_giHistoryCur = 0;        // The history buffer written this frame
+static int s_giHistoryFrame = -1;     // The frame it was last written (g_iPresentCounter)
+
+// projEyeMatrix[eye] * view matrix, as the VR vertex shader applies them (XwaD3dVertexShaderVR)
+static void GIProjView(const GIProjection& p, int eye, float out[16])
+{
+	Matrix4 M = p.projEye[eye] * (p.bFullTransform >= 0.5f ? p.fullViewMat : p.viewMat);
+	memcpy(out, M.get(), 16 * sizeof(float));
+}
+
+static ID3D11ShaderResourceView* RenderGITemporal(DeviceResources* resources, ID3D11ShaderResourceView* currentSRV)
+{
+	auto& context = resources->_d3dDeviceContext;
+	const int cur = s_giHistoryCur, prev = 1 - cur;
+	if (resources->_giHistoryRTV[cur] == nullptr || resources->_giHistorySRV[prev] == nullptr ||
+		(g_bUseSteamVR ? resources->_giTemporalPS_VR : resources->_giTemporalPS) == nullptr)
+		return currentSRV;
+	const GIMotionCandidates c = BuildGIMotionCandidates(g_GIMotionCur, g_GIMotionPrev);
+
+	GITemporalCBuffer cb = {};
+	for (int r = 0; r < 3; r++)
+		for (int k = 0; k < 4; k++)
+		{
+			cb.attachedRow[r][k] = (float)c.attached.m[r][k];
+			cb.worldRow[r][k] = (float)c.world.m[r][k];
+		}
+	for (int k = 0; k < 4; k++)
+		cb.attachedSphere[k] = c.attachedValid ? (float)c.sphere[k] : 0.0f;
+	if (!c.attachedValid)
+		cb.attachedSphere[3] = -1.0f;
+	cb.worldValid = c.worldValid ? 1.0f : 0.0f;
+	// The history is only valid if it was written last frame, with both frames' projections
+	cb.historyValid = (s_giHistoryFrame == g_iPresentCounter - 1 && g_GIMotionPrev.proj.valid &&
+		g_GIMotionPrev.presentCounter == g_GIMotionCur.presentCounter - 1) ? 1.0f : 0.0f;
+	cb.giScale = (float)GI_SCALE;
+	cb.debugMode = (float)g_iPBRGIDebug;
+	cb.fullSize[0] = (float)resources->_backbufferWidth;
+	cb.fullSize[1] = (float)resources->_backbufferHeight;
+	const int giW = (resources->_backbufferWidth + GI_SCALE - 1) / GI_SCALE;
+	const int giH = (resources->_backbufferHeight + GI_SCALE - 1) / GI_SCALE;
+	cb.histSize[0] = (float)giW;
+	cb.histSize[1] = (float)giH;
+	cb.depthTolerance = 0.03f;
+	cb.vrMode = g_bUseSteamVR ? 1.0f : 0.0f;
+	cb.temporalWeight = g_fPBRGITemporalWeight;
+	cb.accumulate = g_bPBRGITemporal ? 1.0f : 0.0f;
+	const GIProjection& pp = g_GIMotionPrev.proj.valid ? g_GIMotionPrev.proj : g_GIMotionCur.proj;
+	const GIProjection& pc = g_GIMotionCur.proj;
+	cb.prevProj[0] = pp.projectionValue1; cb.prevProj[1] = pp.projectionDeltaX; cb.prevProj[2] = pp.projectionDeltaY;
+	cb.curProj[0] = pc.projectionValue1; cb.curProj[1] = pc.projectionDeltaX; cb.curProj[2] = pc.projectionDeltaY;
+	for (int k = 0; k < 4; k++)
+	{
+		cb.prevViewportScale[k] = pp.viewportScale[k];
+		cb.curViewportScale[k] = pc.viewportScale[k];
+		cb.prevViewport[k] = pp.viewport[k];
+		cb.curViewport[k] = pc.viewport[k];
+	}
+	for (int eye = 0; eye < 2; eye++)
+	{
+		GIProjView(pp, eye, cb.prevProjView[eye]);
+		GIProjView(pc, eye, cb.curProjView[eye]);
+	}
+	resources->InitPSConstantBufferGITemporal(&cb);
+
+	D3D11_VIEWPORT viewport{};
+	viewport.Width    = (float)giW;
+	viewport.Height   = (float)giH;
+	viewport.MaxDepth = D3D11_MAX_DEPTH;
+	viewport.MinDepth = D3D11_MIN_DEPTH;
+	resources->InitViewport(&viewport);
+
+	ID3D11ShaderResourceView* nullSRVs[3] = { NULL, NULL, NULL };
+	context->PSSetShaderResources(0, 3, nullSRVs);
+	ID3D11RenderTargetView* rtvs[1] = { resources->_giHistoryRTV[cur].Get() };
+	context->OMSetRenderTargets(1, rtvs, NULL);
+	ID3D11ShaderResourceView* srvs[3] = {
+		resources->_depthBufSRV.Get(),         // 0: The positions
+		resources->_giHistorySRV[prev].Get(),  // 1: Last frame's history
+		currentSRV,                            // 2: This frame's gathered light
+	};
+	context->PSSetShaderResources(0, 3, srvs);
+	resources->InitPixelShader(g_bUseSteamVR ? resources->_giTemporalPS_VR : resources->_giTemporalPS);
+	if (g_bUseSteamVR)
+		context->DrawInstanced(6, 2, 0, 0);
+	else
+		context->Draw(6, 0);
+	context->PSSetShaderResources(0, 3, nullSRVs);
+	context->OMSetRenderTargets(0, nullptr, nullptr);
+
+	// The next frame writes the other buffer, and reads this one
+	s_giHistoryFrame = g_iPresentCounter;
+	s_giHistoryCur = prev;
+
+	// What the candidates are, once a second
+	static ULONGLONG s_lastLog = 0;
+	const ULONGLONG now = GetTickCount64();
+	if (now - s_lastLog >= 1000)
+	{
+		s_lastLog = now;
+		log_debug("[DBG] [PROF] [GI] Temporal %s (weight %0.2f): attached %s (%s, sphere at %0.2f, %0.2f, %0.2f m, radius %0.2f m); "
+			"world %s (%d static objects, %d agree, chosen at %0.0f m); history %s",
+			g_bPBRGITemporal ? "on" : "off", g_fPBRGITemporalWeight,
+			c.attachedValid ? "valid" : "none",
+			g_GIMotionCur.attachedIsCockpit ? "cockpit" : "exterior",
+			c.sphere[0], c.sphere[1], c.sphere[2], c.sphere[3],
+			c.worldValid ? "valid" : "none", c.staticObjects, c.agreeing, c.worldDistance,
+			cb.historyValid > 0.5f ? "valid" : "reset");
+		for (int i = 0; i < c.numDisagreements; i++)
+		{
+			const GIMotionCandidates::Disagreement& d = c.disagreements[i];
+			log_debug("[DBG] [PROF] [GI] Temporal: static object %d (species %d) at %0.0f m disagrees: rotation diff %0.5f, translation diff %0.3f m",
+				d.objectId, d.species, d.distance, d.rotationDiff, d.translationDiff);
+		}
+	}
+	return resources->_giHistorySRV[cur].Get();
+}
+
 struct GIGatherTargets
 {
 	bool presence;
@@ -3952,6 +4075,7 @@ struct GIGatherTargets
 	ID3D11RenderTargetView* denoisedRTV;
 	ID3D11ShaderResourceView* denoisedSRV;
 	int blurRadius;
+	bool temporal; // The temporal filter between the gather and the filters (RenderGITemporal())
 };
 
 // Renders one GTAO pass and its denoise filter. The GTAO pass writes to _gtaoBuf, and the
@@ -4002,6 +4126,10 @@ static void RenderGTAO(DeviceResources* resources, int scale, float radius, floa
 	cb.mips           = mips ? 1.0f : 0.0f;
 	cb.mip_offset     = gi != nullptr ? gi->mipOffset : g_fGTAOMipOffset;
 	cb.light_mips     = (gi != nullptr && gi->lightMips) ? 1.0f : 0.0f;
+	// With the temporal filter, the gather's noise pattern changes every frame (a permutation of
+	// the 4x4 Bayer values: every 4x4 block still has all 16), so successive frames sample other
+	// directions and the history accumulates them
+	cb.noise_offset   = (gi != nullptr && gi->temporal && g_bPBRGITemporal) ? (float)((g_iPresentCounter * 7) & 15) : 0.0f;
 	cb.geom_level     = (gi != nullptr || IsGTAOMipsActive()) ? (float)GetGIGeomLevel(scale) : -1.0f;
 	resources->InitPSConstantBufferGTAO(&cb);
 
@@ -4050,6 +4178,16 @@ static void RenderGTAO(DeviceResources* resources, int scale, float radius, floa
 			context->Draw(6, 0);
 	}
 
+	// The indirect light's temporal filter: its filters below read the accumulated light
+	ID3D11ShaderResourceView* giFilterInput = gi != nullptr ? gi->srv : nullptr;
+	if (gi != nullptr && gi->temporal)
+	{
+		resources->BeginAnnotatedEvent(L"GITemporalPass");
+		giFilterInput = RenderGITemporal(resources, gi->srv);
+		resources->EndAnnotatedEvent();
+		resources->InitPSConstantBufferGTAO(&cb);
+	}
+
 	// The indirect light's denoise filter: the same 4x4 depth-aware average, for colors
 	if (gi)
 	{
@@ -4057,7 +4195,7 @@ static void RenderGTAO(DeviceResources* resources, int scale, float radius, floa
 		ID3D11RenderTargetView* rtvs[1] = { gi->denoisedRTV };
 		context->OMSetRenderTargets(1, rtvs, NULL);
 		ID3D11ShaderResourceView* srvs[3] = {
-			gi->srv,                         // 0: Indirect light
+			giFilterInput,                   // 0: Indirect light
 			resources->_giGeomMipsSRV.Get(), // 1: Positions and normals with mips
 			NULL,
 		};
@@ -4307,122 +4445,6 @@ void PrimarySurface::BounceLightPass()
 	this->_deviceResources->EndAnnotatedEvent();
 }
 
-// The indirect light's temporal filter (GITemporalCommon.h, GIMotion.h). Step 0: only the
-// validation of the candidate motions, shown by pbr_gi_debug = 7 (their matches) and 8 (the
-// projection self-check); nothing is accumulated yet. It writes this frame's history buffer
-// (ping-pong) from the positions and last frame's history.
-static int s_giHistoryCur = 0;        // The history buffer written this frame
-static int s_giHistoryFrame = -1;     // The frame it was last written (g_iPresentCounter)
-
-// projEyeMatrix[eye] * view matrix, as the VR vertex shader applies them (XwaD3dVertexShaderVR)
-static void GIProjView(const GIProjection& p, int eye, float out[16])
-{
-	Matrix4 M = p.projEye[eye] * (p.bFullTransform >= 0.5f ? p.fullViewMat : p.viewMat);
-	memcpy(out, M.get(), 16 * sizeof(float));
-}
-
-void PrimarySurface::GITemporalPass()
-{
-	auto& resources = this->_deviceResources;
-	auto& context = resources->_d3dDeviceContext;
-	const int cur = s_giHistoryCur, prev = 1 - cur;
-	if (resources->_giHistoryRTV[cur] == nullptr || resources->_giHistorySRV[prev] == nullptr)
-		return;
-	const GIMotionCandidates c = BuildGIMotionCandidates(g_GIMotionCur, g_GIMotionPrev);
-
-	GITemporalCBuffer cb = {};
-	for (int r = 0; r < 3; r++)
-		for (int k = 0; k < 4; k++)
-		{
-			cb.attachedRow[r][k] = (float)c.attached.m[r][k];
-			cb.worldRow[r][k] = (float)c.world.m[r][k];
-		}
-	for (int k = 0; k < 4; k++)
-		cb.attachedSphere[k] = c.attachedValid ? (float)c.sphere[k] : 0.0f;
-	if (!c.attachedValid)
-		cb.attachedSphere[3] = -1.0f;
-	cb.worldValid = c.worldValid ? 1.0f : 0.0f;
-	// The history is only valid if it was written last frame, with both frames' projections
-	cb.historyValid = (s_giHistoryFrame == g_iPresentCounter - 1 && g_GIMotionPrev.proj.valid &&
-		g_GIMotionPrev.presentCounter == g_GIMotionCur.presentCounter - 1) ? 1.0f : 0.0f;
-	cb.giScale = (float)GI_SCALE;
-	cb.debugMode = (float)g_iPBRGIDebug;
-	cb.fullSize[0] = (float)resources->_backbufferWidth;
-	cb.fullSize[1] = (float)resources->_backbufferHeight;
-	const int giW = (resources->_backbufferWidth + GI_SCALE - 1) / GI_SCALE;
-	const int giH = (resources->_backbufferHeight + GI_SCALE - 1) / GI_SCALE;
-	cb.histSize[0] = (float)giW;
-	cb.histSize[1] = (float)giH;
-	cb.depthTolerance = 0.03f;
-	cb.vrMode = g_bUseSteamVR ? 1.0f : 0.0f;
-	const GIProjection& pp = g_GIMotionPrev.proj.valid ? g_GIMotionPrev.proj : g_GIMotionCur.proj;
-	const GIProjection& pc = g_GIMotionCur.proj;
-	cb.prevProj[0] = pp.projectionValue1; cb.prevProj[1] = pp.projectionDeltaX; cb.prevProj[2] = pp.projectionDeltaY;
-	cb.curProj[0] = pc.projectionValue1; cb.curProj[1] = pc.projectionDeltaX; cb.curProj[2] = pc.projectionDeltaY;
-	for (int k = 0; k < 4; k++)
-	{
-		cb.prevViewportScale[k] = pp.viewportScale[k];
-		cb.curViewportScale[k] = pc.viewportScale[k];
-		cb.prevViewport[k] = pp.viewport[k];
-		cb.curViewport[k] = pc.viewport[k];
-	}
-	for (int eye = 0; eye < 2; eye++)
-	{
-		GIProjView(pp, eye, cb.prevProjView[eye]);
-		GIProjView(pc, eye, cb.curProjView[eye]);
-	}
-	resources->InitPSConstantBufferGITemporal(&cb);
-
-	D3D11_VIEWPORT viewport{};
-	viewport.Width    = (float)giW;
-	viewport.Height   = (float)giH;
-	viewport.MaxDepth = D3D11_MAX_DEPTH;
-	viewport.MinDepth = D3D11_MIN_DEPTH;
-	resources->InitViewport(&viewport);
-
-	ID3D11ShaderResourceView* nullSRVs[2] = { NULL, NULL };
-	context->PSSetShaderResources(0, 2, nullSRVs);
-	ID3D11RenderTargetView* rtvs[1] = { resources->_giHistoryRTV[cur].Get() };
-	context->OMSetRenderTargets(1, rtvs, NULL);
-	ID3D11ShaderResourceView* srvs[2] = {
-		resources->_depthBufSRV.Get(),         // 0: The positions
-		resources->_giHistorySRV[prev].Get(),  // 1: Last frame's history
-	};
-	context->PSSetShaderResources(0, 2, srvs);
-	resources->InitPixelShader(g_bUseSteamVR ? resources->_giTemporalPS_VR : resources->_giTemporalPS);
-	if (g_bUseSteamVR)
-		context->DrawInstanced(6, 2, 0, 0);
-	else
-		context->Draw(6, 0);
-	context->PSSetShaderResources(0, 2, nullSRVs);
-	context->OMSetRenderTargets(0, nullptr, nullptr);
-
-	// The next frame writes the other buffer, and reads this one
-	s_giHistoryFrame = g_iPresentCounter;
-	s_giHistoryCur = prev;
-
-	// What the candidates are, once a second
-	static ULONGLONG s_lastLog = 0;
-	const ULONGLONG now = GetTickCount64();
-	if (now - s_lastLog >= 1000)
-	{
-		s_lastLog = now;
-		log_debug("[DBG] [PROF] [GI] Temporal candidates: attached %s (%s, sphere at %0.2f, %0.2f, %0.2f m, radius %0.2f m); "
-			"world %s (%d static objects, %d agree); history %s",
-			c.attachedValid ? "valid" : "none",
-			g_GIMotionCur.attachedIsCockpit ? "cockpit" : "exterior",
-			c.sphere[0], c.sphere[1], c.sphere[2], c.sphere[3],
-			c.worldValid ? "valid" : "none", c.staticObjects, c.agreeing,
-			cb.historyValid > 0.5f ? "valid" : "reset");
-		log_debug("[DBG] [PROF] [GI] Temporal projection: %s, pv1 %0.4f, delta %0.2f, %0.2f, vpScale %0.6f, %0.6f, %0.4f, "
-			"viewport %0.0f, %0.0f, %0.0f x %0.0f (buffer %d x %d), bFullTransform %0.1f",
-			g_bUseSteamVR ? "VR" : "flat", pc.projectionValue1, pc.projectionDeltaX, pc.projectionDeltaY,
-			pc.viewportScale[0], pc.viewportScale[1], pc.viewportScale[2],
-			pc.viewport[0], pc.viewport[1], pc.viewport[2], pc.viewport[3],
-			resources->_backbufferWidth, resources->_backbufferHeight, pc.bFullTransform);
-	}
-}
-
 void PrimarySurface::GTAOPass()
 {
 	this->_deviceResources->BeginAnnotatedEvent(L"GTAOPass");
@@ -4504,13 +4526,11 @@ void PrimarySurface::GTAOPass()
 			resources->_giRTV.Get(), resources->_giSRV.Get(),
 			resources->_giDenoisedRTV.Get(), resources->_giDenoisedSRV.Get(),
 			g_iPBRGIBlurRadius,
+			// The temporal filter (its validation views, pbr_gi_debug 7 and 8, need it too)
+			g_bPBRGITemporal || g_iPBRGIDebug == 7 || g_iPBRGIDebug == 8,
 		};
 		RenderGTAO(resources, GI_SCALE, g_fPBRGIRadius, 1.0f, 16.0f, maxRadiusPx, g_iPBRGISlices, g_iPBRGISteps,
 			g_fGTAOAngleBias, nullptr, -1, &bounce);
-
-		// The temporal filter (step 0: only its validation views, pbr_gi_debug 7 and 8)
-		if (g_iPBRGIDebug == 7 || g_iPBRGIDebug == 8)
-			GITemporalPass();
 
 		// The emitters' indirect light (pbr_gi_emitters): the same, at a higher resolution, from
 		// their own light (EmitterLightPass()), with their own radius, samples and filter. Its
@@ -4528,6 +4548,7 @@ void PrimarySurface::GTAOPass()
 				resources->_emitterGIRTV.Get(), resources->_emitterGISRV.Get(),
 				resources->_emitterGIDenoisedRTV.Get(), resources->_emitterGIDenoisedSRV.Get(),
 				g_iPBRGIEmitterBlurRadius,
+				false, // No temporal filter yet (step 2 of c:\temp\gi-temporal-plan.md)
 			};
 			RenderGTAO(resources, g_iPBRGIEmitterScale, g_fPBRGIEmitterRadius, 1.0f, 8.0f, emitterMaxRadiusPx,
 				g_iPBRGIEmitterSlices, g_iPBRGIEmitterSteps, g_fGTAOAngleBias, nullptr, -1, &emitters);

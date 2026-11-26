@@ -109,7 +109,6 @@ public:
 
 	void GTAOPass();
 	void BounceLightPass();
-	void GITemporalPass();
 	void DeferredPass();
 
 	//void InitHeadingMatrix();

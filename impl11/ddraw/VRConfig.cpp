@@ -260,6 +260,9 @@ int g_iPBRGIEmitterScale = 2, g_iPBRGIEmitterSlices = 2, g_iPBRGIEmitterSteps = 
 bool g_bPBRGIEmitterMips = true;
 float g_fPBRGIEmitterMipOffset = 3.3f;
 bool g_bPBRGIMips = true;
+// The indirect light's temporal filter (pbr_gi_temporal, pbr_gi_temporal_weight)
+bool g_bPBRGITemporal = true;
+float g_fPBRGITemporalWeight = 0.9f;
 // The GI bounce light reads the filtered (soft) RT shadow mask, else the raw one (pbr_gi_filtered_shadows)
 bool g_bPBRGIFilteredShadows = true;
 // TEMPORARY (Ctrl+Alt+T): the RT shadow mask diagnostics: 0 off, 1 no BVH traversal, 2 the heat map
@@ -2401,6 +2404,8 @@ bool LoadSSAOParams() {
 	g_fPBRGIEmitterMipOffset = 3.3f;
 	g_bPBRGIMips = true;
 	g_fPBRGIMipOffset = 3.3f;
+	g_bPBRGITemporal = true;
+	g_fPBRGITemporalWeight = 0.9f;
 	g_bPBRGIFilteredShadows = true;
 	g_fPBRGIAlbedo = 1.0f;
 	g_fPBRGIMetallicity = 1.0f;
@@ -2717,6 +2722,12 @@ bool LoadSSAOParams() {
 			}
 			else if (_stricmp(param, "pbr_gi_mips") == 0) {
 				g_bPBRGIMips = (bool)fValue;
+			}
+			else if (_stricmp(param, "pbr_gi_temporal") == 0) {
+				g_bPBRGITemporal = (bool)fValue;
+			}
+			else if (_stricmp(param, "pbr_gi_temporal_weight") == 0) {
+				g_fPBRGITemporalWeight = max(0.0f, min(0.98f, fValue));
 			}
 			else if (_stricmp(param, "pbr_gi_filtered_shadows") == 0) {
 				g_bPBRGIFilteredShadows = (bool)fValue;

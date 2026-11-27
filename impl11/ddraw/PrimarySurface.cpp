@@ -3983,7 +3983,8 @@ static void GIProjView(const GIProjection& p, int eye, float out[16])
 }
 
 // This frame's candidate motions, built once for both chains. Logged once a second in
-// developer mode (enable_developer_mode).
+// developer mode (enable_developer_mode) while the frame profiler is on (EnableFrameProfiler in
+// ddraw.cfg, Ctrl+Alt+Y).
 static const GIMotionCandidates& GetGIMotionCandidates()
 {
 	static GIMotionCandidates s_candidates = {};
@@ -3995,7 +3996,7 @@ static const GIMotionCandidates& GetGIMotionCandidates()
 
 	static ULONGLONG s_lastLog = 0;
 	const ULONGLONG now = GetTickCount64();
-	if (g_bEnableDeveloperMode && now - s_lastLog >= 1000)
+	if (g_bEnableDeveloperMode && g_FrameProfiler.IsEnabled() && now - s_lastLog >= 1000)
 	{
 		s_lastLog = now;
 		const GIMotionCandidates& c = s_candidates;

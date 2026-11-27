@@ -249,7 +249,7 @@ bool g_bPBRGIEnabled = true;
 int g_iPBRGIDebug = 0;
 float g_fPBRGIThickness = 0.1f;
 float g_fPBRGIRadius = 250.0f, g_fPBRGIMaxRadius = 0.25f;
-float g_fPBRGIIntensity = 25.0f;
+float g_fPBRGIIntensity = 20.0f;
 float g_fPBRGIEmitterBoost = 80.0f;
 int g_iPBRGIBlurRadius = 8;
 bool g_bPBRGIEmitters = true;
@@ -271,7 +271,7 @@ bool g_bPBRGIFilteredShadows = true;
 // TEMPORARY (Ctrl+Alt+T): the RT shadow mask diagnostics: 0 off, 1 no BVH traversal, 2 the heat map
 int g_iRTDiagMode = 0;
 // How much the albedo and the metallicity apply to the indirect light (1: physically correct)
-float g_fPBRGIAlbedo = 1.0f, g_fPBRGIMetallicity = 1.0f;
+float g_fPBRGIAlbedo = 0.8f, g_fPBRGIMetallicity = 0.0f;
 float g_fPBRGIMipOffset = 3.3f;
 float g_fPBRGIEmitterRadius = 5.0f, g_fPBRGIEmitterMaxRadius = 0.15f;
 int g_iPBRGISlices = 3, g_iPBRGISteps = 6;
@@ -2395,7 +2395,7 @@ bool LoadSSAOParams() {
 	g_fPBRGIThickness = 0.1f;
 	g_fPBRGIRadius = 250.0f;
 	g_fPBRGIMaxRadius = 0.25f;
-	g_fPBRGIIntensity = 25.0f;
+	g_fPBRGIIntensity = 20.0f;
 	g_fPBRGIEmitterBoost = 80.0f;
 	g_iPBRGIBlurRadius = 8;
 	g_bPBRGIEmitters = true;
@@ -2412,8 +2412,8 @@ bool LoadSSAOParams() {
 	g_bPBRGIEmitterTemporal = true;
 	g_fPBRGIEmitterTemporalWeight = 0.9f;
 	g_bPBRGIFilteredShadows = true;
-	g_fPBRGIAlbedo = 1.0f;
-	g_fPBRGIMetallicity = 1.0f;
+	g_fPBRGIAlbedo = 0.8f;
+	g_fPBRGIMetallicity = 0.0f;
 	g_fPBRGIEmitterRadius = 5.0f;
 	g_fPBRGIEmitterMaxRadius = 0.15f;
 	g_iPBRGISlices = 3;

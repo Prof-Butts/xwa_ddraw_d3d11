@@ -298,7 +298,7 @@ public:
 	ComPtr<ID3D11Texture2D> _emitterGIDenoisedBuf;
 	// The indirect light's temporal filter: its history, ping-pong (GITemporalCommon.h), at half
 	// the size: rgb = light (debug colors in step 0), a = the depth it was computed at
-	ComPtr<ID3D11Texture2D> _giHistoryBuf[2];
+	ComPtr<ID3D11Texture2D> _giHistoryBuf[4]; // GI temporal filter: [0..1] the bounce light's ping-pong, [2..3] the emitters'
 	// The positions and normals of the indirect light's passes, with mips (GIGeomMipsCommon.h):
 	// the GI filters read them, and so does the emitters' gather (pbr_gi_emitter_mips). Half
 	// the size, rounded up so every level holds its used part. _giGeomMipsSRV sees all the
@@ -399,7 +399,7 @@ public:
 	ComPtr<ID3D11RenderTargetView> _emittersRTV;
 	ComPtr<ID3D11RenderTargetView> _emitterGIRTV;
 	ComPtr<ID3D11RenderTargetView> _emitterGIDenoisedRTV;
-	ComPtr<ID3D11RenderTargetView> _giHistoryRTV[2];
+	ComPtr<ID3D11RenderTargetView> _giHistoryRTV[4];
 	ComPtr<ID3D11RenderTargetView> _gtaoDenoisedRTV;
 	ComPtr<ID3D11RenderTargetView> _gtaoCoarseRTV;
 	// Shading System
@@ -451,7 +451,7 @@ public:
 	ComPtr<ID3D11ShaderResourceView> _emittersSRV;
 	ComPtr<ID3D11ShaderResourceView> _emitterGISRV;
 	ComPtr<ID3D11ShaderResourceView> _emitterGIDenoisedSRV;
-	ComPtr<ID3D11ShaderResourceView> _giHistorySRV[2];
+	ComPtr<ID3D11ShaderResourceView> _giHistorySRV[4];
 	ComPtr<ID3D11ShaderResourceView> _gtaoDenoisedSRV;
 	ComPtr<ID3D11ShaderResourceView> _gtaoCoarseSRV;
 	ComPtr<ID3D11ShaderResourceView> _ssaoBufSRV_R;   // SRV for ssaoBuf

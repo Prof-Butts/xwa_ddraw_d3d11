@@ -2054,7 +2054,7 @@ HRESULT DeviceResources::OnSizeChanged(HWND hWnd, DWORD dwWidth, DWORD dwHeight)
 		this->_emitterGIDenoisedBuf.Release();
 		this->_emitterGIDenoisedRTV.Release();
 		this->_emitterGIDenoisedSRV.Release();
-		for (int i = 0; i < 2; i++)
+		for (int i = 0; i < 4; i++)
 		{
 			this->_giHistoryBuf[i].Release();
 			this->_giHistoryRTV[i].Release();
@@ -3235,13 +3235,13 @@ HRESULT DeviceResources::OnSizeChanged(HWND hWnd, DWORD dwWidth, DWORD dwHeight)
 					}
 				}
 
-				// The indirect light's temporal filter: its history, ping-pong, at half the size
-				// (rounded up), like the emitters' buffers
+				// The indirect light's temporal filter: its histories (ping-pong; the bounce light's,
+				// then the emitters'), at half the size (rounded up), like the emitters' buffers
 				{
 					const UINT oldW = desc.Width, oldH = desc.Height;
 					desc.Width = (desc.Width + 1) / 2;
 					desc.Height = (desc.Height + 1) / 2;
-					for (int i = 0; i < 2 && SUCCEEDED(hr); i++)
+					for (int i = 0; i < 4 && SUCCEEDED(hr); i++)
 					{
 						step = "_giHistoryBuf";
 						hr = this->_d3dDevice->CreateTexture2D(&desc, nullptr, &this->_giHistoryBuf[i]);
@@ -3755,7 +3755,7 @@ HRESULT DeviceResources::OnSizeChanged(HWND hWnd, DWORD dwWidth, DWORD dwHeight)
 					goto out;
 				}
 
-				for (int i = 0; i < 2; i++)
+				for (int i = 0; i < 4; i++)
 				{
 					step = "_giHistorySRV";
 					hr = this->_d3dDevice->CreateShaderResourceView(this->_giHistoryBuf[i], &shaderResourceViewDesc, &this->_giHistorySRV[i]);
@@ -4193,7 +4193,7 @@ HRESULT DeviceResources::OnSizeChanged(HWND hWnd, DWORD dwWidth, DWORD dwHeight)
 			hr = this->_d3dDevice->CreateRenderTargetView(this->_giBuf, &GetRtvDesc(false, g_bUseSteamVR, HDR_FORMAT), &this->_giRTV);
 			if (FAILED(hr)) goto out;
 
-			for (int i = 0; i < 2; i++)
+			for (int i = 0; i < 4; i++)
 			{
 				step = "_giHistoryRTV";
 				hr = this->_d3dDevice->CreateRenderTargetView(this->_giHistoryBuf[i], &GetRtvDesc(false, g_bUseSteamVR, HDR_FORMAT), &this->_giHistoryRTV[i]);

@@ -3982,7 +3982,8 @@ static void GIProjView(const GIProjection& p, int eye, float out[16])
 	memcpy(out, M.get(), 16 * sizeof(float));
 }
 
-// This frame's candidate motions, built once for both chains. Logged once a second.
+// This frame's candidate motions, built once for both chains. Logged once a second in
+// developer mode (enable_developer_mode).
 static const GIMotionCandidates& GetGIMotionCandidates()
 {
 	static GIMotionCandidates s_candidates = {};
@@ -3994,7 +3995,7 @@ static const GIMotionCandidates& GetGIMotionCandidates()
 
 	static ULONGLONG s_lastLog = 0;
 	const ULONGLONG now = GetTickCount64();
-	if (now - s_lastLog >= 1000)
+	if (g_bEnableDeveloperMode && now - s_lastLog >= 1000)
 	{
 		s_lastLog = now;
 		const GIMotionCandidates& c = s_candidates;

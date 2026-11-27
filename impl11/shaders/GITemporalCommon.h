@@ -167,9 +167,17 @@ float4 main(PixelShaderInput input) : SV_TARGET
 #endif
 	const int2 h = int2(input.pos.xy);
 	const int2 fp = min(h * (int)giScale, int2(fullSize) - 1);
+	const float4 current = CUR_LOAD(h);
+	// The pixels the gather skipped (the background) or that have no light nearby (GI_EMPTY)
+	// stay as they are, and aren't history next frame (their light is 0). They're most of the
+	// emitters' pixels, so they return before anything else is read.
+	if (debugMode < 6.5 && current.a < 0.9)
+		return current;
 	const float4 Pw = POS_LOAD(fp);
 	const float3 P = Pw.xyz;
-	const float4 current = CUR_LOAD(h);
+	// Without accumulation, the light passes through (with its depth, for the next frame)
+	if (debugMode < 6.5 && accumulate < 0.5)
+		return float4(current.rgb, 1.0 + P.z);
 	// The background: the positions are cleared to (0, 0, 32000, 0) (Direct3DDevice.cpp), and
 	// surfaces write their coverage in w. No history there.
 	if (Pw.w <= 0.0 || !(P.z > 0.0 && P.z < 31999.0))
@@ -241,8 +249,6 @@ float4 main(PixelShaderInput input) : SV_TARGET
 
 	// The accumulation: this frame's light, blended with the history of the same surface. Where
 	// only part of the history's footprint matched, less of it is kept.
-	// The pixels the gather skipped or that have no light nearby stay as they are (and aren't
-	// history next frame: their light is 0)
 	if (current.a < 0.9)
 		return current;
 	if (accumulate < 0.5 || match == 0 || any(isnan(history)))

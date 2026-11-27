@@ -470,7 +470,43 @@ typedef struct GTAOCBufferStruct {
 	float geom_level;            // Denoise and GI filters: the level of _giGeomMipsBuf at their resolution; -1: none
 	float light_mips;            // Indirect light: 1 when the gathered light has mips (the emitters')
 	// 96 bytes
+	float noise_offset;          // Added to the gather's 4x4 noise pattern (0..15): changes every frame with the temporal filter
+	float unusedG[3];
+	// 112 bytes
 } GTAOCBuffer;
+
+// The indirect light's temporal filter (GITemporalCommon.h, register b13; GIMotion.h)
+typedef struct GITemporalCBufferStruct {
+	float attachedRow[3][4];   // The candidate motions: P_prev = (dot(row[i], float4(P, 1)))
+	float worldRow[3][4];
+	// 96 bytes
+	float attachedSphere[4];   // The attached object's center (metric camera space) and radius; radius <= 0: none
+	// 112 bytes
+	float worldValid;
+	float historyValid;
+	float giScale;
+	float debugMode;
+	// 128 bytes
+	float fullSize[2];
+	float histSize[2];
+	// 144 bytes
+	float depthTolerance;
+	float vrMode;
+	float temporalWeight;      // How much of the history is kept (pbr_gi_temporal_weight)
+	float accumulate;          // 1: blend with the history (pbr_gi_temporal); 0: pass the light through
+	// 160 bytes
+	float prevProj[4];         // Flat mode: projectionValue1, projectionDeltaX, projectionDeltaY
+	float prevViewportScale[4];
+	float curProj[4];
+	float curViewportScale[4];
+	// 224 bytes
+	float prevViewport[4];     // The scene's viewport: TopLeftX, TopLeftY, Width, Height (pixels)
+	float curViewport[4];
+	// 256 bytes
+	float prevProjView[2][16]; // VR: projEyeMatrix[eye] * view matrix (Matrix4 layout)
+	float curProjView[2][16];
+	// 512 bytes
+} GITemporalCBuffer;
 
 typedef struct RTConstantsBufferStruct {
 	uint32_t bRTEnable;

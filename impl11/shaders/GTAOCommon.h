@@ -483,8 +483,10 @@ float4 main(PixelShaderInput input) : SV_TARGET
 	// float has 10 mantissa bits, so its step is at most 1/1024 of its magnitude.
 	const float3 absP = abs(P);
 	const float heightBias = gtao_height_bias * max(absP.z, max(absP.x, absP.y)) / 1024.0;
-	// The pattern is in this pass's pixels, so the 4x4 denoise filter averages it out
-	const float noise = Bayer4x4(outPx);
+	// The pattern is in this pass's pixels, so the 4x4 denoise filter averages it out. With the
+	// GI temporal filter, gtao_noise_offset changes it every frame (each 4x4 block still has all
+	// 16 values), so the history accumulates other directions.
+	const float noise = fmod(Bayer4x4(outPx) + gtao_noise_offset, 16.0);
 	const float noiseSlice = (noise + 0.5) / 16.0;
 	// A different order of the same 16 values, so the slice and step offsets don't line up
 	const float noiseStep = frac((noise * 5.0 + 0.5) / 16.0);

@@ -170,6 +170,10 @@ extern int g_iPBRGIEmitterScale, g_iPBRGIEmitterSlices, g_iPBRGIEmitterSteps, g_
 extern bool g_bPBRGIEmitterMips;
 extern float g_fPBRGIEmitterMipOffset;
 extern bool g_bPBRGIMips;
+extern bool g_bPBRGITemporal;
+extern float g_fPBRGITemporalWeight;
+extern bool g_bPBRGIEmitterTemporal;
+extern float g_fPBRGIEmitterTemporalWeight;
 extern bool g_bPBRGIFilteredShadows;
 extern int g_iRTDiagMode;
 extern float g_fPBRGIAlbedo, g_fPBRGIMetallicity;

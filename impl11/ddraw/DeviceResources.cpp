@@ -113,6 +113,8 @@
 #include "../Debug/GIBounceLightVR.h"
 #include "../Debug/GTAOGI.h"
 #include "../Debug/GTAOGIVR.h"
+#include "../Debug/GITemporal.h"
+#include "../Debug/GITemporalVR.h"
 #include "../Debug/GTAOBitmask.h"
 #include "../Debug/GTAOBitmaskVR.h"
 #include "../Debug/GIDenoise.h"
@@ -225,6 +227,8 @@
 #include "../Release/GIBounceLightVR.h"
 #include "../Release/GTAOGI.h"
 #include "../Release/GTAOGIVR.h"
+#include "../Release/GITemporal.h"
+#include "../Release/GITemporalVR.h"
 #include "../Release/GTAOBitmask.h"
 #include "../Release/GTAOBitmaskVR.h"
 #include "../Release/GIDenoise.h"
@@ -2050,6 +2054,12 @@ HRESULT DeviceResources::OnSizeChanged(HWND hWnd, DWORD dwWidth, DWORD dwHeight)
 		this->_emitterGIDenoisedBuf.Release();
 		this->_emitterGIDenoisedRTV.Release();
 		this->_emitterGIDenoisedSRV.Release();
+		for (int i = 0; i < 4; i++)
+		{
+			this->_giHistoryBuf[i].Release();
+			this->_giHistoryRTV[i].Release();
+			this->_giHistorySRV[i].Release();
+		}
 		this->_giGeomMipsBuf.Release();
 		this->_giGeomMipsSRV.Release();
 		for (int i = 0; i < GI_GEOM_MIP_LEVELS; i++) {
@@ -3225,6 +3235,26 @@ HRESULT DeviceResources::OnSizeChanged(HWND hWnd, DWORD dwWidth, DWORD dwHeight)
 					}
 				}
 
+				// The indirect light's temporal filter: its histories (ping-pong; the bounce light's,
+				// then the emitters'), at half the size (rounded up), like the emitters' buffers
+				{
+					const UINT oldW = desc.Width, oldH = desc.Height;
+					desc.Width = (desc.Width + 1) / 2;
+					desc.Height = (desc.Height + 1) / 2;
+					for (int i = 0; i < 4 && SUCCEEDED(hr); i++)
+					{
+						step = "_giHistoryBuf";
+						hr = this->_d3dDevice->CreateTexture2D(&desc, nullptr, &this->_giHistoryBuf[i]);
+					}
+					desc.Width = oldW;
+					desc.Height = oldH;
+					if (FAILED(hr)) {
+						log_err("dwWidth, Height: %u, %u\n", dwWidth, dwHeight);
+						log_err_desc(step, hWnd, hr, desc);
+						goto out;
+					}
+				}
+
 				// The emitters' gather's positions and normals, with mips (GIGeomMipsCommon.h), the
 				// same size as _emittersBuf, and their views
 				{
@@ -3725,6 +3755,17 @@ HRESULT DeviceResources::OnSizeChanged(HWND hWnd, DWORD dwWidth, DWORD dwHeight)
 					goto out;
 				}
 
+				for (int i = 0; i < 4; i++)
+				{
+					step = "_giHistorySRV";
+					hr = this->_d3dDevice->CreateShaderResourceView(this->_giHistoryBuf[i], &shaderResourceViewDesc, &this->_giHistorySRV[i]);
+					if (FAILED(hr)) {
+						log_err("dwWidth, Height: %u, %u\n", dwWidth, dwHeight);
+						log_shaderres_view(step, hWnd, hr, shaderResourceViewDesc);
+						goto out;
+					}
+				}
+
 				step = "_giDenoisedSRV";
 				hr = this->_d3dDevice->CreateShaderResourceView(this->_giDenoisedBuf, &shaderResourceViewDesc, &this->_giDenoisedSRV);
 				if (FAILED(hr)) {
@@ -4151,6 +4192,13 @@ HRESULT DeviceResources::OnSizeChanged(HWND hWnd, DWORD dwWidth, DWORD dwHeight)
 			step = "_giRTV";
 			hr = this->_d3dDevice->CreateRenderTargetView(this->_giBuf, &GetRtvDesc(false, g_bUseSteamVR, HDR_FORMAT), &this->_giRTV);
 			if (FAILED(hr)) goto out;
+
+			for (int i = 0; i < 4; i++)
+			{
+				step = "_giHistoryRTV";
+				hr = this->_d3dDevice->CreateRenderTargetView(this->_giHistoryBuf[i], &GetRtvDesc(false, g_bUseSteamVR, HDR_FORMAT), &this->_giHistoryRTV[i]);
+				if (FAILED(hr)) goto out;
+			}
 
 			step = "_giDenoisedRTV";
 			hr = this->_d3dDevice->CreateRenderTargetView(this->_giDenoisedBuf, &GetRtvDesc(false, g_bUseSteamVR, HDR_FORMAT), &this->_giDenoisedRTV);
@@ -4761,6 +4809,9 @@ HRESULT DeviceResources::LoadMainResources()
 				FAILED(hr = this->_d3dDevice->CreatePixelShader(g_GTAOGIVR, sizeof(g_GTAOGIVR), nullptr, &_gtaoGIPS_VR)))
 				return hr;
 			if (this->_d3dFeatureLevel >= D3D_FEATURE_LEVEL_11_0 &&
+				FAILED(hr = this->_d3dDevice->CreatePixelShader(g_GITemporalVR, sizeof(g_GITemporalVR), nullptr, &_giTemporalPS_VR)))
+				return hr;
+			if (this->_d3dFeatureLevel >= D3D_FEATURE_LEVEL_11_0 &&
 				FAILED(hr = this->_d3dDevice->CreatePixelShader(g_GIGeomMipsVR, sizeof(g_GIGeomMipsVR), nullptr, &_giGeomMipsPS_VR)))
 				return hr;
 		}
@@ -4815,6 +4866,9 @@ HRESULT DeviceResources::LoadMainResources()
 			// Shader model 5.0: only with feature level 11. Without it, the indirect light stays off.
 			if (this->_d3dFeatureLevel >= D3D_FEATURE_LEVEL_11_0 &&
 				FAILED(hr = this->_d3dDevice->CreatePixelShader(g_GTAOGI, sizeof(g_GTAOGI), nullptr, &_gtaoGIPS)))
+				return hr;
+			if (this->_d3dFeatureLevel >= D3D_FEATURE_LEVEL_11_0 &&
+				FAILED(hr = this->_d3dDevice->CreatePixelShader(g_GITemporal, sizeof(g_GITemporal), nullptr, &_giTemporalPS)))
 				return hr;
 			if (this->_d3dFeatureLevel >= D3D_FEATURE_LEVEL_11_0 &&
 				FAILED(hr = this->_d3dDevice->CreatePixelShader(g_GIGeomMips, sizeof(g_GIGeomMips), nullptr, &_giGeomMipsPS)))
@@ -5299,6 +5353,9 @@ HRESULT DeviceResources::LoadResources()
 				FAILED(hr = this->_d3dDevice->CreatePixelShader(g_GTAOGIVR, sizeof(g_GTAOGIVR), nullptr, &_gtaoGIPS_VR)))
 				return hr;
 			if (this->_d3dFeatureLevel >= D3D_FEATURE_LEVEL_11_0 &&
+				FAILED(hr = this->_d3dDevice->CreatePixelShader(g_GITemporalVR, sizeof(g_GITemporalVR), nullptr, &_giTemporalPS_VR)))
+				return hr;
+			if (this->_d3dFeatureLevel >= D3D_FEATURE_LEVEL_11_0 &&
 				FAILED(hr = this->_d3dDevice->CreatePixelShader(g_GIGeomMipsVR, sizeof(g_GIGeomMipsVR), nullptr, &_giGeomMipsPS_VR)))
 				return hr;
 		}
@@ -5353,6 +5410,9 @@ HRESULT DeviceResources::LoadResources()
 			// Shader model 5.0: only with feature level 11. Without it, the indirect light stays off.
 			if (this->_d3dFeatureLevel >= D3D_FEATURE_LEVEL_11_0 &&
 				FAILED(hr = this->_d3dDevice->CreatePixelShader(g_GTAOGI, sizeof(g_GTAOGI), nullptr, &_gtaoGIPS)))
+				return hr;
+			if (this->_d3dFeatureLevel >= D3D_FEATURE_LEVEL_11_0 &&
+				FAILED(hr = this->_d3dDevice->CreatePixelShader(g_GITemporal, sizeof(g_GITemporal), nullptr, &_giTemporalPS)))
 				return hr;
 			if (this->_d3dFeatureLevel >= D3D_FEATURE_LEVEL_11_0 &&
 				FAILED(hr = this->_d3dDevice->CreatePixelShader(g_GIGeomMips, sizeof(g_GIGeomMips), nullptr, &_giGeomMipsPS)))
@@ -5521,9 +5581,15 @@ HRESULT DeviceResources::LoadResources()
 		return hr;
 
 	// GTAO constant buffer (ssao_type = PBR)
-	constantBufferDesc.ByteWidth = 96;
-	static_assert(sizeof(GTAOCBuffer) == 96, "sizeof(GTAOCBuffer) must be 96");
+	constantBufferDesc.ByteWidth = 112;
+	static_assert(sizeof(GTAOCBuffer) == 112, "sizeof(GTAOCBuffer) must be 112");
 	if (FAILED(hr = this->_d3dDevice->CreateBuffer(&constantBufferDesc, nullptr, &this->_gtaoConstantBuffer)))
+		return hr;
+
+	// The indirect light's temporal filter
+	constantBufferDesc.ByteWidth = 512;
+	static_assert(sizeof(GITemporalCBuffer) == 512, "sizeof(GITemporalCBuffer) must be 512");
+	if (FAILED(hr = this->_d3dDevice->CreateBuffer(&constantBufferDesc, nullptr, &this->_giTemporalConstantBuffer)))
 		return hr;
 
 	// Create the constant buffer for the main pixel shader
@@ -5813,6 +5879,12 @@ void DeviceResources::InitPSConstantBufferGTAO(const GTAOCBuffer* psCBuffer)
 {
 	this->_d3dDeviceContext->UpdateSubresource(this->_gtaoConstantBuffer.Get(), 0, nullptr, psCBuffer, 0, 0);
 	this->_d3dDeviceContext->PSSetConstantBuffers(12, 1, this->_gtaoConstantBuffer.GetAddressOf());
+}
+
+void DeviceResources::InitPSConstantBufferGITemporal(const GITemporalCBuffer* psCBuffer)
+{
+	this->_d3dDeviceContext->UpdateSubresource(this->_giTemporalConstantBuffer.Get(), 0, nullptr, psCBuffer, 0, 0);
+	this->_d3dDeviceContext->PSSetConstantBuffers(13, 1, this->_giTemporalConstantBuffer.GetAddressOf());
 }
 
 void DeviceResources::InitVSConstantBuffer2D(ID3D11Buffer** buffer, const float parallax,

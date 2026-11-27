@@ -106,6 +106,8 @@
     <FxCompile Include="GTAOBitmask.hlsl" />
     <FxCompile Include="GTAOBitmaskVR.hlsl" />
     <FxCompile Include="GTAOGI.hlsl" />
+    <FxCompile Include="GITemporal.hlsl" />
+    <FxCompile Include="GITemporalVR.hlsl" />
     <FxCompile Include="GTAOGIVR.hlsl" />
     <FxCompile Include="GIGeomMips.hlsl" />
     <FxCompile Include="GIGeomMipsVR.hlsl" />

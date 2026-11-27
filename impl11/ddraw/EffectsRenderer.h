@@ -187,6 +187,7 @@ public:
 	virtual void CreateShaders();
 	virtual void SceneBegin(DeviceResources* deviceResources);
 	virtual void SceneEnd();
+	void CaptureGIMotion(const SceneCompData* scene);
 	virtual void MainSceneHook(const SceneCompData* scene);
 	virtual void HangarShadowSceneHook(const SceneCompData* scene);
 	virtual void RenderScene(bool bBindTranspLyr1);

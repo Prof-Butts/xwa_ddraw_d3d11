@@ -2,6 +2,7 @@
 #include "EffectsRenderer.h"
 #include "XwaDrawBracketHook.h"
 #include "XwaTextureData.h"
+#include "GIMotion.h"
 #include <algorithm>
 
 void ProcessKeyboard();
@@ -2364,6 +2365,15 @@ void EffectsRenderer::SceneBegin(DeviceResources* deviceResources)
 			}
 		}
 		lastSceneTime = now;
+	}
+
+	// The GI temporal filter's candidate motions (GIMotion.h): last frame's captures become the
+	// previous ones, once per frame
+	if (g_GIMotionCur.presentCounter != g_iPresentCounter)
+	{
+		g_GIMotionPrev = g_GIMotionCur;
+		g_GIMotionCur.Clear();
+		g_GIMotionCur.presentCounter = g_iPresentCounter;
 	}
 
 	ProcessKeyboard();
@@ -5956,6 +5966,77 @@ bool EffectsRenderer::RTCheckExcludeMesh(const SceneCompData* scene)
 	return false;
 }
 
+// Captures this draw's object -> camera transform for the GI temporal filter's candidate
+// motions (GIMotion.h): the attached object's (the cockpit, the gunner turret, or the player's
+// craft in the external view) with the bounds of all its meshes, and the first one of every
+// other object with its raw XWA pose. Also the frame's projection, once.
+void EffectsRenderer::CaptureGIMotion(const SceneCompData* scene)
+{
+	GIMotionFrame& f = g_GIMotionCur;
+	if (!f.proj.valid)
+	{
+		GIProjection& p = f.proj;
+		p.valid = true;
+		p.projectionValue1 = _constants.projectionValue1;
+		p.projectionDeltaX = _constants.projectionDeltaX;
+		p.projectionDeltaY = _constants.projectionDeltaY;
+		for (int i = 0; i < 4; i++)
+			p.viewportScale[i] = _constants.viewportScale[i];
+		p.viewport[0] = _viewport.TopLeftX;
+		p.viewport[1] = _viewport.TopLeftY;
+		p.viewport[2] = _viewport.Width;
+		p.viewport[3] = _viewport.Height;
+		p.projEye[0] = g_VSMatrixCB.projEye[0];
+		p.projEye[1] = g_VSMatrixCB.projEye[1];
+		p.viewMat = g_VSMatrixCB.viewMat;
+		p.fullViewMat = g_VSMatrixCB.fullViewMat;
+		p.bFullTransform = g_VSCBuffer.bFullTransform;
+	}
+
+	const bool bAttachedCockpit = _bIsCockpit || _bIsGunner;
+	const bool bAttached = bAttachedCockpit || _bIsExterior;
+	const GIMat4 T = GIObjectToCamera(scene->WorldViewTransform, g_OPTMeshTransformCB.MeshTransform);
+	if (bAttached)
+	{
+		// The cockpit wins over the exterior (both can be drawn in the cockpit view)
+		if (!f.attachedValid || (bAttachedCockpit && !f.attachedIsCockpit))
+		{
+			f.attachedValid = true;
+			f.attachedIsCockpit = bAttachedCockpit;
+			f.attachedT = T;
+			f.boundsValid = false;
+		}
+		// The bounds of all the attached object's meshes, in its object space (the meshes' AABBs
+		// are computed when their buffers are created, UpdateMeshBuffers())
+		auto it = _AABBs.find((int)scene->MeshVertices);
+		if (bAttachedCockpit == f.attachedIsCockpit && it != _AABBs.end())
+		{
+			const float bmin[3] = { it->second.min.x, it->second.min.y, it->second.min.z };
+			const float bmax[3] = { it->second.max.x, it->second.max.y, it->second.max.z };
+			for (int k = 0; k < 3; k++)
+			{
+				if (!f.boundsValid || bmin[k] < f.bmin[k]) f.bmin[k] = bmin[k];
+				if (!f.boundsValid || bmax[k] > f.bmax[k]) f.bmax[k] = bmax[k];
+			}
+			f.boundsValid = true;
+		}
+		return;
+	}
+
+	// Lasers and blast marks aren't objects that keep a pose
+	if (_bIsLaser || _bIsBlastMark || scene->pObject == nullptr)
+		return;
+	if (f.objects.find(scene->pObject) != f.objects.end())
+		return;
+	GIObjectCapture c;
+	c.mesh = scene->MeshVertices;
+	c.T = T;
+	c.pose = GIGetObjectPose(scene->pObject);
+	c.objectId = scene->pObject->ObjectId;
+	c.species = scene->pObject->ObjectSpecies;
+	f.objects.emplace(scene->pObject, c);
+}
+
 void EffectsRenderer::MainSceneHook(const SceneCompData* scene)
 {
 	auto &context = _deviceResources->_d3dDeviceContext;
@@ -6355,6 +6436,9 @@ void EffectsRenderer::MainSceneHook(const SceneCompData* scene)
 		_bExteriorConstantsCaptured = true;
 		_ExteriorConstants = _constants;
 	}
+
+	// The GI temporal filter's candidate motions (GIMotion.h)
+	CaptureGIMotion(scene);
 
 	// Procedural Lava
 	if (g_bProceduralLava && _bLastTextureSelectedNotNULL && _bHasMaterial && _lastTextureSelected->material.IsLava)
